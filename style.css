@@ -292,3 +292,10 @@ h2.sec .linkbtn { text-transform: none; letter-spacing: 0; }
 /* Raster: abgemeldet */
 .gblock { display: inline-block; width: 30px; height: 26px; line-height: 26px; border-radius: 6px; color: var(--st-abgesagt); font-weight: 700; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--st-abgesagt) 14%, transparent) 0 4px, transparent 4px 8px); }
 .lg.blocked { background: repeating-linear-gradient(45deg, var(--st-abgesagt) 0 2px, transparent 2px 4px); border: 1px solid var(--st-abgesagt); }
+
+/* Live-Anzeige */
+.live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.live.on { color: var(--st-zugesagt); }
+.live.on i { background: var(--st-zugesagt); animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--st-zugesagt) 60%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }

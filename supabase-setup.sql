@@ -94,3 +94,14 @@ drop policy if exists unav_read on unavailability;
 create policy unav_read on unavailability for select to authenticated using (is_admin() or tech_id = my_tech_id());
 drop policy if exists unav_write on unavailability;
 create policy unav_write on unavailability for all to authenticated using (is_admin() or tech_id = my_tech_id()) with check (is_admin() or tech_id = my_tech_id());
+
+-- Live-Aktualisierung: Änderungen an diese Tabellen sofort an geöffnete Seiten melden
+do $$
+declare t text;
+begin
+  foreach t in array array['assignments','unavailability','technicians','plan'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;

@@ -41,6 +41,7 @@ const DemoStore = {
   async deleteTech(id) { const d = this.d(); d.techs = d.techs.filter((t) => t.id !== id); Object.values(d.asg).forEach((a) => { if (a.tech_id === id) delete d.asg[a.slot_key]; }); this.w(d); },
   async saveAssignments(list) { const d = this.d(); list.forEach((a) => (d.asg[a.slot_key] = a)); this.w(d); },
   async deleteAssignments(keys) { const d = this.d(); keys.forEach((k) => delete d.asg[k]); this.w(d); },
+  async savePush() {}, async deletePush() {},
   async respond(email, key, status, note) {
     const d = this.d(); const t = d.techs.find((x) => (x.email || '').toLowerCase() === email); const a = d.asg[key];
     if (!t || !a || a.tech_id !== t.id) throw new Error('Kein Einsatz gefunden.');
@@ -66,7 +67,8 @@ function makeSupabaseStore() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
       const u = await sb.from('unavailability').select('tech_id, day, note'); // fehlt die Tabelle noch, einfach leer
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data };
+      const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()) };
     },
     async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
@@ -77,7 +79,9 @@ function makeSupabaseStore() {
     async deleteTech(id) { chk(await sb.from('technicians').delete().eq('id', id)); },
     async saveAssignments(list) { if (list.length) chk(await sb.from('assignments').upsert(list)); },
     async deleteAssignments(keys) { if (keys.length) chk(await sb.from('assignments').delete().in('slot_key', keys)); },
-    async respond(_email, key, status, note) { chk(await sb.rpc('respond', { p_slot: key, p_status: status, p_note: note || '' })); }
+    async respond(_email, key, status, note) { chk(await sb.rpc('respond', { p_slot: key, p_status: status, p_note: note || '' })); },
+    async savePush(row) { chk(await sb.from('push_subscriptions').upsert(row)); },
+    async deletePush(endpoint) { chk(await sb.from('push_subscriptions').delete().eq('endpoint', endpoint)); }
   };
 }
 const store = DEMO ? DemoStore : makeSupabaseStore();
@@ -85,7 +89,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); }
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 const allDays = () => (S.plan ? S.plan.days : []);
 const allSlots = () => allDays().flatMap((d) => d.slots.map((s) => Object.assign({ day: d }, s)));
@@ -430,24 +434,39 @@ function renderReq() {
     const sl = slotsOfTech(t.id, today);
     return { t, neu: sl.filter((s) => S.asg[s.key].status === 'geplant'), wait: sl.filter((s) => S.asg[s.key].status === 'angefragt'), no: sl.filter((s) => S.asg[s.key].status === 'abgesagt') };
   }).filter((r) => r.neu.length || r.wait.length || r.no.length);
-  m.innerHTML = `<div class="bar"><div class="note">Pro Techniker wird eine fertige E-Mail in deinem Mailprogramm geöffnet. Danach stehen die Einsätze auf „angefragt“, und die Antworten erscheinen hier und in der Planung.</div></div>
+  const hasPush = (t) => t.email && S.pushEmails && S.pushEmails.has(t.email.toLowerCase());
+  m.innerHTML = `<div id="pushBox"></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
-    <h3>${esc(t.name)} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
+    <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${neu.length ? `<div><b>Neu (${neu.length})</b><ul>${neu.map((s) => `<li>${esc(slotLine(s))}</li>`).join('')}</ul></div>` : ''}
     ${wait.length ? `<div class="muted"><b>Wartet auf Antwort (${wait.length})</b><ul>${wait.map((s) => `<li>${esc(slotLine(s))}</li>`).join('')}</ul></div>` : ''}
     ${no.length ? `<div style="color:var(--st-abgesagt)"><b>Abgesagt – Ersatz einteilen (${no.length})</b><ul>${no.map((s) => `<li>${esc(slotLine(s))}${S.asg[s.key].note ? ' – „' + esc(S.asg[s.key].note) + '“' : ''}</li>`).join('')}</ul></div>` : ''}
     <div class="bar" style="margin:0">
-      ${neu.length ? `<button class="btn primary" data-send="${t.id}" ${t.email ? '' : 'disabled'}>Anfrage per E-Mail (${neu.length})</button>` : ''}
+      ${neu.length && hasPush(t) ? `<button class="btn primary" data-push="${t.id}">📲 Push senden (${neu.length})</button>` : ''}
+      ${neu.length ? `<button class="btn ${hasPush(t) ? '' : 'primary'}" data-send="${t.id}" ${t.email ? '' : 'disabled'}>✉️ ${hasPush(t) ? 'E-Mail' : 'Anfrage per E-Mail'} (${neu.length})</button>` : ''}
       ${wait.length ? `<button class="btn" data-remind="${t.id}" ${t.email ? '' : 'disabled'}>Erinnern</button>` : ''}
       ${no.length ? `<button class="btn" data-replace="${t.id}">Ersatz automatisch suchen</button>` : ''}
     </div></div>`).join('') || '<div class="req muted">Nichts offen. Neue Einsätze erscheinen hier, sobald sie in der Planung eingeteilt sind.</div>'}</div>`;
-  m.querySelectorAll('[data-send]').forEach((b) => (b.onclick = async () => {
-    const r = rows.find((x) => x.t.id === b.dataset.send);
-    location.href = mailFor(r.t, r.neu, false);
+  const markAsked = async (r, viaMail) => {
+    if (viaMail) location.href = mailFor(r.t, r.neu, false);
     const ch = r.neu.map((s) => Object.assign({}, S.asg[s.key], { status: 'angefragt', requested_at: nowISO(), updated_at: nowISO() }));
-    try { await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a)); setTimeout(renderMaster, 400); } catch (e) { toast(e.message); }
+    try {
+      await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a));
+      const n = r.neu.length;
+      notify('techs', [r.t.id], 'Neue Einsatzanfrage KOM27', `${n === 1 ? '1 neuer Termin' : n + ' neue Termine'}: ${r.neu.slice(0, 3).map((s) => fmtDate(s.date)).join(', ')}${n > 3 ? ' …' : ''} – bitte zu- oder absagen.`, 'req');
+      if (!viaMail) toast(`Push an ${firstName(r.t)} gesendet`);
+      setTimeout(renderMaster, 400);
+    } catch (e) { toast(e.message); }
+  };
+  m.querySelectorAll('[data-send]').forEach((b) => (b.onclick = () => markAsked(rows.find((x) => x.t.id === b.dataset.send), true)));
+  m.querySelectorAll('[data-push]').forEach((b) => (b.onclick = () => markAsked(rows.find((x) => x.t.id === b.dataset.push), false)));
+  m.querySelectorAll('[data-remind]').forEach((b) => (b.onclick = () => {
+    const r = rows.find((x) => x.t.id === b.dataset.remind);
+    notify('techs', [r.t.id], 'Erinnerung: KOM27 Einsatzanfrage', `Bitte gib noch Bescheid zu ${r.wait.length === 1 ? '1 Termin' : r.wait.length + ' Terminen'}: ${r.wait.slice(0, 3).map((s) => fmtDate(s.date)).join(', ')}`, 'req');
+    if (hasPush(r.t)) toast(`Erinnerung per Push an ${firstName(r.t)} gesendet`);
+    location.href = mailFor(r.t, r.wait, true);
   }));
-  m.querySelectorAll('[data-remind]').forEach((b) => (b.onclick = () => { const r = rows.find((x) => x.t.id === b.dataset.remind); location.href = mailFor(r.t, r.wait, true); }));
+  fillPushBox(true);
   m.querySelectorAll('[data-replace]').forEach((b) => (b.onclick = async () => {
     const ch = autoAssign(); if (!ch.length) return toast('Kein freier Ersatz gefunden.');
     try { await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a)); toast(`${ch.length} Einsätze neu eingeteilt`); renderMaster(); } catch (e) { toast(e.message); }
@@ -572,6 +591,7 @@ function wireTechCal(t) {
     const btn = $('#rAdd'); btn.disabled = true;
     try {
       await store.setUnavMany(t.id, days, note);
+      notify('admins', [], `${firstName(t)} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''}`, 'unav-' + t.id);
       const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))).concat(days.map((day) => ({ tech_id: t.id, day, note })));
       S.rFrom = S.rTo = S.rNote = ''; S.calMonth = from.slice(0, 7);
       toast(`${days.length} Tag${days.length > 1 ? 'e' : ''} eingetragen (${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''})`);
@@ -589,7 +609,7 @@ function wireTechCal(t) {
     b.disabled = true;
     try {
       if (had) { await store.clearUnav(t.id, day); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && u.day === day)); }
-      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note); S.unav.push({ tech_id: t.id, day, note }); }
+      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note); S.unav.push({ tech_id: t.id, day, note }); notify('admins', [], `${firstName(t)} kann nicht`, fmtDate(day, true) + (note ? ' (' + note + ')' : ''), 'unav-' + t.id); }
       redraw();
     } catch (e) { b.disabled = false; toast(e.message); }
   }));
@@ -638,6 +658,7 @@ function renderTech() {
     <section class="hello">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
       <p>Medientechnik im KOM27, Mauerstraße</p>
+      <div id="pushBox"></div>
       <div class="sumrow">
         <div class="sumbox ${nOpen ? 'warn' : ''}"><b>${nOpen}</b><span>${nOpen === 1 ? 'Anfrage wartet' : 'Anfragen warten'} auf dich</span></div>
         <div class="sumbox ok"><b>${yes.length}</b><span>${yes.length === 1 ? 'zugesagter Einsatz' : 'zugesagte Einsätze'}</span></div>
@@ -654,6 +675,8 @@ function renderTech() {
   const answer = async (keys, status, note) => {
     try {
       for (const k of keys) await store.respond(S.user.email, k, status, note || '');
+      const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date));
+      notify('admins', [], `${firstName(t)} hat ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'}`, dates.join(', ') + (note ? ' – „' + note + '“' : ''), 'answer-' + t.id);
       await reload(); toast(status === 'zugesagt' ? 'Danke! Zusage ist gespeichert ✓' : 'Absage ist gespeichert'); renderTech();
     } catch (e) { toast(e.message); }
   };
@@ -674,7 +697,73 @@ function renderTech() {
   }));
   if ($('#ics')) $('#ics').onclick = () => icsFor(yes, t);
   wireTechCal(t);
+  fillPushBox(false);
 }
+
+/* ---------------- Push-Mitteilungen ---------------- */
+const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_STANDALONE = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let swReg = null;
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then((r) => (swReg = r)).catch(() => {});
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'kom27-refresh') scheduleLive(0); });
+}
+const b64ToU8 = (b) => { const p = '='.repeat((4 - (b.length % 4)) % 4); const s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
+let _vapid = null;
+async function vapidKey() {
+  if (_vapid) return _vapid;
+  const { data, error } = await store.sb.functions.invoke('notify', { body: { action: 'key' } });
+  if (error || !data || !data.publicKey) throw new Error('Mitteilungsdienst nicht erreichbar.');
+  return (_vapid = data.publicKey);
+}
+async function pushState() {
+  if (DEMO) return 'unsupported';
+  if (IS_IOS && !IS_STANDALONE) return 'ios-install';
+  if (!PUSH_OK) return 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  const reg = swReg || (await navigator.serviceWorker.getRegistration());
+  const sub = reg && (await reg.pushManager.getSubscription());
+  return sub ? 'on' : 'off';
+}
+async function enablePush() {
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('Mitteilungen wurden nicht erlaubt.');
+  const reg = swReg || (await navigator.serviceWorker.register('sw.js'));
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(await vapidKey()) });
+  const j = sub.toJSON();
+  await store.savePush({ endpoint: j.endpoint, email: S.user.email, p256dh: j.keys.p256dh, auth: j.keys.auth, user_agent: navigator.userAgent.slice(0, 200) });
+}
+async function disablePush() {
+  const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && (await reg.pushManager.getSubscription());
+  if (sub) { try { await store.deletePush(sub.endpoint); } catch (e) {} await sub.unsubscribe(); }
+}
+async function notify(target, tech_ids, title, body, tag) {
+  if (DEMO) return;
+  try { await store.sb.functions.invoke('notify', { body: { target, tech_ids, title, body, tag } }); } catch (e) { console.warn('Push fehlgeschlagen', e); }
+}
+async function fillPushBox(forMaster) {
+  const box = $('#pushBox'); if (!box) return;
+  const st = await pushState();
+  const who = forMaster ? 'wenn ein Techniker zu- oder absagt oder sich abmeldet' : 'sobald eine neue Einsatzanfrage für dich da ist';
+  const html = {
+    unsupported: '',
+    on: `<div class="pushline">🔔 Mitteilungen auf diesem Gerät sind aktiv. <button class="linkbtn" id="pushOff">ausschalten</button> <button class="linkbtn" id="pushTest">Test senden</button></div>`,
+    off: `<div class="pushcard"><b>🔔 Mitteilungen aufs Handy</b><p>Lass dich benachrichtigen, ${who}.</p><button class="big yes" id="pushOn">Mitteilungen aktivieren</button></div>`,
+    denied: `<div class="pushcard"><b>🔕 Mitteilungen sind blockiert</b><p>Erlaube Mitteilungen für diese Seite in den Einstellungen deines Browsers bzw. iPhones (Einstellungen → Mitteilungen → KOM27) und lade die Seite dann neu.</p></div>`,
+    'ios-install': `<div class="pushcard"><b>🔔 Mitteilungen aufs iPhone</b><p>Das iPhone erlaubt Mitteilungen nur für Apps auf dem Home-Bildschirm. Einmalig so einrichten:</p><ol><li>Unten in Safari auf <b>Teilen</b> tippen (Quadrat mit Pfeil ↑)</li><li><b>„Zum Home-Bildschirm“</b> wählen → Hinzufügen</li><li>Die neue App <b>„KOM27“</b> vom Home-Bildschirm öffnen, anmelden und hier auf „Mitteilungen aktivieren“ tippen</li></ol></div>`
+  }[st];
+  box.innerHTML = html;
+  if ($('#pushOn')) $('#pushOn').onclick = async () => { try { $('#pushOn').disabled = true; await enablePush(); toast('Mitteilungen aktiviert 🔔'); fillPushBox(forMaster); } catch (e) { toast(e.message); fillPushBox(forMaster); } };
+  if ($('#pushOff')) $('#pushOff').onclick = async () => { await disablePush(); toast('Mitteilungen ausgeschaltet'); fillPushBox(forMaster); };
+  if ($('#pushTest')) $('#pushTest').onclick = async () => {
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification('KOM27 Einsatzplanung', { body: 'So sehen deine Mitteilungen aus ✓', icon: 'icons/icon-192.png' });
+  };
+}
+const firstName = (t) => (t ? t.name.split(' ')[0] : 'Ein Techniker');
 
 /* ---------------- Start ---------------- */
 async function boot() {

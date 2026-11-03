@@ -514,3 +514,16 @@ nav.tabs .tic { font-style: normal; display: none; }
 .syncline.err{background:#fff4f2;border-color:#f3b3a8;color:#8a1f0f}
 .syncline .spacer{flex:1}
 @media (prefers-color-scheme:dark){.syncline.new{background:#0f2a47;color:#cfe3ff;border-color:#2f5d93}.syncline.err{background:#3a1712;color:#ffd1c8;border-color:#7a3226}}
+
+/* v7 Tage/Plätze entfernen */
+.va-id .rm{margin-left:6px;border:0;background:none;cursor:pointer;font-size:13px;opacity:.35;padding:2px 4px;border-radius:6px}
+.va-id .rm:hover,.va-id .rm:focus-visible{opacity:1;background:var(--line)}
+.slot{position:relative}
+.slot .rm-slot{position:absolute;top:2px;right:2px;border:0;background:none;cursor:pointer;font-size:12px;line-height:1;color:var(--muted);opacity:.4;padding:3px 5px;border-radius:6px}
+.slot .rm-slot:hover,.slot .rm-slot:focus-visible{opacity:1;background:var(--line);color:#b42318}
+.va-id .also{font-size:12px;color:var(--muted);font-weight:500}
+details.removed{margin:-6px 0 14px;padding:8px 12px;border:1px dashed var(--line);border-radius:10px;font-size:13px;background:var(--panel)}
+details.removed summary{cursor:pointer;color:var(--muted)}
+details.removed ul{list-style:none;margin:8px 0 0;padding:0}
+details.removed li{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:5px 0;border-top:1px solid var(--line)}
+@media (hover:none){.va-id .rm,.slot .rm-slot{opacity:.6}}

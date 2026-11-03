@@ -34,9 +34,19 @@ const DemoStore = {
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
     const coll = Object.values(d.asg || {}).filter((a) => me && a.tech_id && a.tech_id !== me.id && ['angefragt', 'zugesagt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '', status: a.status }));
-    return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [], coll };
+    return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [], coll, offers: d.offers || [],
+      interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
-  async setUnav(tech_id, day, note) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '' }); this.w(d); },
+  async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
+  async deleteOffers(keys) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !keys.includes(o.slot_key)); d.interest = (d.interest || []).filter((i) => !keys.includes(i.slot_key)); this.w(d); },
+  async addInterest(key, tech_id) { const d = this.d(); d.interest = (d.interest || []).filter((i) => !(i.slot_key === key && i.tech_id === tech_id)); d.interest.push({ slot_key: key, tech_id, created_at: nowISO() }); this.w(d); },
+  async removeInterest(key, tech_id) { const d = this.d(); d.interest = (d.interest || []).filter((i) => !(i.slot_key === key && i.tech_id === tech_id)); this.w(d); },
+  async logTime(email, key, st, en, brk, note) {
+    const d = this.d(); const t = d.techs.find((x) => (x.email || '').toLowerCase() === email); const a = d.asg[key];
+    if (!t || !a || a.tech_id !== t.id || a.status !== 'zugesagt') throw new Error('Kein zugesagter Einsatz gefunden.');
+    Object.assign(a, { actual_start: st, actual_end: en, break_min: brk, time_note: note || '', time_at: nowISO() }); this.w(d);
+  },
+  async setUnav(tech_id, day, note) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '', created_at: nowISO() }); this.w(d); },
   async clearUnav(tech_id, day) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); this.w(d); },
   async setUnavMany(tech_id, days, note) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); days.forEach((day) => d.unav.push({ tech_id, day, note: note || '' })); this.w(d); },
   async clearUnavMany(tech_id, days) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); this.w(d); },
@@ -70,10 +80,11 @@ function makeSupabaseStore() {
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
-      const u = await sb.from('unavailability').select('tech_id, day, note'); // fehlt die Tabelle noch, einfach leer
+      const u = await sb.from('unavailability').select('tech_id, day, note, created_at'); // fehlt die Tabelle noch, einfach leer
+      const [of, oi] = await Promise.all([sb.from('offers').select('*'), sb.from('offer_interest').select('*')]);
       const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
       const co = await sb.rpc('my_colleagues'); // wer am selben Tag mit im Einsatz ist (fehlt die Funktion: leer)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [] };
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data };
     },
     async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
@@ -85,6 +96,11 @@ function makeSupabaseStore() {
     async saveAssignments(list) { if (list.length) chk(await sb.from('assignments').upsert(list)); },
     async deleteAssignments(keys) { if (keys.length) chk(await sb.from('assignments').delete().in('slot_key', keys)); },
     async respond(_email, key, status, note) { chk(await sb.rpc('respond', { p_slot: key, p_status: status, p_note: note || '' })); },
+    async saveOffers(rows) { if (rows.length) chk(await sb.from('offers').upsert(rows)); },
+    async deleteOffers(keys) { if (keys.length) chk(await sb.from('offers').delete().in('slot_key', keys)); },
+    async addInterest(key, tech_id) { chk(await sb.from('offer_interest').upsert({ slot_key: key, tech_id })); },
+    async removeInterest(key, tech_id) { chk(await sb.from('offer_interest').delete().eq('slot_key', key).eq('tech_id', tech_id)); },
+    async logTime(_email, key, st, en, brk, note) { chk(await sb.rpc('log_time', { p_slot: key, p_start: st, p_end: en, p_break: brk, p_note: note || '' })); },
     async savePush(row) { chk(await sb.from('push_subscriptions').upsert(row)); },
     async deletePush(endpoint) { chk(await sb.from('push_subscriptions').delete().eq('endpoint', endpoint)); }
   };
@@ -94,7 +110,119 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; }
+const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
+const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
+
+/* ---------------- Flüssige Darstellung ---------------- */
+// Signatur der fachlichen Daten (ohne Zeitstempel) – ändert sich nichts, wird nicht neu gezeichnet
+function dataSig() {
+  const a = Object.values(S.asg || {}).map((x) => [x.slot_key, x.tech_id, x.status, x.note || '', (x.declined || []).join(','), x.actual_start || '', x.actual_end || '', x.break_min ?? '']).sort().join('|');
+  const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '')).sort().join('|');
+  const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases].join(',')).join('|');
+  const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
+  return [a, u, t, o, S.plan ? S.plan.importedAt : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
+}
+// neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
+function paint(anchorSel) {
+  const anc = anchorSel ? document.querySelector(anchorSel) : null;
+  const top = anc ? anc.getBoundingClientRect().top : null; const y = window.scrollY;
+  S.admin ? renderMaster() : renderTech();
+  const n = anchorSel ? document.querySelector(anchorSel) : null;
+  if (n && top !== null) window.scrollBy(0, n.getBoundingClientRect().top - top); else window.scrollTo(0, y);
+  S.sig = dataSig();
+}
+const calm = (ms) => (S.calmUntil = Date.now() + (ms || 2500)); // kurz nach eigener Änderung kein Live-Neuzeichnen
+// Änderung sofort anzeigen, im Hintergrund speichern; bei Fehler zurückdrehen
+async function optimistic(apply, save, anchorSel, undo) {
+  calm(); apply(); paint(anchorSel);
+  try { await save(); calm(1500); return true; } catch (e) { if (undo) undo(); paint(anchorSel); toast('Nicht gespeichert: ' + e.message); return false; }
+}
+// kleines Auswahlmenü für den Status (statt Durchklicken)
+function closeMenu() { document.querySelectorAll('.stmenu').forEach((x) => x.remove()); document.removeEventListener('keydown', menuKey); }
+function menuKey(e) { if (e.key === 'Escape') closeMenu(); }
+function statusMenu(btn, key, pick) {
+  closeMenu();
+  const a = S.asg[key]; if (!a) return; const r = btn.getBoundingClientRect();
+  const m = document.createElement('div'); m.className = 'stmenu'; m.setAttribute('role', 'menu');
+  m.innerHTML = STATUS.map((st) => `<button role="menuitem" data-st="${st}" class="${a.status === st ? 'on' : ''}"><span class="lg ${st}"></span>${ST_LABEL[st]}${a.status === st ? ' ✓' : ''}</button>`).join('')
+    + (a.note ? `<div class="stm-note">💬 ${esc(a.note)}</div>` : '') + (a.updated_at ? `<div class="stm-note muted">zuletzt ${esc(ago(a.updated_at))}</div>` : '');
+  document.body.appendChild(m);
+  const w = m.offsetWidth; const h = m.offsetHeight;
+  let top = r.bottom + 4; if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4);
+  m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px'; m.style.top = top + 'px';
+  m.querySelectorAll('[data-st]').forEach((x) => (x.onclick = (e) => { e.stopPropagation(); closeMenu(); pick(x.dataset.st); }));
+  m.onclick = (e) => e.stopPropagation();
+  setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+  document.addEventListener('keydown', menuKey);
+  const y0 = window.scrollY; const onScroll = () => { if (!document.querySelector('.stmenu')) return window.removeEventListener('scroll', onScroll); if (Math.abs(window.scrollY - y0) > 60) { closeMenu(); window.removeEventListener('scroll', onScroll); } };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  m.querySelector('button.on, button').focus();
+}
+function ago(iso) {
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (isNaN(min)) return ''; if (min < 1) return 'gerade eben'; if (min < 60) return 'vor ' + min + ' Min.';
+  const h = Math.round(min / 60); if (h < 24) return 'vor ' + h + ' Std.'; const d = Math.round(h / 24); return d === 1 ? 'gestern' : 'vor ' + d + ' Tagen';
+}
+// unbesetzte Einsätze an alle ausschreiben
+async function offerSlots(keys, anchorSel) {
+  if (!keys.length) return;
+  const rows = keys.map((k) => ({ slot_key: k, note: '' })); const po = S.offers;
+  const ok = await optimistic(() => { S.offers = (S.offers || []).filter((o) => !keys.includes(o.slot_key)).concat(rows.map((r) => Object.assign({ created_at: nowISO() }, r))); }, () => store.saveOffers(rows), anchorSel, () => (S.offers = po));
+  if (!ok) return;
+  const dates = [...new Set(allSlots().filter((x) => keys.includes(x.key)).map((x) => x.date))].sort();
+  const ids = S.techs.filter((t) => t.active !== false && t.email).map((t) => t.id);
+  notify('techs', ids, 'Offener Einsatz KOM27 – hast du Zeit?', `${dates.slice(0, 4).map((d) => fmtDate(d)).join(', ')}${dates.length > 4 ? ' …' : ''} · in der App auf „Ich hätte Zeit“ tippen`, 'offer');
+  toast(`${keys.length === 1 ? 'Einsatz' : keys.length + ' Einsätze'} ausgeschrieben – Push an alle mit 🔔`);
+}
+
+/* ---------------- Excel-Abgleich beim Neu-Einlesen ---------------- */
+function diffPlans(old, neu) {
+  const today = todayISO();
+  const oS = {}; old.days.forEach((d) => d.slots.forEach((x) => (oS[x.key] = Object.assign({ cancelled: d.cancelled }, x))));
+  const nS = {}; const nDay = {}; neu.days.forEach((d) => { nDay[d.date] = d; d.slots.forEach((x) => (nS[x.key] = Object.assign({ cancelled: d.cancelled }, x))); });
+  const items = []; const moves = [];
+  const taken = new Set(Object.values(S.asg).filter((a) => a.tech_id && nS[a.slot_key]).map((a) => a.slot_key));
+  const nm = (id) => ((techById(id) || {}).name || '?').split(' ')[0];
+  Object.values(S.asg).filter((a) => a.tech_id && a.status !== 'abgesagt').forEach((a) => {
+    const o = oS[a.slot_key]; const n = nS[a.slot_key];
+    if (!o || o.date < today) return;
+    if (!n) { // Platz gibt es so nicht mehr – passenden neuen Platz am selben Tag suchen
+      const c0 = (nDay[o.date] ? nDay[o.date].slots : []).filter((x) => !taken.has(x.key));
+      const c = c0.find((x) => x.zeit === o.zeit && x.va === o.va) || c0.find((x) => x.zeit === o.zeit) || c0.find((x) => x.va && x.va === o.va) || (c0.length === 1 ? c0[0] : null);
+      if (c) {
+        taken.add(c.key); moves.push({ from: a.slot_key, to: c.key });
+        if ((c.zeit || '') !== (o.zeit || '')) items.push({ type: 'time', key: c.key, tech_id: a.tech_id, notify: true, text: `${fmtDate(o.date)} · ${nm(a.tech_id)}: Zeit ${o.zeit || '?'} → ${c.zeit || '?'}` });
+        else items.push({ type: 'moved', key: c.key, tech_id: a.tech_id, text: `${fmtDate(o.date)} · ${nm(a.tech_id)}: Eintrag in der Excel geändert, Einteilung übernommen` });
+      } else items.push({ type: 'gone', key: a.slot_key, tech_id: a.tech_id, notify: true, text: `${fmtDate(o.date)} ${o.zeit || ''} ${o.va || ''}: Einsatz von ${nm(a.tech_id)} steht nicht mehr in der Excel` });
+      return;
+    }
+    if ((n.zeit || '') !== (o.zeit || '')) items.push({ type: 'time', key: n.key, tech_id: a.tech_id, notify: true, text: `${fmtDate(n.date)} · ${nm(a.tech_id)}: Zeit ${o.zeit || '?'} → ${n.zeit || '?'}` });
+    if (n.cancelled && !o.cancelled) items.push({ type: 'cancel', key: n.key, tech_id: a.tech_id, notify: true, text: `${fmtDate(n.date)} ${n.va || ''}: Veranstaltung abgesagt – ${nm(a.tech_id)} war eingeteilt` });
+  });
+  const added = Object.keys(nS).filter((k) => !oS[k] && nS[k].date >= today && !moves.some((m) => m.to === k));
+  const ad = [...new Set(added.map((k) => nS[k].date))].sort();
+  if (added.length) items.unshift({ type: 'new', text: `${added.length} ${added.length === 1 ? 'neuer Platz' : 'neue Plätze'} für Techniker: ${ad.slice(0, 6).map((d) => fmtDate(d)).join(', ')}${ad.length > 6 ? ' …' : ''}` });
+  return { items, moves };
+}
+const CHG_ICON = { new: '➕', time: '🕑', moved: '↪', gone: '❗', cancel: '🚫' };
+function changesBanner() {
+  const c = S.plan && S.plan.changes; if (!c || !c.items || !c.items.length || ls.get('kom27-chg-seen') === c.at) return '';
+  const aff = [...new Set(c.items.filter((i) => i.notify && i.tech_id).map((i) => i.tech_id))];
+  return `<div class="changes" id="chg"><div class="chg-head"><b>🔄 Änderungen in der Excel seit dem letzten Einlesen</b><span class="spacer"></span>
+    ${aff.length ? `<button class="btn small primary" id="chgNotify">📲 Betroffene informieren (${aff.length})</button>` : ''}<button class="btn small" id="chgHide">Ausblenden</button></div>
+    <ul>${c.items.map((i) => `<li class="chg-${i.type}">${CHG_ICON[i.type] || '•'} ${esc(i.text)}${i.type === 'gone' && S.asg[i.key] ? ` <button class="linkbtn danger" data-chgdel="${esc(i.key)}">Einteilung löschen</button>` : ''}</li>`).join('')}</ul></div>`;
+}
+function wireChanges() {
+  if (!$('#chg')) return; const c = S.plan.changes;
+  $('#chgHide').onclick = () => { ls.set('kom27-chg-seen', c.at); renderMaster(); };
+  if ($('#chgNotify')) $('#chgNotify').onclick = () => {
+    const by = {}; c.items.filter((i) => i.notify && i.tech_id).forEach((i) => (by[i.tech_id] = by[i.tech_id] || []).push(i.text.replace(/ · [^:]+:/, ':')));
+    Object.entries(by).forEach(([id, l]) => notify('techs', [id], 'Änderung im KOM27-Plan', l.slice(0, 3).join(' · ') + (l.length > 3 ? ' …' : ''), 'chg-' + c.at));
+    toast(`${Object.keys(by).length} Techniker per Push informiert (wer 🔔 aktiviert hat)`);
+  };
+  document.querySelectorAll('[data-chgdel]').forEach((b) => (b.onclick = () => { const k = b.dataset.chgdel; const prev = S.asg[k]; optimistic(() => delete S.asg[k], () => store.deleteAssignments([k]), '#chg', () => (S.asg[k] = prev)); }));
+}
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 const allDays = () => (S.plan ? S.plan.days : []);
 const allSlots = () => allDays().flatMap((d) => d.slots.map((s) => Object.assign({ day: d }, s)));
@@ -124,12 +252,15 @@ function autoAssign() {
   const mark = (date, id) => { (busy[date] = busy[date] || new Set()).add(id); load[id] = (load[id] || 0) + 1; };
   slots.forEach((s) => { const a = S.asg[s.key]; if (a && a.tech_id && a.status !== 'abgesagt') mark(s.date, a.tech_id); });
   const declined = (s) => new Set((cur(s.key) || {}).declined || []);
-  const free = (s, id) => !(busy[s.date] && busy[s.date].has(id)) && !declined(s).has(id) && !unavOf(id, s.date);
-  const set = (s, id) => { const prev = S.asg[s.key] || {}; changes[s.key] = { slot_key: s.key, tech_id: id, status: 'geplant', note: '', declined: prev.declined || [], requested_at: null, updated_at: nowISO() }; mark(s.date, id); };
+  const tl = timelines();
+  const restOk = (s, id) => !conflictsFor(id, s, tl).some((c) => c.kind === 'rest' || c.kind === 'overlap');
+  const freeBasic = (s, id) => !(busy[s.date] && busy[s.date].has(id)) && !declined(s).has(id) && !unavOf(id, s.date);
+  const free = (s, id) => freeBasic(s, id) && restOk(s, id);
+  const set = (s, id) => { const prev = S.asg[s.key] || {}; changes[s.key] = { slot_key: s.key, tech_id: id, status: 'geplant', note: '', declined: prev.declined || [], requested_at: null, updated_at: nowISO() }; mark(s.date, id); (tl[id] = tl[id] || []).push({ key: s.key, date: s.date, zeit: s.zeit, sp: spanAbs(s) }); };
   const byLoad = () => active.map((t) => t.id).sort((a, b) => (load[a] || 0) - (load[b] || 0));
 
   // 1) Namen, die schon in der Excel stehen
-  slots.forEach((s) => { if (!isOpen(cur(s.key))) return; const t = matchTech(s.excelName); if (t && t.active !== false && free(s, t.id)) set(s, t.id); });
+  slots.forEach((s) => { if (!isOpen(cur(s.key))) return; const t = matchTech(s.excelName); if (t && t.active !== false && freeBasic(s, t.id)) set(s, t.id); }); // Excel-Vorgabe gilt, Ruhezeit wird ggf. als Hinweis angezeigt
   // 2) Mehrtägige Veranstaltungen: gleiche Person über alle Tage
   const groups = {}; slots.forEach((s) => { if (s.group) (groups[s.group] = groups[s.group] || []).push(s); });
   Object.values(groups).forEach((g) => {
@@ -200,12 +331,13 @@ function header(extra) {
 }
 
 function renderMaster() {
-  const tabs = [['plan', 'Planung'], ['req', 'Anfragen'], ['techs', 'Techniker']];
+  const nInt = (S.interest || []).filter((i) => offerOf(i.slot_key)).length;
+  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker']];
   const nav = `<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${l}</button>`).join('')}</nav>`;
   $('#app').innerHTML = header(nav) + `<main id="main"></main>`;
   document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; renderMaster(); }));
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
-  ({ plan: renderPlan, req: renderReq, techs: renderTechs })[S.tab]();
+  ({ plan: renderPlan, req: renderReq, hours: renderHours, techs: renderTechs })[S.tab]();
 }
 
 function importBar() {
@@ -234,10 +366,17 @@ async function importFile(file) {
     await wb.xlsx.load(await file.arrayBuffer());
     const plan = window.KOM27Parser.parseWorkbook(wb);
     plan.fileName = file.name;
+    const old = S.plan; const ch = old && old.days ? diffPlans(old, plan) : null;
+    if (ch) plan.changes = { at: plan.importedAt, items: ch.items };
     await store.savePlan(plan);
     S.plan = plan;
+    if (ch && ch.moves.length) { // Einteilungen auf die neuen Plätze umhängen
+      const rows = ch.moves.map((mv) => Object.assign({}, S.asg[mv.from], { slot_key: mv.to }));
+      await store.saveAssignments(rows); await store.deleteAssignments(ch.moves.map((mv) => mv.from));
+      ch.moves.forEach((mv) => delete S.asg[mv.from]); rows.forEach((r) => (S.asg[r.slot_key] = r));
+    }
     const n = plan.days.reduce((a, d) => a + d.slots.length, 0);
-    toast(`Excel eingelesen: ${plan.days.length} Tage, ${n} Techniker-Einsätze`);
+    toast(`Excel eingelesen: ${plan.days.length} Tage, ${n} Techniker-Einsätze${ch && ch.items.length ? ` · ${ch.items.length} Änderung${ch.items.length > 1 ? 'en' : ''} erkannt` : ''}`);
     renderMaster();
   } catch (e) { console.error(e); toast('Fehler beim Einlesen: ' + e.message); }
 }
@@ -285,6 +424,26 @@ function gridHtml(days, today) {
     <tbody><tr class="needrow"><th class="name">Besetzt / Bedarf</th>${needRow}<td class="sum"></td></tr>${rowsH || `<tr><td colspan="${days.length + 2}" class="empty-msg">Noch keine Techniker angelegt.</td></tr>`}</tbody></table></div>`;
 }
 
+/* ---------------- Ruhezeit & Konflikte ---------------- */
+const REST_H = 11; // Mindest-Ruhezeit nach Arbeitszeitgesetz
+const spanAbs = (s) => { const p = parseSpan(s.zeit); if (!p) return null; const base = Date.parse(s.date + 'T00:00:00Z') / 36e5; return [base + p[0], base + p[1]]; };
+function timelines(extra) { // techId -> sortierte Einsätze (ohne Absagen)
+  const tl = {};
+  allSlots().forEach((s) => { const a = (extra && extra[s.key]) || S.asg[s.key]; if (!a || !a.tech_id || a.status === 'abgesagt' || s.day.cancelled) return; const sp = spanAbs(s); (tl[a.tech_id] = tl[a.tech_id] || []).push({ key: s.key, date: s.date, zeit: s.zeit, sp }); });
+  return tl;
+}
+function conflictsFor(techId, slot, tl) {
+  const out = []; const me = spanAbs(slot);
+  (tl[techId] || []).forEach((e) => {
+    if (e.key === slot.key) return;
+    if (!me || !e.sp) { if (e.date === slot.date) out.push({ kind: 'day', txt: 'noch ein Einsatz am selben Tag' }); return; }
+    if (me[0] < e.sp[1] && e.sp[0] < me[1]) { out.push({ kind: 'overlap', txt: `überschneidet sich mit ${fmtDate(e.date)} ${e.zeit}` }); return; }
+    const gap = e.sp[1] <= me[0] ? me[0] - e.sp[1] : e.sp[0] - me[1];
+    if (gap < REST_H) out.push({ kind: 'rest', h: Math.round(gap * 10) / 10, txt: `nur ${String(Math.round(gap * 10) / 10).replace('.', ',')} h Ruhezeit ${e.sp[1] <= me[0] ? 'nach' : 'vor'} ${fmtDate(e.date)} ${e.zeit}` });
+  });
+  return out;
+}
+
 function renderPlan() {
   const m = $('#main');
   const today = todayISO();
@@ -300,18 +459,20 @@ function renderPlan() {
   // Wer ist an welchem Tag schon eingeteilt? (für Konflikthinweise in der Auswahl)
   const busyOn = {}; const loadM = {};
   monthDays.forEach((d) => d.slots.forEach((x) => { const a = S.asg[x.key]; if (a && a.tech_id && a.status !== 'abgesagt') { (busyOn[d.date] = busyOn[d.date] || {})[a.tech_id] = x.key; loadM[a.tech_id] = (loadM[a.tech_id] || 0) + 1; } }));
+  const TL = timelines();
   const techOpts = (sel, slot) => {
     const dec = new Set(((S.asg[slot.key] || {}).declined) || []);
     const list = S.techs.filter((t) => t.active !== false || t.id === sel);
     const busy = (t) => busyOn[slot.date] && busyOn[slot.date][t.id] && busyOn[slot.date][t.id] !== slot.key;
     const opt = (t, suffix) => `<option value="${t.id}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}${t.id === sel ? '' : suffix}</option>`;
     const away = (t) => !!unavOf(t.id, slot.date);
-    const free = list.filter((t) => !busy(t) && !dec.has(t.id) && !away(t)).sort((a, b) => (loadM[a.id] || 0) - (loadM[b.id] || 0));
+    const restBad = (t) => conflictsFor(t.id, slot, TL).find((c) => c.kind === 'rest' || c.kind === 'overlap');
+    const free = list.filter((t) => !busy(t) && !dec.has(t.id) && !away(t)).sort((a, b) => (!!restBad(a) - !!restBad(b)) || (loadM[a.id] || 0) - (loadM[b.id] || 0));
     const taken = list.filter((t) => busy(t) && !dec.has(t.id) && !away(t));
     const off = list.filter((t) => away(t) && !dec.has(t.id));
     const no = list.filter((t) => dec.has(t.id));
     return `<option value="">– unbesetzt –</option>`
-      + (free.length ? `<optgroup label="Frei an diesem Tag (wenigste Einsätze zuerst)">${free.map((t) => opt(t, `  · ${loadM[t.id] || 0} im Monat`)).join('')}</optgroup>` : '')
+      + (free.length ? `<optgroup label="Frei an diesem Tag (wenigste Einsätze zuerst)">${free.map((t) => { const r = restBad(t); return opt(t, r ? (r.kind === 'rest' ? `  ⚠ nur ${String(r.h).replace('.', ',')} h Ruhezeit` : '  ⚠ Zeiten überschneiden sich') : `  · ${loadM[t.id] || 0} im Monat`); }).join('')}</optgroup>` : '')
       + (taken.length ? `<optgroup label="Schon eingeteilt an diesem Tag">${taken.map((t) => opt(t, '  ⚠ doppelt')).join('')}</optgroup>` : '')
       + (off.length ? `<optgroup label="Hat sich für diesen Tag abgemeldet">${off.map((t) => opt(t, '  ⛔ kann nicht' + (unavOf(t.id, slot.date).note ? ' (' + unavOf(t.id, slot.date).note + ')' : ''))).join('')}</optgroup>` : '')
       + (no.length ? `<optgroup label="Hat für diesen Einsatz abgesagt">${no.map((t) => opt(t, '  ✗ abgesagt')).join('')}</optgroup>` : '');
@@ -331,7 +492,8 @@ function renderPlan() {
       if (S.filter !== 'alle' || !d.vas.length) return;
       groups.push({ k: [...new Set(d.vas)].join(' · '), slots: [], none: true });
     }
-    const show = S.filter === 'alle' ? groups : groups.filter((g) => g.slots.some((s) => slotState(s) === S.filter));
+    const keep = S.keep || new Set();
+    const show = S.filter === 'alle' ? groups : groups.filter((g) => g.slots.some((s) => slotState(s) === S.filter || keep.has(s.key)));
     if (!show.length) return;
     const wk = isoWeek(d.date);
     if (wk !== lastWeek) { html += `<div class="week">KW ${wk}</div>`; lastWeek = wk; }
@@ -352,12 +514,17 @@ function renderPlan() {
         <div class="c-slots">${g.none ? '<span class="muted small">kein Techniker angefordert</span>' : g.slots.map((s) => {
           const a = S.asg[s.key]; const st = slotState(s); const t = a && a.tech_id ? techById(a.tech_id) : null;
           const excelDiff = s.excelName && (!t || matchTech(s.excelName) !== t);
-          const dbl = t && d.slots.some((x) => x.key !== s.key && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status !== 'abgesagt');
-          return `<div class="slot st-${st}">
+          const cf = t && a.status !== 'abgesagt' && !d.cancelled ? conflictsFor(t.id, s, TL) : [];
+          const off = !t || st === 'abgesagt' ? offerOf(s.key) : null; const ints = off ? interestOf(s.key) : [];
+          const canOffer = (!t || st === 'abgesagt') && !off && d.date >= today && !d.cancelled;
+          return `<div class="slot st-${st}" data-sk="${esc(s.key)}">
             <select data-slot="${esc(s.key)}" aria-label="Techniker">${techOpts(t ? t.id : '', s)}</select>
             <div class="slot-foot"><span class="time">${esc(s.zeit || 'Zeit offen')}</span>
-              ${t ? `<button class="pill ${a.status}" data-cycle="${esc(s.key)}" title="Klicken zum Ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''}</button>` : '<span class="pill leer">unbesetzt</span>'}</div>
-            ${dbl ? '<div class="hint warn">⚠ an diesem Tag doppelt eingeteilt</div>' : ''}
+              ${t ? `<button class="pill ${a.status}" data-stm="${esc(s.key)}" title="Status ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''} ▾</button>` : '<span class="pill leer">unbesetzt</span>'}</div>
+            ${cf.map((c) => `<div class="hint warn">⚠ ${esc(c.txt)}</div>`).join('')}
+            ${a && a.actual_start ? `<div class="hint ok" title="vom Techniker bestätigte Arbeitszeit">⏱ ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''}</div>` : ''}
+            ${canOffer ? `<button class="linkbtn offer-btn" data-offer="${esc(s.key)}">📣 ausschreiben</button>` : ''}
+            ${off ? `<div class="offer-box"><span>📣 ausgeschrieben${ints.length ? '' : ' – noch keine Meldung'}</span>${ints.map((i) => { const it = techById(i.tech_id); return it ? `<button class="take" data-take="${esc(s.key)}" data-tid="${it.id}" title="${esc(it.name)} einteilen (gilt als zugesagt)">🙋 ${esc(it.name.split(' ')[0])} einteilen</button>` : ''; }).join('')}<button class="linkbtn" data-unoffer="${esc(s.key)}">zurückziehen</button></div>` : ''}
             ${t && unavOf(t.id, d.date) ? `<div class="hint warn">⛔ ${esc(t.name.split(' ')[0])} hat sich abgemeldet${unavOf(t.id, d.date).note ? ': ' + esc(unavOf(t.id, d.date).note) : ''}</div>` : ''}
             ${excelDiff ? `<div class="hint" title="So steht es in der KOM27-Excel">Excel: ${esc(s.excelName)}</div>` : ''}
           </div>`;
@@ -367,6 +534,7 @@ function renderPlan() {
   });
 
   m.innerHTML = importBar() + (S.plan ? `
+    ${changesBanner()}
     ${S.techs.length ? '' : `<div class="banner">Lege zuerst unter <b>Techniker</b> dein Stamm-Team an (Namen aus der Excel lassen sich mit einem Klick übernehmen).</div>`}
     <div class="toolbar">
       <div class="monthnav">
@@ -376,6 +544,7 @@ function renderPlan() {
       </div>
       <div class="seg" role="tablist"><button data-view="liste" class="${S.view !== 'raster' ? 'on' : ''}">Liste</button><button data-view="raster" class="${S.view === 'raster' ? 'on' : ''}">Raster</button></div>
       <div class="spacer"></div>
+      ${(() => { const n = visDays.filter((d) => !d.cancelled).reduce((acc, d) => acc + d.slots.filter((x) => (slotState(x) === 'leer' || slotState(x) === 'abgesagt') && !offerOf(x.key)).length, 0); return n ? `<button class="btn" id="offerAll" title="Alle unbesetzten Einsätze dieses Monats an alle Techniker schicken – wer Zeit hat, meldet sich">📣 Offene ausschreiben (${n})</button>` : ''; })()}
       <button class="btn" id="copy">Zusagen kopieren</button>
       <button class="btn primary" id="auto">Auto-Einteilung</button>
     </div>
@@ -389,7 +558,7 @@ function renderPlan() {
   const go = (i) => { if (months[i]) { S.month = months[i]; renderMaster(); } };
   $('#mPrev').onclick = () => go(mi - 1);
   $('#mNext').onclick = () => go(mi + 1);
-  document.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.filter; renderMaster(); }));
+  document.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.filter; S.keep = new Set(); renderMaster(); }));
   if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
   document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; renderMaster(); }));
   document.querySelectorAll('[data-jump]').forEach((c) => (c.onclick = () => {
@@ -397,24 +566,49 @@ function renderPlan() {
     const el = document.getElementById('d-' + c.dataset.jump); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
   }));
   const days = monthDays;
-  $('#month').onchange = (e) => { S.month = e.target.value; renderMaster(); };
-  document.querySelectorAll('select[data-slot]').forEach((sel) => (sel.onchange = async () => {
-    const key = sel.dataset.slot; const id = sel.value; const prev = S.asg[key] || {};
-    try {
-      if (!id) { await store.deleteAssignments([key]); delete S.asg[key]; }
-      else { const a = { slot_key: key, tech_id: id, status: 'geplant', note: '', declined: prev.declined || [], requested_at: null, updated_at: nowISO() }; await store.saveAssignments([a]); S.asg[key] = a; }
-      renderMaster();
-    } catch (e) { toast(e.message); }
+  $('#month').onchange = (e) => { S.month = e.target.value; S.keep = new Set(); renderMaster(); };
+  wireChanges();
+  const anchor = (key) => `[data-sk="${CSS.escape(key)}"]`;
+  const keepKey = (key) => { (S.keep = S.keep || new Set()).add(key); };
+  document.querySelectorAll('select[data-slot]').forEach((sel) => (sel.onchange = () => {
+    const key = sel.dataset.slot; const id = sel.value; const prev = S.asg[key]; sel.blur();
+    keepKey(key);
+    if (!id) return optimistic(() => delete S.asg[key], () => store.deleteAssignments([key]), anchor(key), () => (S.asg[key] = prev));
+    const a = { slot_key: key, tech_id: id, status: 'geplant', note: '', declined: (prev || {}).declined || [], requested_at: null, updated_at: nowISO() };
+    const hadOffer = offerOf(key); const prevOffers = S.offers;
+    optimistic(() => { S.asg[key] = a; if (hadOffer) S.offers = S.offers.filter((o) => o.slot_key !== key); },
+      async () => { await store.saveAssignments([a]); if (hadOffer) await store.deleteOffers([key]); }, anchor(key), () => { if (prev) S.asg[key] = prev; else delete S.asg[key]; S.offers = prevOffers; });
   }));
-  document.querySelectorAll('[data-cycle]').forEach((b) => (b.onclick = async () => {
-    const a = Object.assign({}, S.asg[b.dataset.cycle]); a.status = STATUS[(STATUS.indexOf(a.status) + 1) % STATUS.length]; a.updated_at = nowISO();
-    try { await store.saveAssignments([a]); S.asg[a.slot_key] = a; renderMaster(); } catch (e) { toast(e.message); }
+  document.querySelectorAll('[data-stm]').forEach((b) => (b.onclick = (ev) => { ev.stopPropagation(); statusMenu(b, b.dataset.stm, (st) => {
+    const key = b.dataset.stm; const prev = S.asg[key]; if (!prev || prev.status === st) return;
+    const a = Object.assign({}, prev, { status: st, updated_at: nowISO() }, st === 'angefragt' && !prev.requested_at ? { requested_at: nowISO() } : {});
+    keepKey(key);
+    optimistic(() => (S.asg[key] = a), () => store.saveAssignments([a]), anchor(key), () => (S.asg[key] = prev));
+  }); }));
+  document.querySelectorAll('[data-offer]').forEach((b) => (b.onclick = () => offerSlots([b.dataset.offer], anchor(b.dataset.offer))));
+  if ($('#offerAll')) $('#offerAll').onclick = () => {
+    const keys = visDays.filter((d) => !d.cancelled).flatMap((d) => d.slots.filter((x) => (slotState(x) === 'leer' || slotState(x) === 'abgesagt') && !offerOf(x.key)).map((x) => x.key));
+    if (confirm(`${keys.length} offene Einsätze an alle aktiven Techniker ausschreiben? Wer Zeit hat, meldet sich – du entscheidest dann, wer ihn bekommt.`)) offerSlots(keys);
+  };
+  document.querySelectorAll('[data-unoffer]').forEach((b) => (b.onclick = () => {
+    const key = b.dataset.unoffer; const po = S.offers; const pi = S.interest;
+    optimistic(() => { S.offers = S.offers.filter((o) => o.slot_key !== key); S.interest = S.interest.filter((i) => i.slot_key !== key); }, () => store.deleteOffers([key]), anchor(key), () => { S.offers = po; S.interest = pi; });
+  }));
+  document.querySelectorAll('[data-take]').forEach((b) => (b.onclick = () => {
+    const key = b.dataset.take; const t = techById(b.dataset.tid); const prev = S.asg[key]; const po = S.offers; const pi = S.interest;
+    const a = { slot_key: key, tech_id: t.id, status: 'zugesagt', note: 'über Ausschreibung', declined: (prev || {}).declined || [], requested_at: nowISO(), updated_at: nowISO() };
+    const sl = allSlots().find((x) => x.key === key);
+    optimistic(() => { S.asg[key] = a; S.offers = S.offers.filter((o) => o.slot_key !== key); S.interest = S.interest.filter((i) => i.slot_key !== key); },
+      async () => { await store.saveAssignments([a]); await store.deleteOffers([key]); notify('techs', [t.id], 'Du bist eingeteilt ✓', `KOM27 ${sl ? fmtDate(sl.date) + ', ' + (sl.zeit || '') : ''} – danke!`, 'take-' + key); toast(`${firstName(t)} ist eingeteilt`); },
+      anchor(key), () => { if (prev) S.asg[key] = prev; else delete S.asg[key]; S.offers = po; S.interest = pi; });
   }));
   $('#auto').onclick = async () => {
     if (!S.techs.length) return toast('Bitte zuerst Techniker anlegen.');
     const ch = autoAssign();
     if (!ch.length) return toast('Alles besetzt – nichts zu tun.');
-    try { await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a)); toast(`${ch.length} Einsätze eingeteilt (Status „geplant“). Jetzt unter „Anfragen“ verschicken.`); renderMaster(); } catch (e) { toast(e.message); }
+    const prev = Object.assign({}, S.asg);
+    await optimistic(() => ch.forEach((a) => (S.asg[a.slot_key] = a)), () => store.saveAssignments(ch), null, () => (S.asg = prev));
+    toast(`${ch.length} Einsätze eingeteilt (Status „geplant“). Jetzt unter „Anfragen“ verschicken.`);
   };
   $('#copy').onclick = async () => {
     const lines = days.map((d) => { const n = d.slots.map((s) => S.asg[s.key]).filter((a) => a && a.tech_id && a.status === 'zugesagt').map((a) => techById(a.tech_id)?.name).filter(Boolean); return n.length ? fmtDate(d.date) + '\t' + n.join(', ') : null; }).filter(Boolean);
@@ -433,6 +627,79 @@ function mailFor(t, slots, reminder) {
   return `mailto:${encodeURIComponent(t.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
 }
 
+/* ---------------- Neuigkeiten ---------------- */
+function feedHtml() {
+  const ev = []; const sk = {}; allSlots().forEach((x) => (sk[x.key] = x));
+  const since = Date.now() - 14 * 864e5; const nm = (id) => (techById(id) || {}).name;
+  Object.values(S.asg).forEach((a) => {
+    const n = nm(a.tech_id); const x = sk[a.slot_key]; if (!n || !x) return;
+    if ((a.status === 'zugesagt' || a.status === 'abgesagt') && a.updated_at) ev.push({ at: a.updated_at, ic: a.status === 'zugesagt' ? '✅' : '❌', txt: `<b>${esc(n)}</b> ${a.status === 'zugesagt' ? 'zugesagt' : 'abgesagt'} · ${fmtDate(x.date)} ${esc(x.zeit || '')}${a.note ? ' – „' + esc(a.note) + '“' : ''}` });
+    if (a.time_at) ev.push({ at: a.time_at, ic: '⏱', txt: `<b>${esc(n)}</b> hat Arbeitszeit bestätigt · ${fmtDate(x.date)} (${fmtH(actualHours(a) || 0)})` });
+  });
+  (S.interest || []).forEach((i) => { const n = nm(i.tech_id); const x = sk[i.slot_key]; if (n && x && i.created_at) ev.push({ at: i.created_at, ic: '🙋', txt: `<b>${esc(n)}</b> hätte Zeit · ${fmtDate(x.date)} ${esc(x.zeit || '')}${offerOf(i.slot_key) ? '' : ' (erledigt)'}` }); });
+  const ug = {}; (S.unav || []).forEach((u) => { if (!u.created_at) return; const k = u.tech_id + u.created_at.slice(0, 16); (ug[k] = ug[k] || { at: u.created_at, id: u.tech_id, days: [], note: u.note }).days.push(u.day); });
+  Object.values(ug).forEach((g) => { const n = nm(g.id); if (!n) return; g.days.sort(); ev.push({ at: g.at, ic: '⛔', txt: `<b>${esc(n)}</b> kann nicht · ${g.days.length > 1 ? shortDate(g.days[0]) + ' – ' + shortDate(g.days[g.days.length - 1]) + ' (' + g.days.length + ' Tage)' : fmtDate(g.days[0])}${g.note ? ' – ' + esc(g.note) : ''}` }); });
+  const list = ev.filter((e) => new Date(e.at) >= since).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10);
+  return `<div class="card feed"><h3>🕑 Neuigkeiten <span class="muted small">letzte 14 Tage</span></h3>${list.length ? `<ul>${list.map((e) => `<li><span class="fi">${e.ic}</span><span class="ft">${e.txt}</span><span class="fa">${esc(ago(e.at))}</span></li>`).join('')}</ul>` : '<p class="muted small">Noch keine Rückmeldungen.</p>'}</div>`;
+}
+
+/* ---------------- Stunden (Master) ---------------- */
+function renderHours() {
+  const m = $('#main'); const today = todayISO();
+  if (!S.month) S.month = today.slice(0, 7);
+  const months = monthsAvailable(); if (!months.includes(S.month) && months.length) months.push(S.month), months.sort();
+  const sl = allSlots().filter((x) => x.date.startsWith(S.month) && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled).sort((a, b) => a.date.localeCompare(b.date));
+  const per = {}; sl.forEach((x) => (per[S.asg[x.key].tech_id] = per[S.asg[x.key].tech_id] || []).push(x));
+  const sum = (l, f) => l.reduce((acc, x) => acc + (f(x) || 0), 0);
+  const miss = sl.filter((x) => x.date <= today && !S.asg[x.key].actual_start);
+  const missT = [...new Set(miss.map((x) => S.asg[x.key].tech_id))];
+  const totP = sum(sl, planHours); const totI = sum(sl, (x) => actualHours(S.asg[x.key]));
+  const cards = S.techs.filter((t) => per[t.id]).map((t) => {
+    const l = per[t.id]; const p = sum(l, planHours); const done = l.filter((x) => S.asg[x.key].actual_start); const i = sum(done, (x) => actualHours(S.asg[x.key]));
+    const mi = l.filter((x) => x.date <= today && !S.asg[x.key].actual_start).length;
+    return `<details class="card hcard" ${S.openHours === t.id ? 'open' : ''} data-ht="${t.id}"><summary><b>${esc(t.name)}</b>
+      <span class="hs"><span>${l.length} Einsätze</span><span>Plan ${fmtH(p)}</span><span class="${done.length ? 'ok' : 'muted'}">Ist ${fmtH(i)} <small>(${done.length}/${l.length} bestätigt)</small></span>${mi ? `<span class="warn">⏱ ${mi} offen</span>` : ''}</span></summary>
+      <table class="list htab"><thead><tr><th>Datum</th><th>VA</th><th>Plan</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Ist</th></tr></thead><tbody>
+      ${l.map((x) => { const a = S.asg[x.key]; const [ps, pe] = planFrom(x); const ih = actualHours(a); const diff = ih !== null ? ih - planHours(x) : null;
+        return `<tr data-hk="${esc(x.key)}" class="${x.date > today ? 'future' : ''}"><td>${fmtDate(x.date)}</td><td class="small">${esc(x.va || '')}</td><td class="small">${esc(x.zeit || '')}</td>
+        <td><input type="time" data-h="st" value="${esc(a.actual_start || '')}" placeholder="${ps}"></td><td><input type="time" data-h="en" value="${esc(a.actual_end || '')}" placeholder="${pe}"></td>
+        <td><select data-h="br">${['', 0, 15, 30, 45, 60, 90].map((v) => `<option value="${v}" ${String(a.break_min ?? '') === String(v) ? 'selected' : ''}>${v === '' ? '–' : v + ' min'}</option>`).join('')}</select></td>
+        <td>${ih !== null ? `<b>${fmtH(ih)}</b>${diff && Math.abs(diff) >= 0.25 ? ` <small class="${diff > 0 ? 'warn' : 'muted'}">${diff > 0 ? '+' : ''}${String(Math.round(diff * 100) / 100).replace('.', ',')}</small>` : ''}${a.time_note ? ` <span title="${esc(a.time_note)}">💬</span>` : ''}` : x.date <= today ? '<span class="warn small">fehlt</span>' : '<span class="muted small">kommt noch</span>'}</td></tr>`; }).join('')}
+      </tbody></table></details>`;
+  }).join('');
+  m.innerHTML = `<div class="toolbar">
+      <div class="monthnav"><select id="hMonth">${months.map((x) => `<option value="${x}" ${x === S.month ? 'selected' : ''}>${MON[+x.slice(5, 7) - 1]} ${x.slice(0, 4)}</option>`).join('')}</select></div>
+      <div class="spacer"></div>
+      ${missT.length ? `<button class="btn" id="hRemind">⏰ Fehlende Zeiten anfragen (${miss.length})</button>` : ''}
+      <button class="btn primary" id="hCsv" ${sl.length ? '' : 'disabled'}>⬇ CSV für Abrechnung</button></div>
+    <div class="sumrow wide"><div class="sumbox"><b>${sl.length}</b><span>zugesagte Einsätze</span></div><div class="sumbox"><b>${String(Math.round(totP * 10) / 10).replace('.', ',')}</b><span>Plan-Stunden*</span></div>
+      <div class="sumbox ok"><b>${String(Math.round(totI * 10) / 10).replace('.', ',')}</b><span>bestätigte Ist-Stunden</span></div><div class="sumbox ${miss.length ? 'warn' : ''}"><b>${miss.length}</b><span>Zeiten fehlen noch</span></div></div>
+    ${cards || '<div class="card"><div class="empty-msg">In diesem Monat noch keine zugesagten Einsätze.</div></div>'}
+    <p class="note">* Plan-Stunden = Einsatzzeit aus der Excel abzüglich gesetzlicher Pause (über 6 h: 30 min, über 9 h: 45 min). Ist-Zeiten tragen die Techniker selbst ein – du kannst sie hier auch direkt ändern.</p>`;
+  $('#hMonth').onchange = (e) => { S.month = e.target.value; renderMaster(); };
+  m.querySelectorAll('details[data-ht]').forEach((d) => (d.ontoggle = () => { if (d.open) S.openHours = d.dataset.ht; else if (S.openHours === d.dataset.ht) S.openHours = null; }));
+  m.querySelectorAll('tr[data-hk] [data-h]').forEach((inp) => (inp.onchange = () => {
+    const tr = inp.closest('tr'); const key = tr.dataset.hk; const prev = S.asg[key]; const v = (k) => tr.querySelector(`[data-h="${k}"]`).value;
+    const st = v('st'); const en = v('en'); const br = v('br');
+    const a = Object.assign({}, prev, { actual_start: st || null, actual_end: en || null, break_min: br === '' ? null : +br, time_at: st && en ? (prev.time_at || nowISO()) : null });
+    if ((st && !en) || (!st && en)) return; // erst speichern, wenn beides da ist
+    optimistic(() => (S.asg[key] = a), () => store.saveAssignments([a]), `tr[data-hk="${CSS.escape(key)}"]`, () => (S.asg[key] = prev));
+  }));
+  if ($('#hRemind')) $('#hRemind').onclick = () => {
+    missT.forEach((id) => { const n = miss.filter((x) => S.asg[x.key].tech_id === id); notify('techs', [id], 'Bitte Arbeitszeit bestätigen ⏱', `${n.length === 1 ? '1 Einsatz' : n.length + ' Einsätze'} ohne Zeit: ${n.slice(0, 3).map((x) => fmtDate(x.date)).join(', ')} – kurz in der App eintragen`, 'time'); });
+    toast(`Push an ${missT.length} Techniker geschickt (wer 🔔 aktiviert hat)`);
+  };
+  $('#hCsv').onclick = () => {
+    const num = (h) => (h === null || h === undefined ? '' : String(Math.round(h * 100) / 100).replace('.', ','));
+    const q = (x) => '"' + String(x ?? '').replace(/"/g, '""') + '"';
+    const head = ['Datum', 'Tag', 'Techniker', 'Veranstaltung', 'Raum', 'Plan Beginn', 'Plan Ende', 'Plan Std', 'Ist Beginn', 'Ist Ende', 'Pause min', 'Ist Std', 'Anmerkung'];
+    const lines = sl.map((x) => { const a = S.asg[x.key]; const [ps, pe] = planFrom(x); const t = techById(a.tech_id) || {};
+      return [x.date.split('-').reverse().join('.'), fmtDate(x.date).slice(0, 2), t.name, x.va || '', roomsOf(x.day.info), ps, pe, num(planHours(x)), a.actual_start || '', a.actual_end || '', a.break_min ?? '', num(actualHours(a)), a.time_note || ''].map(q).join(';'); });
+    const blob = new Blob(['\ufeff' + head.map(q).join(';') + '\r\n' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+    const el = document.createElement('a'); el.href = URL.createObjectURL(blob); el.download = `KOM27-Stunden-${S.month}.csv`; document.body.appendChild(el); el.click(); el.remove();
+  };
+}
+
 function renderReq() {
   const m = $('#main'); const today = todayISO();
   const rows = S.techs.map((t) => {
@@ -440,7 +707,7 @@ function renderReq() {
     return { t, neu: sl.filter((s) => S.asg[s.key].status === 'geplant'), wait: sl.filter((s) => S.asg[s.key].status === 'angefragt'), no: sl.filter((s) => S.asg[s.key].status === 'abgesagt') };
   }).filter((r) => r.neu.length || r.wait.length || r.no.length);
   const hasPush = (t) => t.email && S.pushEmails && S.pushEmails.has(t.email.toLowerCase());
-  m.innerHTML = `<div id="pushBox"></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+  m.innerHTML = `<div id="pushBox"></div>${feedHtml()}<div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${neu.length ? `<div><b>Neu (${neu.length})</b><ul>${neu.map((s) => `<li>${esc(slotLine(s))}</li>`).join('')}</ul></div>` : ''}
@@ -460,7 +727,7 @@ function renderReq() {
       const n = r.neu.length;
       notify('techs', [r.t.id], 'Neue Einsatzanfrage KOM27', `${n === 1 ? '1 neuer Termin' : n + ' neue Termine'}: ${r.neu.slice(0, 3).map((s) => fmtDate(s.date)).join(', ')}${n > 3 ? ' …' : ''} – bitte zu- oder absagen.`, 'req');
       if (!viaMail) toast(`Push an ${firstName(r.t)} gesendet`);
-      setTimeout(renderMaster, 400);
+      calm(); paint();
     } catch (e) { toast(e.message); }
   };
   m.querySelectorAll('[data-send]').forEach((b) => (b.onclick = () => markAsked(rows.find((x) => x.t.id === b.dataset.send), true)));
@@ -672,8 +939,10 @@ function openJob(key, list) {
   const grp = s.group ? allSlots().filter((x) => x.group === s.group && S.asg[x.key] && S.asg[x.key].tech_id === a.tech_id) : [s];
   const gi = grp.findIndex((x) => x.key === s.key);
   const coll = colleaguesOf(s);
-  const status = a.status || 'geplant';
-  const stTxt = { angefragt: 'Wartet auf deine Antwort', zugesagt: 'Zugesagt ✓', abgesagt: 'Abgesagt', geplant: 'Geplant' }[status];
+  const isOffer = !S.admin && !a.tech_id && !!offerOf(s.key);
+  const meIn = isOffer && (S.interest || []).some((i) => i.slot_key === s.key);
+  const status = isOffer ? 'offen' : a.status || 'geplant';
+  const stTxt = { angefragt: 'Wartet auf deine Antwort', zugesagt: 'Zugesagt ✓', abgesagt: 'Abgesagt', geplant: 'Geplant', offen: meIn ? 'Du hast dich gemeldet ✓' : 'Offener Einsatz' }[status];
   const fact = (lbl, val, big) => val ? `<div class="fact ${big ? 'big' : ''}"><small>${lbl}</small><b>${esc(niceTime(val))}</b></div>` : '';
   const old = !s.det;
   const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Einsatz-Details">
@@ -683,20 +952,22 @@ function openJob(key, list) {
       <div class="sh-va">${esc(s.va || 'Einsatz')}${s.label && s.label.replace(/\s/g, '') !== (s.va || '') ? ' · ' + esc(s.label) : ''}</div>
       ${grp.length > 1 ? `<div class="sh-days"><span>Tag ${gi + 1} von ${grp.length}</span>${grp.map((x) => `<button class="chip ${x.key === s.key ? 'on' : ''}" data-jump="${esc(x.key)}">${shortDate(x.date)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="facts">${fact('Deine Einsatzzeit', s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
+    <div class="facts">${fact(isOffer ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
     <h3>🛠 Das baust du auf</h3>
     ${equipHtml(s)}
     ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
     ${(det.extras || []).length ? `<h3>ℹ️ Weitere Infos</h3><dl class="extras">${det.extras.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>` : ''}
-    <h3>👥 Mit dir im Haus</h3>
-    ${coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">Nach aktuellem Stand bist du allein eingeteilt.</p>`}
+    ${a.actual_start ? `<div class="hint ok">⏱ Bestätigte Arbeitszeit: ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''} = ${fmtH(actualHours(a))}</div>` : ''}
+    ${isOffer ? '' : `<h3>👥 Mit dir im Haus</h3>`}
+    ${isOffer ? '' : coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">Nach aktuellem Stand bist du allein eingeteilt.</p>`}
     <h3>📍 Ort</h3>
     <p>KOM27, Mauerstraße, Berlin · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('KOM27 Mauerstraße Berlin')}" target="_blank" rel="noopener">Route öffnen</a></p>
     <div class="sh-actions">
       ${status === 'angefragt' && !S.admin ? `<button class="big yes" data-ans="zugesagt">✓ Ich kann</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>` : ''}
       ${status === 'zugesagt' ? `<button class="big ghost" data-ics>📅 In meinen Kalender</button>` : ''}
+      ${isOffer ? (meIn ? `<button class="big ghost" data-oint="off">Meldung zurückziehen</button>` : `<button class="big yes" data-oint="on">🙋 Ich hätte Zeit</button>`) : ''}
     </div>
   </div></div>`;
   const old_ = $('#sheet'); if (old_) old_.remove();
@@ -714,11 +985,38 @@ function openJob(key, list) {
     all[s.key] = [...cur]; ls.set(DONE_K, all); c.closest('li').classList.toggle('done', c.checked);
   }));
   const ics = box.querySelector('[data-ics]'); if (ics) ics.onclick = () => icsFor([s], myTech() || { name: 'KOM27' });
+  box.querySelectorAll('[data-oint]').forEach((b) => (b.onclick = () => { close(); if (window.__interest) window.__interest([s.key], b.dataset.oint === 'on'); }));
   box.querySelectorAll('[data-ans]').forEach((b) => (b.onclick = async () => {
     let note = '';
     if (b.dataset.ans === 'abgesagt') { const r = prompt('Kurzer Grund (optional):', ''); if (r === null) return; note = r.trim(); }
     close(); if (window.__answer) window.__answer([s.key], b.dataset.ans, note);
   }));
+}
+
+/* ---------------- Arbeitszeiten ---------------- */
+const toH = (x) => { const m = /(\d{1,2})[:.](\d{2})/.exec(x || ''); return m ? +m[1] + m[2] / 60 : null; };
+const legalBreak = (h) => (h > 9 ? 45 : h > 6 ? 30 : 0); // Pause nach ArbZG in Minuten
+function planHours(s) { const p = parseSpan(s.zeit); if (!p) return 0; const g = p[1] - p[0]; return g - legalBreak(g) / 60; }
+function actualHours(a) { if (!a || !a.actual_start) return null; const st = toH(a.actual_start); let en = toH(a.actual_end); if (st === null || en === null) return null; if (en <= st) en += 24; return Math.max(0, en - st - (a.break_min || 0) / 60); }
+const fmtH = (h) => (Math.round(h * 100) / 100).toLocaleString('de-DE', { maximumFractionDigits: 2 }) + ' h';
+const planFrom = (s) => { const m = /(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})/.exec(s.zeit || ''); return m ? [pad(+m[1]) + ':' + m[2], pad(+m[3]) + ':' + m[4]] : ['', '']; };
+function timeForm(s, a) {
+  const [ps, pe] = planFrom(s); const st = a.actual_start || ps; const en = a.actual_end || pe;
+  const g = (() => { const x = toH(st); let y = toH(en); if (x === null || y === null) return 0; if (y <= x) y += 24; return y - x; })();
+  const brk = a.break_min ?? legalBreak(g);
+  return `<div class="tform" data-tk="${esc(s.key)}">
+    <div class="tf-row"><label>Beginn<input type="time" data-f="st" value="${esc(st)}"></label><label>Ende<input type="time" data-f="en" value="${esc(en)}"></label>
+      <label>Pause<select data-f="br">${[0, 15, 30, 45, 60, 90].map((v) => `<option value="${v}" ${v === brk ? 'selected' : ''}>${v} min</option>`).join('')}</select></label></div>
+    <input type="text" data-f="nt" placeholder="Anmerkung (optional), z. B. länger wegen Abbau" value="${esc(a.time_note || '')}">
+    <div class="tf-foot"><span class="tf-sum"></span><button class="btn primary" data-tsave>Zeit bestätigen ✓</button></div></div>`;
+}
+function wireTimeForms(root, saveFn) {
+  root.querySelectorAll('.tform').forEach((f) => {
+    const v = (k) => f.querySelector(`[data-f="${k}"]`).value;
+    const upd = () => { const h = actualHours({ actual_start: v('st'), actual_end: v('en'), break_min: +v('br') }); f.querySelector('.tf-sum').textContent = h === null ? '' : '= ' + fmtH(h) + ' Arbeitszeit'; };
+    f.querySelectorAll('input,select').forEach((x) => (x.oninput = upd)); upd();
+    f.querySelector('[data-tsave]').onclick = () => { if (!v('st') || !v('en')) return toast('Bitte Beginn und Ende eintragen.'); saveFn(f.dataset.tk, v('st'), v('en'), +v('br'), v('nt').trim()); };
+  });
 }
 
 function renderTech() {
@@ -737,6 +1035,17 @@ function renderTech() {
   const yes = sl.filter((s) => st(s) === 'zugesagt');
   const no = sl.filter((s) => st(s) === 'abgesagt');
   const nOpen = open.reduce((a, g) => a + g.slots.length, 0);
+  // ausgeschriebene Einsätze, für die man sich melden kann
+  const TLm = timelines();
+  const offered = groupsOf(allSlots().filter((x) => offerOf(x.key) && x.date >= today && !x.day.cancelled && !(S.asg[x.key] && S.asg[x.key].tech_id)).sort((a, b) => a.date.localeCompare(b.date)));
+  const mine = (key) => (S.interest || []).some((i) => i.slot_key === key && i.tech_id === t.id);
+  // Arbeitszeit bestätigen: zugesagte Einsätze bis heute ohne Zeit
+  const past = slotsOfTech(t.id, addDays(today, -45)).filter((x) => x.date <= today && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled);
+  const toLog = past.filter((x) => !S.asg[x.key].actual_start || S.editTime === x.key);
+  const logged = past.filter((x) => S.asg[x.key].actual_start && S.editTime !== x.key).reverse();
+  const mon = today.slice(0, 7);
+  const monSl = slotsOfTech(t.id).filter((x) => x.date.startsWith(mon) && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled);
+  const monH = monSl.reduce((acc, x) => acc + (actualHours(S.asg[x.key]) ?? planHours(x)), 0);
 
   const where = (s) => ['KOM27 Mauerstraße', roomsOf(s.day.info), s.day.vazeit ? 'Veranstaltung ' + s.day.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ');
   const card = (g) => {
@@ -768,24 +1077,73 @@ function renderTech() {
       <div class="sumrow">
         <div class="sumbox ${nOpen ? 'warn' : ''}"><b>${nOpen}</b><span>${nOpen === 1 ? 'Anfrage wartet' : 'Anfragen warten'} auf dich</span></div>
         <div class="sumbox ok"><b>${yes.length}</b><span>${yes.length === 1 ? 'zugesagter Einsatz' : 'zugesagte Einsätze'}</span></div>
+        <div class="sumbox"><b>${String(Math.round(monH * 10) / 10).replace('.', ',')}</b><span>Stunden im ${MON[+mon.slice(5, 7) - 1]}</span></div>
       </div>
     </section>
-    ${open.length ? `<h2 class="sec">Bitte gib Bescheid</h2>${open.map(card).join('')}` : `<div class="allgood">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per E-Mail.</small></div>`}
+    ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid</h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
+    ${toLog.length ? `<h2 class="sec" id="timeSec">⏱ Arbeitszeit bestätigen</h2><p class="sec-help">Kurz eintragen, wie lange du wirklich da warst – ${esc(CFG.senderName)} braucht das für die Abrechnung. Vorausgefüllt mit der geplanten Zeit.</p>
+      ${toLog.map((x) => `<article class="time-card"><div class="tc-top">${dateBox(x.date)}<div class="tc-head"><b>${esc(x.va || 'Einsatz')}</b><small>${esc(longDate(x.date))} · geplant ${esc(x.zeit || '–')}</small></div></div>${timeForm(x, S.asg[x.key])}</article>`).join('')}` : ''}
+    ${offered.length ? `<h2 class="sec" id="offerSec">📣 Offene Einsätze – hast du Zeit?</h2><p class="sec-help">Diese Einsätze sind noch nicht besetzt. Melde dich, wenn du kannst – ${esc(CFG.senderName)} entscheidet dann und du bekommst Bescheid.</p>
+      ${offered.map((g) => { const s0 = g.slots[0]; const all = g.slots.every((x) => mine(x.key));
+        const warn = g.slots.map((x) => unavOf(t.id, x.date) ? `${fmtDate(x.date)}: du hast „kann nicht“ eingetragen` : (conflictsFor(t.id, x, TLm)[0] || {}).txt).filter(Boolean);
+        return `<article class="offer-card ${all ? 'is-in' : ''}" data-og="${esc(g.id)}">
+        <div class="jc-head"><span class="jc-va">${esc(g.va || 'Einsatz')}</span>${g.slots.length > 1 ? `<span class="jc-badge">${g.slots.length} Tage</span>` : ''}</div>
+        <div class="jc-days">${g.slots.map((x) => `<div class="jc-day">${dateBox(x.date)}<button class="jc-time jc-open" data-open="${esc(x.key)}"><b>${esc(niceTime(x.zeit))}</b><small>${esc(roomsOf(x.day.info) || 'KOM27')}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>
+        ${warn.map((w) => `<div class="hint warn">⚠ ${esc(w)}</div>`).join('')}
+        <div class="jc-actions">${all ? `<span class="in-msg">✓ Du hast dich gemeldet</span><button class="big ghost" data-int="off" data-keys="${esc(g.slots.map((x) => x.key).join(','))}">zurückziehen</button>` : `<button class="big yes" data-int="on" data-keys="${esc(g.slots.map((x) => x.key).join(','))}">🙋 Ich hätte Zeit${g.slots.length > 1 ? ' – alle Tage' : ''}</button>`}</div>
+      </article>`; }).join('')}` : ''}
     <h2 class="sec">Wann kannst du nicht?</h2>
     <p class="sec-help">Tippe die Tage an, an denen du nicht verfügbar bist. Nochmal tippen nimmt es wieder raus. ${esc(CFG.senderName)} sieht das sofort und plant dich dann nicht ein.</p>
     ${techCalHtml(t)}
     ${yes.length ? `<h2 class="sec">Deine nächsten Einsätze <button class="linkbtn" id="ics">📅 in meinen Kalender</button></h2><div class="mini-list">${yes.map((s) => line(s, 'yes')).join('')}</div>` : ''}
     ${no.length ? `<details class="nolist"><summary>Abgesagt (${no.length})</summary><div class="mini-list">${no.map((s) => line(s, 'no')).join('')}</div></details>` : ''}
+    ${logged.length ? `<details class="nolist"><summary>Bestätigte Arbeitszeiten (${logged.length})</summary><div class="mini-list">${logged.map((x) => { const a = S.asg[x.key]; return `<div class="mini-line">${dateBox(x.date)}<div class="ml-txt"><b>${esc(a.actual_start)}–${esc(a.actual_end)} · ${fmtH(actualHours(a))}</b><small>${esc(x.va || '')}${a.break_min ? ' · ' + a.break_min + ' min Pause' : ''}${a.time_note ? ' · „' + esc(a.time_note) + '“' : ''}</small></div><button class="linkbtn" data-tedit="${esc(x.key)}">ändern</button></div>`; }).join('')}</div></details>` : ''}
     <p class="note center">Fragen? Einfach ${esc(CFG.senderName)} anrufen oder auf die Anfrage-Mail antworten.</p>`;
 
+  const collapse = (el) => new Promise((res) => {
+    if (!el) return res();
+    el.style.height = el.offsetHeight + 'px'; el.style.overflow = 'hidden'; void el.offsetHeight;
+    el.classList.add('leaving'); el.style.height = '0px';
+    setTimeout(res, 230);
+  });
   const answer = async (keys, status, note) => {
+    const prev = keys.map((k) => S.asg[k]);
+    const card = document.querySelector(`.jc-day[data-k="${CSS.escape(keys[0])}"]`);
+    const jc = card && card.closest('.job-card');
+    const whole = jc && jc.querySelectorAll('.jc-day').length === keys.length;
+    const ml = document.querySelector(`[data-change][data-k="${CSS.escape(keys[0])}"]`);
+    calm(5000);
+    await collapse(whole ? jc : jc ? card : ml ? ml.closest('.mini-line') : null);
+    keys.forEach((k) => (S.asg[k] = Object.assign({}, S.asg[k], { status, note: note || '', updated_at: nowISO() })));
+    paint(jc ? '#openSec' : null);
+    toast(status === 'zugesagt' ? 'Danke! Zusage ist gespeichert ✓' : 'Absage ist gespeichert');
     try {
-      for (const k of keys) await store.respond(S.user.email, k, status, note || '');
+      await Promise.all(keys.map((k) => store.respond(S.user.email, k, status, note || '')));
       const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date));
       notify('admins', [], `${firstName(t)} hat ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'}`, dates.join(', ') + (note ? ' – „' + note + '“' : ''), 'answer-' + t.id);
-      await reload(); toast(status === 'zugesagt' ? 'Danke! Zusage ist gespeichert ✓' : 'Absage ist gespeichert'); renderTech();
-    } catch (e) { toast(e.message); }
+      calm(1500);
+    } catch (e) { keys.forEach((k, i) => (S.asg[k] = prev[i])); paint(); toast('Nicht gespeichert: ' + e.message); }
   };
+  const interest = async (keys, on) => {
+    const prev = S.interest;
+    const ok = await optimistic(() => { S.interest = (S.interest || []).filter((i) => !(keys.includes(i.slot_key) && i.tech_id === t.id)).concat(on ? keys.map((k) => ({ slot_key: k, tech_id: t.id, created_at: nowISO() })) : []); },
+      () => Promise.all(keys.map((k) => (on ? store.addInterest(k, t.id) : store.removeInterest(k, t.id)))), '#offerSec', () => (S.interest = prev));
+    if (ok && on) {
+      const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date));
+      notify('admins', [], `${firstName(t)} hätte Zeit 🙋`, `Ausgeschriebener Einsatz: ${dates.join(', ')}`, 'int-' + t.id);
+      toast('Danke! ' + CFG.senderName + ' sieht deine Meldung sofort.');
+    }
+  };
+  window.__interest = interest;
+  const saveTime = async (key, st, en, br, nt) => {
+    const prev = S.asg[key];
+    const ok = await optimistic(() => { S.asg[key] = Object.assign({}, prev, { actual_start: st, actual_end: en, break_min: br, time_note: nt, time_at: nowISO() }); S.editTime = null; },
+      () => store.logTime(S.user.email, key, st, en, br, nt), '#timeSec', () => (S.asg[key] = prev));
+    if (ok) toast('Arbeitszeit gespeichert ✓');
+  };
+  wireTimeForms(m, saveTime);
+  m.querySelectorAll('[data-tedit]').forEach((b) => (b.onclick = () => { S.editTime = b.dataset.tedit; paint(); const f = document.querySelector('#timeSec'); if (f) f.scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
+  m.querySelectorAll('[data-int]').forEach((b) => (b.onclick = () => interest(b.dataset.keys.split(','), b.dataset.int === 'on')));
   window.__answer = answer;
   m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
   m.querySelectorAll('.job-card').forEach((c) => {
@@ -880,7 +1238,7 @@ async function boot() {
     if (!S.user || S.recovery) return renderLogin();
     S.admin = await store.isAdmin(S.user.email);
     await reload();
-    S.admin ? renderMaster() : renderTech();
+    paint();
     startLive();
   } catch (e) { console.error(e); renderLogin(e.message); }
 }
@@ -892,7 +1250,7 @@ async function liveRefresh() {
   if (!S.user || S.recovery) return;
   // nicht mitten in eine Eingabe hinein neu zeichnen
   const ae = document.activeElement;
-  if ((ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) && ae.closest('#app')) || document.querySelector('.jc-reason:not(.hidden), .jc-one:not(.hidden)')) return scheduleLive(2500);
+  if ((ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) && ae.closest('#app')) || document.querySelector('.jc-reason:not(.hidden), .jc-one:not(.hidden), .stmenu, #sheet') || Date.now() < (S.calmUntil || 0)) return scheduleLive(2500);
   const oldAsg = S.asg; const oldUnav = new Set(S.unav.map((u) => u.tech_id + '|' + u.day));
   try { await reload(); } catch (e) { return; }
   const msgs = [];
@@ -908,9 +1266,7 @@ async function liveRefresh() {
     const added = S.unav.filter((u) => !oldUnav.has(u.tech_id + '|' + u.day));
     if (added.length) { const t = techById(added[0].tech_id); msgs.push(`${t ? t.name.split(' ')[0] : 'Ein Techniker'} hat ${added.length} Tag${added.length > 1 ? 'e' : ''} als „kann nicht“ eingetragen`); }
   }
-  const y = window.scrollY;
-  S.admin ? renderMaster() : renderTech();
-  window.scrollTo(0, y);
+  if (dataSig() !== S.sig) paint(); // nur neu zeichnen, wenn sich wirklich etwas geändert hat
   if (msgs.length) toast(msgs.slice(0, 3).join(' · ') + (msgs.length > 3 ? ` (+${msgs.length - 3})` : ''));
 }
 function startLive() {
@@ -919,7 +1275,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

@@ -31,7 +31,11 @@ const DemoStore = {
   async reset() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
   async signOut() { ls.del(this.U); },
   async isAdmin(email) { return email === CFG.demoAdmin; },
-  async loadAll() { const d = this.d(); return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [] }; },
+  async loadAll() {
+    const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
+    const coll = Object.values(d.asg || {}).filter((a) => me && a.tech_id && a.tech_id !== me.id && ['angefragt', 'zugesagt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '', status: a.status }));
+    return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [], coll };
+  },
   async setUnav(tech_id, day, note) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '' }); this.w(d); },
   async clearUnav(tech_id, day) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); this.w(d); },
   async setUnavMany(tech_id, days, note) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); days.forEach((day) => d.unav.push({ tech_id, day, note: note || '' })); this.w(d); },
@@ -68,7 +72,8 @@ function makeSupabaseStore() {
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
       const u = await sb.from('unavailability').select('tech_id, day, note'); // fehlt die Tabelle noch, einfach leer
       const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()) };
+      const co = await sb.rpc('my_colleagues'); // wer am selben Tag mit im Einsatz ist (fehlt die Funktion: leer)
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [] };
     },
     async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
@@ -89,7 +94,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; }
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 const allDays = () => (S.plan ? S.plan.days : []);
 const allSlots = () => allDays().flatMap((d) => d.slots.map((s) => Object.assign({ day: d }, s)));
@@ -615,6 +620,107 @@ function wireTechCal(t) {
   }));
 }
 
+
+/* ---------------- Einsatz-Details (Techniker) ---------------- */
+const WD_L = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const longDate = (iso) => { const d = new Date(iso + 'T12:00:00'); return WD_L[d.getDay()] + ', ' + d.getDate() + '. ' + MON[d.getMonth()] + ' ' + d.getFullYear(); };
+const daysUntil = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(todayISO() + 'T12:00:00')) / 864e5);
+const untilTxt = (iso) => { const n = daysUntil(iso); return n === 0 ? 'heute' : n === 1 ? 'morgen' : n === 2 ? 'übermorgen' : n > 0 ? 'in ' + n + ' Tagen' : 'vorbei'; };
+const parseSpan = (z) => { const m = /(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})/.exec(z || ''); if (!m) return null; const a = +m[1] + m[2] / 60; let b = +m[3] + m[4] / 60; if (b <= a) b += 24; return [a, b]; };
+const hm = (h) => String(Math.floor(h) % 24).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0');
+const DONE_K = 'kom27-done';
+const doneGet = () => ls.get(DONE_K) || {};
+const isImportant = (l) => /probe|!|achtung|wichtig|signal|umbau|nach va|vor va|ggf|klärung/i.test(l);
+
+function colleaguesOf(s) {
+  const mine = S.asg[s.key]; const myId = mine && mine.tech_id;
+  if (S.admin) return allSlots().filter((x) => x.date === s.date && x.key !== s.key && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].tech_id !== myId && ['angefragt', 'zugesagt'].includes(S.asg[x.key].status))
+    .map((x) => ({ name: (techById(S.asg[x.key].tech_id) || {}).name || '?', status: S.asg[x.key].status, zeit: x.zeit, same: x.va === s.va }));
+  return (S.coll || []).filter((c) => c.slot_key.startsWith(s.date + '#')).map((c) => {
+    const x = allSlots().find((y) => y.key === c.slot_key) || {};
+    return { name: c.name, status: c.status, zeit: x.zeit, same: x.va === s.va };
+  });
+}
+
+function timeline(s) {
+  const det = s.det || {};
+  const rows = [['Dein Einsatz', s.zeit, 'tl-me'], ['Raum gebucht', det.buch, 'tl-b'], ['Veranstaltung', det.vazeit || s.day.vazeit, 'tl-va']].map(([l, z, c]) => [l, z, c, parseSpan(z)]).filter((r) => r[3]);
+  if (rows.length < 2) return '';
+  const lo = Math.floor(Math.min(...rows.map((r) => r[3][0]))); const hi = Math.ceil(Math.max(...rows.map((r) => r[3][1]))); const span = Math.max(hi - lo, 1);
+  const ticks = []; for (let h = lo; h <= hi; h += span > 10 ? 2 : 1) ticks.push(`<i style="left:${((h - lo) / span) * 100}%">${hm(h).slice(0, 2)}</i>`);
+  return `<div class="tl">${rows.map(([l, z, c, [a, b]]) => `<div class="tl-row"><span class="tl-l">${l}</span><div class="tl-track"><div class="tl-bar ${c}" style="left:${((a - lo) / span) * 100}%;width:${((b - a) / span) * 100}%"></div></div></div>`).join('')}
+    <div class="tl-row"><span class="tl-l"></span><div class="tl-ticks">${ticks.join('')}</div></div></div>`;
+}
+
+function equipHtml(s) {
+  const det = s.det || {};
+  let rooms = det.rooms && det.rooms.length ? det.rooms : null;
+  if (!rooms && s.day.info) rooms = s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; });
+  if (!rooms) return `<p class="muted">Für diesen Tag steht in der Excel noch nichts zum Aufbau.</p>`;
+  const done = doneGet()[s.key] || [];
+  return rooms.map(([room, text], ri) => {
+    let items = text.split('\n').map((x) => x.trim()).filter(Boolean);
+    if (items.length === 1 && items[0].split(',').length > 2) items = items[0].split(',').map((x) => x.trim()).filter(Boolean);
+    return `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="check">${items.map((it, ii) => { const id = ri + '.' + ii; const on = done.includes(id);
+      return `<li class="${on ? 'done' : ''} ${isImportant(it) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${id}" ${on ? 'checked' : ''}><span>${esc(it)}</span></label></li>`; }).join('')}</ul></div>`;
+  }).join('');
+}
+
+function openJob(key, list) {
+  const s = allSlots().find((x) => x.key === key); if (!s) return;
+  const a = S.asg[s.key] || {}; const det = s.det || {};
+  const grp = s.group ? allSlots().filter((x) => x.group === s.group && S.asg[x.key] && S.asg[x.key].tech_id === a.tech_id) : [s];
+  const gi = grp.findIndex((x) => x.key === s.key);
+  const coll = colleaguesOf(s);
+  const status = a.status || 'geplant';
+  const stTxt = { angefragt: 'Wartet auf deine Antwort', zugesagt: 'Zugesagt ✓', abgesagt: 'Abgesagt', geplant: 'Geplant' }[status];
+  const fact = (lbl, val, big) => val ? `<div class="fact ${big ? 'big' : ''}"><small>${lbl}</small><b>${esc(niceTime(val))}</b></div>` : '';
+  const old = !s.det;
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Einsatz-Details">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><span class="pill st-${status}">${stTxt}</span></div>
+    <div class="sh-head">
+      <div class="sh-date">${dateBox(s.date)}<div><h2>${esc(longDate(s.date))}</h2><span class="until">${untilTxt(s.date)}</span></div></div>
+      <div class="sh-va">${esc(s.va || 'Einsatz')}${s.label && s.label.replace(/\s/g, '') !== (s.va || '') ? ' · ' + esc(s.label) : ''}</div>
+      ${grp.length > 1 ? `<div class="sh-days"><span>Tag ${gi + 1} von ${grp.length}</span>${grp.map((x) => `<button class="chip ${x.key === s.key ? 'on' : ''}" data-jump="${esc(x.key)}">${shortDate(x.date)}</button>`).join('')}</div>` : ''}
+    </div>
+    <div class="facts">${fact('Deine Einsatzzeit', s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
+    ${timeline(s)}
+    ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
+    <h3>🛠 Das baust du auf</h3>
+    ${equipHtml(s)}
+    ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
+    ${(det.extras || []).length ? `<h3>ℹ️ Weitere Infos</h3><dl class="extras">${det.extras.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>` : ''}
+    <h3>👥 Mit dir im Haus</h3>
+    ${coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">Nach aktuellem Stand bist du allein eingeteilt.</p>`}
+    <h3>📍 Ort</h3>
+    <p>KOM27, Mauerstraße, Berlin · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('KOM27 Mauerstraße Berlin')}" target="_blank" rel="noopener">Route öffnen</a></p>
+    <div class="sh-actions">
+      ${status === 'angefragt' && !S.admin ? `<button class="big yes" data-ans="zugesagt">✓ Ich kann</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>` : ''}
+      ${status === 'zugesagt' ? `<button class="big ghost" data-ics>📅 In meinen Kalender</button>` : ''}
+    </div>
+  </div></div>`;
+  const old_ = $('#sheet'); if (old_) old_.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.body.classList.add('noscroll');
+  const box = $('#sheet');
+  const close = () => { box.remove(); document.body.classList.remove('noscroll'); document.removeEventListener('keydown', esc_); };
+  const esc_ = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc_);
+  box.onclick = (e) => { if (e.target === box) close(); };
+  box.querySelector('[data-close]').onclick = close;
+  box.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => openJob(b.dataset.jump)));
+  box.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => {
+    const all = doneGet(); const cur = new Set(all[s.key] || []); c.checked ? cur.add(c.dataset.chk) : cur.delete(c.dataset.chk);
+    all[s.key] = [...cur]; ls.set(DONE_K, all); c.closest('li').classList.toggle('done', c.checked);
+  }));
+  const ics = box.querySelector('[data-ics]'); if (ics) ics.onclick = () => icsFor([s], myTech() || { name: 'KOM27' });
+  box.querySelectorAll('[data-ans]').forEach((b) => (b.onclick = async () => {
+    let note = '';
+    if (b.dataset.ans === 'abgesagt') { const r = prompt('Kurzer Grund (optional):', ''); if (r === null) return; note = r.trim(); }
+    close(); if (window.__answer) window.__answer([s.key], b.dataset.ans, note);
+  }));
+}
+
 function renderTech() {
   const t = myTech();
   const today = todayISO();
@@ -639,10 +745,10 @@ function renderTech() {
       <div class="jc-head"><span class="jc-va">${esc(g.va || 'Einsatz')}</span>${multi ? `<span class="jc-badge">${g.slots.length} Tage hintereinander</span>` : ''}</div>
       <div class="jc-where">${where(s0)}</div>
       <div class="jc-days">${g.slots.map((s) => `<div class="jc-day" data-k="${esc(s.key)}">${dateBox(s.date)}
-        <div class="jc-time"><b>${esc(niceTime(s.zeit))}</b><small>deine Einsatzzeit</small></div>
+        <button class="jc-time jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))}</b><small>deine Einsatzzeit${(s.det && s.det.vazeit) || s.day.vazeit ? ' · VA ' + esc((s.det && s.det.vazeit) || s.day.vazeit) : ''}</small><span class="jc-more">Details ›</span></button>
         <div class="jc-one hidden"><button class="mini yes" data-one="zugesagt" data-k="${esc(s.key)}" aria-label="Kann ich">✓</button><button class="mini no" data-one="abgesagt" data-k="${esc(s.key)}" aria-label="Kann nicht">✗</button></div>
       </div>`).join('')}</div>
-      ${s0.day.info ? `<details class="jc-equip"><summary>Was wird gebraucht?</summary><p>${esc(s0.day.info)}</p></details>` : ''}
+      <button class="jc-detail" data-open="${esc(s0.key)}">🛠 Was baue ich auf? · Zeiten & Details ›</button>
       <div class="jc-actions">
         <button class="big yes" data-all="zugesagt">✓ Ich kann${multi ? ` – alle ${g.slots.length} Tage` : ''}</button>
         <button class="big no" data-askno>✗ Kann nicht</button>
@@ -651,7 +757,7 @@ function renderTech() {
       ${multi ? `<button class="linkbtn" data-split>Ich kann nur an einzelnen Tagen</button>` : ''}
     </article>`;
   };
-  const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<div class="ml-txt"><b>${esc(niceTime(s.zeit))}</b><small>${esc(s.va || '')}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}</small></div>
+  const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} <span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}</small><span class="jc-more">Details ›</span></button>
       ${kind === 'yes' ? `<button class="linkbtn danger" data-change="abgesagt" data-k="${esc(s.key)}">doch absagen</button>` : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
   m.innerHTML = `
@@ -680,6 +786,8 @@ function renderTech() {
       await reload(); toast(status === 'zugesagt' ? 'Danke! Zusage ist gespeichert ✓' : 'Absage ist gespeichert'); renderTech();
     } catch (e) { toast(e.message); }
   };
+  window.__answer = answer;
+  m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
   m.querySelectorAll('.job-card').forEach((c) => {
     const keys = [...c.querySelectorAll('.jc-day')].map((d) => d.dataset.k);
     const reason = c.querySelector('.jc-reason'); const acts = c.querySelector(':scope > .jc-actions');

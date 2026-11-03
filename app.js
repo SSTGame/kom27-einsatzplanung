@@ -15,7 +15,9 @@ const nowISO = () => new Date().toISOString();
 const STATUS = ['geplant', 'angefragt', 'zugesagt', 'abgesagt'];
 const ST_LABEL = { geplant: 'geplant', angefragt: 'angefragt', zugesagt: 'zugesagt ✓', abgesagt: 'abgesagt ✗' };
 
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2600); }
+function toast(msg) {
+  if (/row-level security|permission denied|JWT/i.test(String(msg))) msg = 'Keine Berechtigung – vermutlich wurde in einem anderen Tab ein anderes Konto angemeldet. Bitte Seite neu laden und als Master anmelden.';
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), msg.length > 80 ? 6000 : 2600); }
 const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
 
 /* ---------------- Datenschicht ---------------- */
@@ -431,5 +433,11 @@ async function boot() {
     S.admin ? renderMaster() : renderTech();
   } catch (e) { console.error(e); renderLogin(e.message); }
 }
-if (!DEMO) store.sb.auth.onAuthStateChange((ev) => { if (ev === 'PASSWORD_RECOVERY') { S.recovery = true; renderLogin(); } });
+if (!DEMO) store.sb.auth.onAuthStateChange((ev, session) => {
+  if (ev === 'PASSWORD_RECOVERY') { S.recovery = true; renderLogin(); return; }
+  const em = session && session.user ? session.user.email.toLowerCase() : null;
+  if (S.user && em !== S.user.email) { S.user = null; location.reload(); } // in anderem Tab ab-/umgemeldet
+});
+// Anmeldung in einem anderen Tab desselben Browsers → diese Seite neu laden
+window.addEventListener('storage', (e) => { if (e.key && e.key.startsWith('sb-') && e.key.endsWith('-auth-token') && S.user) location.reload(); });
 boot();

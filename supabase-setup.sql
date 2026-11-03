@@ -80,3 +80,17 @@ create policy asg_admin on assignments for all to authenticated using (is_admin(
 
 -- >>> HIER deine Login-E-Mail als Master eintragen <<<
 insert into admins (email) values ('DEINE-EMAIL@BEISPIEL.DE') on conflict do nothing;
+
+-- Abwesenheiten: Techniker tragen selbst ein, wann sie nicht können
+create table if not exists unavailability (
+  tech_id uuid references technicians(id) on delete cascade,
+  day date not null,
+  note text default '',
+  created_at timestamptz default now(),
+  primary key (tech_id, day)
+);
+alter table unavailability enable row level security;
+drop policy if exists unav_read on unavailability;
+create policy unav_read on unavailability for select to authenticated using (is_admin() or tech_id = my_tech_id());
+drop policy if exists unav_write on unavailability;
+create policy unav_write on unavailability for all to authenticated using (is_admin() or tech_id = my_tech_id()) with check (is_admin() or tech_id = my_tech_id());

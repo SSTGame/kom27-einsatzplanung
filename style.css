@@ -299,3 +299,20 @@ h2.sec .linkbtn { text-transform: none; letter-spacing: 0; }
 .live.on { color: var(--st-zugesagt); }
 .live.on i { background: var(--st-zugesagt); animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--st-zugesagt) 60%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* Zeitraum eintragen */
+.cal-range { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); }
+.cal-range summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--accent); }
+.cal-range[open] summary { margin-bottom: 10px; }
+.range-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.range-row label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.cal-range input { width: 100%; padding: 10px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font-size: 15px; }
+.cal-range input[type=text] { margin: 10px 0; }
+.cal-range .big { width: 100%; font-size: 15px; }
+.cal-sum .rline { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
+.cal-sum .rline:first-of-type { margin-top: 6px; }
+.cal-sum .rline small { color: var(--muted); margin-left: 4px; }
+.cal-sum .rline .linkbtn { margin: 0; font-size: 13px; }
+.range-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.range-row label, .range-row input { min-width: 0; }
+.range-row input { -webkit-appearance: none; appearance: none; }

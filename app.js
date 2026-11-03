@@ -31,7 +31,9 @@ const DemoStore = {
   async reset() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
   async signOut() { ls.del(this.U); },
   async isAdmin(email) { return email === CFG.demoAdmin; },
-  async loadAll() { const d = this.d(); return { plan: d.plan, techs: d.techs || [], asg: d.asg || {} }; },
+  async loadAll() { const d = this.d(); return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [] }; },
+  async setUnav(tech_id, day, note) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '' }); this.w(d); },
+  async clearUnav(tech_id, day) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); this.w(d); },
   async savePlan(plan) { const d = this.d(); d.plan = plan; this.w(d); },
   async saveTech(t) { const d = this.d(); const i = d.techs.findIndex((x) => x.id === t.id); if (i >= 0) d.techs[i] = t; else d.techs.push(t); this.w(d); return t; },
   async deleteTech(id) { const d = this.d(); d.techs = d.techs.filter((t) => t.id !== id); Object.values(d.asg).forEach((a) => { if (a.tech_id === id) delete d.asg[a.slot_key]; }); this.w(d); },
@@ -61,8 +63,11 @@ function makeSupabaseStore() {
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg };
+      const u = await sb.from('unavailability').select('tech_id, day, note'); // fehlt die Tabelle noch, einfach leer
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data };
     },
+    async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
+    async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
     async savePlan(plan) { chk(await sb.from('plan').upsert({ id: 1, data: plan, imported_at: plan.importedAt })); },
     async saveTech(t) { return chk(await sb.from('technicians').upsert(Object.assign({}, t, { email: t.email || null })).select().single()); },
     async deleteTech(id) { chk(await sb.from('technicians').delete().eq('id', id)); },
@@ -74,9 +79,10 @@ function makeSupabaseStore() {
 const store = DEMO ? DemoStore : makeSupabaseStore();
 
 /* ---------------- Zustand ---------------- */
-const S = { user: null, admin: false, plan: null, techs: [], asg: {}, tab: 'plan', month: '', onlyOpen: false, recovery: false };
+const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; }
+const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 const allDays = () => (S.plan ? S.plan.days : []);
 const allSlots = () => allDays().flatMap((d) => d.slots.map((s) => Object.assign({ day: d }, s)));
 const techById = (id) => S.techs.find((t) => t.id === id);
@@ -105,7 +111,7 @@ function autoAssign() {
   const mark = (date, id) => { (busy[date] = busy[date] || new Set()).add(id); load[id] = (load[id] || 0) + 1; };
   slots.forEach((s) => { const a = S.asg[s.key]; if (a && a.tech_id && a.status !== 'abgesagt') mark(s.date, a.tech_id); });
   const declined = (s) => new Set((cur(s.key) || {}).declined || []);
-  const free = (s, id) => !(busy[s.date] && busy[s.date].has(id)) && !declined(s).has(id);
+  const free = (s, id) => !(busy[s.date] && busy[s.date].has(id)) && !declined(s).has(id) && !unavOf(id, s.date);
   const set = (s, id) => { const prev = S.asg[s.key] || {}; changes[s.key] = { slot_key: s.key, tech_id: id, status: 'geplant', note: '', declined: prev.declined || [], requested_at: null, updated_at: nowISO() }; mark(s.date, id); };
   const byLoad = () => active.map((t) => t.id).sort((a, b) => (load[a] || 0) - (load[b] || 0));
 
@@ -254,13 +260,13 @@ function gridHtml(days, today) {
     return `<td class="${d.free ? 'we' : ''}"><button class="need ${f >= n ? 'full' : 'miss'}" data-jump="${d.date}" title="${f} von ${n} Plätzen besetzt">${f}/${n}</button></td>`;
   }).join('');
   const rowsH = techs.map((t) => `<tr><th class="name">${esc(t.name)}</th>${days.map((d) => {
-    const e = (map[t.id] || {})[d.date];
-    if (!e) return `<td class="${d.free ? 'we' : ''}"></td>`;
+    const e = (map[t.id] || {})[d.date]; const u = unavOf(t.id, d.date);
+    if (!e) return `<td class="${d.free ? 'we' : ''}">${u ? `<span class="gblock" title="${esc('Kann nicht' + (u.note ? ': ' + u.note : ''))}">✗</span>` : ''}</td>`;
     const worst = ['abgesagt', 'geplant', 'angefragt', 'zugesagt'].find((st) => e.some((x) => x.a.status === st));
     const tip = e.map((x) => `${x.s.zeit || ''} ${x.s.va || ''} – ${ST_LABEL[x.a.status]}`).join('\n');
-    return `<td class="${d.free ? 'we' : ''}"><button class="gcell ${worst} ${e.length > 1 ? 'dbl' : ''}" data-jump="${d.date}" title="${esc(tip)}">${esc((e[0].s.zeit || '•').slice(0, 2))}${e.length > 1 ? '²' : ''}</button></td>`;
+    return `<td class="${d.free ? 'we' : ''}"><button class="gcell ${worst} ${e.length > 1 || u ? 'dbl' : ''}" data-jump="${d.date}" title="${esc(tip + (u ? '\n⛔ hat sich für diesen Tag abgemeldet' : ''))}">${esc((e[0].s.zeit || '•').slice(0, 2))}${e.length > 1 ? '²' : ''}</button></td>`;
   }).join('')}<td class="sum">${sum[t.id] || 0}</td></tr>`).join('');
-  return `<div class="legend"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant <span class="lg miss"></span>Platz offen · Zahl = Arbeitsbeginn · Klick = zum Tag springen</div>
+  return `<div class="legend"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant <span class="lg miss"></span>Platz offen <span class="lg blocked"></span>kann nicht (vom Techniker eingetragen) · Zahl = Arbeitsbeginn · Klick = zum Tag springen</div>
     <div class="card gridwrap"><table class="grid"><thead><tr><th class="name">Techniker</th>${th}<th class="sum">Σ</th></tr></thead>
     <tbody><tr class="needrow"><th class="name">Besetzt / Bedarf</th>${needRow}<td class="sum"></td></tr>${rowsH || `<tr><td colspan="${days.length + 2}" class="empty-msg">Noch keine Techniker angelegt.</td></tr>`}</tbody></table></div>`;
 }
@@ -285,12 +291,15 @@ function renderPlan() {
     const list = S.techs.filter((t) => t.active !== false || t.id === sel);
     const busy = (t) => busyOn[slot.date] && busyOn[slot.date][t.id] && busyOn[slot.date][t.id] !== slot.key;
     const opt = (t, suffix) => `<option value="${t.id}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}${t.id === sel ? '' : suffix}</option>`;
-    const free = list.filter((t) => !busy(t) && !dec.has(t.id)).sort((a, b) => (loadM[a.id] || 0) - (loadM[b.id] || 0));
-    const taken = list.filter((t) => busy(t) && !dec.has(t.id));
+    const away = (t) => !!unavOf(t.id, slot.date);
+    const free = list.filter((t) => !busy(t) && !dec.has(t.id) && !away(t)).sort((a, b) => (loadM[a.id] || 0) - (loadM[b.id] || 0));
+    const taken = list.filter((t) => busy(t) && !dec.has(t.id) && !away(t));
+    const off = list.filter((t) => away(t) && !dec.has(t.id));
     const no = list.filter((t) => dec.has(t.id));
     return `<option value="">– unbesetzt –</option>`
       + (free.length ? `<optgroup label="Frei an diesem Tag (wenigste Einsätze zuerst)">${free.map((t) => opt(t, `  · ${loadM[t.id] || 0} im Monat`)).join('')}</optgroup>` : '')
       + (taken.length ? `<optgroup label="Schon eingeteilt an diesem Tag">${taken.map((t) => opt(t, '  ⚠ doppelt')).join('')}</optgroup>` : '')
+      + (off.length ? `<optgroup label="Hat sich für diesen Tag abgemeldet">${off.map((t) => opt(t, '  ⛔ kann nicht' + (unavOf(t.id, slot.date).note ? ' (' + unavOf(t.id, slot.date).note + ')' : ''))).join('')}</optgroup>` : '')
       + (no.length ? `<optgroup label="Hat für diesen Einsatz abgesagt">${no.map((t) => opt(t, '  ✗ abgesagt')).join('')}</optgroup>` : '');
   };
 
@@ -335,6 +344,7 @@ function renderPlan() {
             <div class="slot-foot"><span class="time">${esc(s.zeit || 'Zeit offen')}</span>
               ${t ? `<button class="pill ${a.status}" data-cycle="${esc(s.key)}" title="Klicken zum Ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''}</button>` : '<span class="pill leer">unbesetzt</span>'}</div>
             ${dbl ? '<div class="hint warn">⚠ an diesem Tag doppelt eingeteilt</div>' : ''}
+            ${t && unavOf(t.id, d.date) ? `<div class="hint warn">⛔ ${esc(t.name.split(' ')[0])} hat sich abgemeldet${unavOf(t.id, d.date).note ? ': ' + esc(unavOf(t.id, d.date).note) : ''}</div>` : ''}
             ${excelDiff ? `<div class="hint" title="So steht es in der KOM27-Excel">Excel: ${esc(s.excelName)}</div>` : ''}
           </div>`;
         }).join('')}</div>
@@ -475,43 +485,147 @@ function renderTechs() {
 }
 
 /* ---------------- Render: Techniker ---------------- */
+const MON_S = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const dateBox = (iso) => { const d = new Date(iso + 'T12:00:00'); return `<div class="dbox"><span>${WD[d.getDay()]}</span><b>${d.getDate()}</b><span>${MON_S[d.getMonth()]}</span></div>`; };
+const niceTime = (z) => (z ? z.replace(/\s*-\s*/, ' – ') + ' Uhr' : 'Zeit folgt');
+
+function icsFor(slots, t) {
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const stamp = (iso, hm) => iso.replace(/-/g, '') + 'T' + (hm || '0800').replace(':', '').padEnd(4, '0') + '00';
+  const ev = slots.map((s) => {
+    const m = /(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})/.exec(s.zeit || '');
+    const st = m ? pad2(m[1]) + m[2] : '0800'; const en = m ? pad2(m[3]) + m[4] : '1700';
+    return ['BEGIN:VEVENT', 'UID:' + s.key.replace(/[^\w-]/g, '') + '@kom27-einsatzplanung', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z',
+      'DTSTART:' + stamp(s.date, st), 'DTEND:' + stamp(s.date, en), 'SUMMARY:KOM27 Einsatz ' + (s.va || ''), 'LOCATION:KOM27 Mauerstraße\\, Berlin',
+      'DESCRIPTION:' + ('Einsatzzeit ' + (s.zeit || '') + (s.day.vazeit ? ' · VA ' + s.day.vazeit : '')).replace(/,/g, '\\,'), 'END:VEVENT'].join('\r\n');
+  });
+  const blob = new Blob(['BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//KOM27 Einsatzplanung//DE\r\n' + ev.join('\r\n') + '\r\nEND:VCALENDAR\r\n'], { type: 'text/calendar' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'KOM27-Einsaetze-' + t.name.split(' ')[0] + '.ics'; document.body.appendChild(a); a.click(); a.remove();
+}
+
+function techCalHtml(t) {
+  const today = todayISO();
+  if (!S.calMonth) S.calMonth = today.slice(0, 7);
+  const [y, mo] = S.calMonth.split('-').map(Number);
+  const first = new Date(y, mo - 1, 1); const offset = (first.getDay() + 6) % 7; const n = new Date(y, mo, 0).getDate();
+  const jobs = {}; allSlots().forEach((s) => { const a = S.asg[s.key]; if (a && a.tech_id === t.id && (a.status === 'zugesagt' || a.status === 'angefragt')) jobs[s.date] = a.status; });
+  const mine = S.unav.filter((u) => u.tech_id === t.id && u.day.startsWith(S.calMonth)).sort((a, b) => a.day.localeCompare(b.day));
+  let cells = '';
+  for (let i = 0; i < offset; i++) cells += '<span></span>';
+  for (let d = 1; d <= n; d++) {
+    const iso = S.calMonth + '-' + String(d).padStart(2, '0'); const wd = (offset + d - 1) % 7;
+    const u = unavOf(t.id, iso); const j = jobs[iso];
+    cells += `<button class="cday ${u ? 'off' : ''} ${j ? 'job-' + j : ''} ${wd > 4 ? 'we' : ''} ${iso === today ? 'today' : ''}" data-day="${iso}" ${iso < today ? 'disabled' : ''} title="${u ? esc('Kann nicht' + (u.note ? ': ' + u.note : '')) : j === 'zugesagt' ? 'Einsatz zugesagt' : j ? 'Anfrage offen' : 'antippen = kann nicht'}">${d}</button>`;
+  }
+  const curIdx = (y * 12 + mo) - (Number(today.slice(0, 4)) * 12 + Number(today.slice(5, 7)));
+  return `<div class="calcard" id="cal">
+    <div class="cal-head"><button class="btn small" data-cal="-1" ${curIdx <= 0 ? 'disabled' : ''} aria-label="Vormonat">‹</button><b>${MON[mo - 1]} ${y}</b><button class="btn small" data-cal="1" ${curIdx >= 5 ? 'disabled' : ''} aria-label="Nächster Monat">›</button></div>
+    <div class="cal-grid"><i>Mo</i><i>Di</i><i>Mi</i><i>Do</i><i>Fr</i><i>Sa</i><i>So</i>${cells}</div>
+    <div class="cal-note"><input type="text" id="unavNote" placeholder="Grund (optional), z. B. Urlaub – gilt für die nächsten angetippten Tage" value="${esc(S.unavNote || '')}"></div>
+    <div class="cal-legend"><span class="lgd off"></span>kann nicht <span class="lgd l-ok"></span>Einsatz zugesagt <span class="lgd l-ask"></span>Anfrage offen</div>
+    <div class="cal-sum">${mine.length ? `Eingetragen: ${mine.map((u) => `<b>${Number(u.day.slice(8, 10))}.</b>${u.note ? ' (' + esc(u.note) + ')' : ''}`).join(', ')}` : 'Noch keine Tage eingetragen.'}</div>
+  </div>`;
+}
+
+function wireTechCal(t) {
+  const box = $('#cal'); if (!box) return;
+  const redraw = () => { box.outerHTML = techCalHtml(t); wireTechCal(t); };
+  box.querySelectorAll('[data-cal]').forEach((b) => (b.onclick = () => {
+    const [y, m] = S.calMonth.split('-').map(Number); const d = new Date(y, m - 1 + Number(b.dataset.cal), 1);
+    S.calMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); redraw();
+  }));
+  $('#unavNote').oninput = (e) => (S.unavNote = e.target.value);
+  box.querySelectorAll('[data-day]').forEach((b) => (b.onclick = async () => {
+    const day = b.dataset.day; const had = unavOf(t.id, day);
+    if (!had && b.classList.contains('job-zugesagt') && !confirm('An diesem Tag hast du schon einen Einsatz zugesagt. Trotzdem als „kann nicht“ eintragen? Bitte sag dann auch ' + CFG.senderName + ' Bescheid.')) return;
+    b.disabled = true;
+    try {
+      if (had) { await store.clearUnav(t.id, day); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && u.day === day)); }
+      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note); S.unav.push({ tech_id: t.id, day, note }); }
+      redraw();
+    } catch (e) { b.disabled = false; toast(e.message); }
+  }));
+}
+
 function renderTech() {
   const t = myTech();
   const today = todayISO();
   $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
-  if (!t) { m.innerHTML = `<div class="card req"><h3>Noch nicht freigeschaltet</h3><p>Dein Login (${esc(S.user.email)}) ist noch keinem Techniker zugeordnet. Bitte gib ${esc(CFG.senderName)} Bescheid.</p></div>`; return; }
+  if (!t) { m.innerHTML = `<section class="hello"><h1>Fast geschafft</h1><p>Dein Login <b>${esc(S.user.email)}</b> ist noch keinem Techniker zugeordnet. Bitte gib ${esc(CFG.senderName)} kurz Bescheid, dann siehst du hier deine Einsätze.</p></section>`; return; }
+
   const sl = slotsOfTech(t.id, today).filter((s) => S.asg[s.key].status !== 'geplant');
+  const st = (s) => S.asg[s.key].status;
   // nach Veranstaltung gruppieren
-  const groups = []; const idx = {};
-  sl.forEach((s) => { const g = s.group || s.key; if (!(g in idx)) { idx[g] = groups.length; groups.push({ id: g, va: s.va, slots: [] }); } groups[idx[g]].slots.push(s); });
-  const open = sl.filter((s) => S.asg[s.key].status !== 'zugesagt' && S.asg[s.key].status !== 'abgesagt').length;
-  m.innerHTML = `<h2 style="margin:4px 0 2px">Hallo ${esc(t.name.split(' ')[0])}</h2>
-  <p class="muted" style="margin-top:0">${open ? `Bitte gib bei ${open} ${open > 1 ? 'Einsätzen' : 'Einsatz'} Bescheid, ob du kannst.` : 'Alles beantwortet – danke!'}</p>
-  <div class="card">${groups.map((g) => {
-    const multi = g.slots.length > 1;
-    return `<div class="job">
-      <h3>${esc(g.va || 'Einsatz')}${multi ? ` <span class="group-tag">· ${g.slots.length} Tage, bitte möglichst alle</span>` : ''}</h3>
-      ${g.slots[0].day.info ? `<div class="note">${esc(g.slots[0].day.info.slice(0, 220))}</div>` : ''}
-      ${g.slots.map((s) => { const a = S.asg[s.key]; return `<div class="line">
-        <span class="when">${fmtDate(s.date, true)}<br><span class="note">${esc(s.zeit || 'Zeit folgt')}${s.day.vazeit ? ' · VA ' + esc(s.day.vazeit) : ''}</span></span>
-        <span class="pill ${a.status === 'geplant' ? 'angefragt' : a.status}" style="cursor:default">${a.status === 'zugesagt' ? 'zugesagt ✓' : a.status === 'abgesagt' ? 'abgesagt ✗' : 'offen'}</span>
-        <input class="comment" data-c="${esc(s.key)}" placeholder="Kommentar (optional)" value="${esc(a.note || '')}">
-        <button class="btn ok small" data-ans="zugesagt" data-k="${esc(s.key)}">Kann ich</button>
-        <button class="btn no small" data-ans="abgesagt" data-k="${esc(s.key)}">Kann nicht</button>
-      </div>`; }).join('')}
-      ${multi ? `<div class="bar" style="margin:8px 0 0"><button class="btn ok" data-all="${esc(g.slots.map((s) => s.key).join('|'))}">Alle ${g.slots.length} Tage zusagen</button></div>` : ''}
-    </div>`;
-  }).join('') || '<div class="job muted">Aktuell keine Einsätze für dich.</div>'}</div>`;
-  const answer = async (keys, status) => {
+  const groupsOf = (list) => { const out = []; const idx = {}; list.forEach((s) => { const g = s.group || s.key; if (!(g in idx)) { idx[g] = out.length; out.push({ id: g, va: s.va, slots: [] }); } out[idx[g]].slots.push(s); }); return out; };
+  const open = groupsOf(sl.filter((s) => st(s) === 'angefragt'));
+  const yes = sl.filter((s) => st(s) === 'zugesagt');
+  const no = sl.filter((s) => st(s) === 'abgesagt');
+  const nOpen = open.reduce((a, g) => a + g.slots.length, 0);
+
+  const where = (s) => ['KOM27 Mauerstraße', roomsOf(s.day.info), s.day.vazeit ? 'Veranstaltung ' + s.day.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ');
+  const card = (g) => {
+    const multi = g.slots.length > 1; const s0 = g.slots[0];
+    return `<article class="job-card" data-g="${esc(g.id)}">
+      <div class="jc-head"><span class="jc-va">${esc(g.va || 'Einsatz')}</span>${multi ? `<span class="jc-badge">${g.slots.length} Tage hintereinander</span>` : ''}</div>
+      <div class="jc-where">${where(s0)}</div>
+      <div class="jc-days">${g.slots.map((s) => `<div class="jc-day" data-k="${esc(s.key)}">${dateBox(s.date)}
+        <div class="jc-time"><b>${esc(niceTime(s.zeit))}</b><small>deine Einsatzzeit</small></div>
+        <div class="jc-one hidden"><button class="mini yes" data-one="zugesagt" data-k="${esc(s.key)}" aria-label="Kann ich">✓</button><button class="mini no" data-one="abgesagt" data-k="${esc(s.key)}" aria-label="Kann nicht">✗</button></div>
+      </div>`).join('')}</div>
+      ${s0.day.info ? `<details class="jc-equip"><summary>Was wird gebraucht?</summary><p>${esc(s0.day.info)}</p></details>` : ''}
+      <div class="jc-actions">
+        <button class="big yes" data-all="zugesagt">✓ Ich kann${multi ? ` – alle ${g.slots.length} Tage` : ''}</button>
+        <button class="big no" data-askno>✗ Kann nicht</button>
+      </div>
+      <div class="jc-reason hidden"><label>Kurzer Grund (optional)</label><input type="text" placeholder="z. B. Urlaub, anderer Job …"><div class="jc-actions"><button class="big no solid" data-all="abgesagt">Absage senden</button><button class="big ghost" data-cancel>Zurück</button></div></div>
+      ${multi ? `<button class="linkbtn" data-split>Ich kann nur an einzelnen Tagen</button>` : ''}
+    </article>`;
+  };
+  const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<div class="ml-txt"><b>${esc(niceTime(s.zeit))}</b><small>${esc(s.va || '')}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}</small></div>
+      ${kind === 'yes' ? `<button class="linkbtn danger" data-change="abgesagt" data-k="${esc(s.key)}">doch absagen</button>` : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
+
+  m.innerHTML = `
+    <section class="hello">
+      <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
+      <p>Medientechnik im KOM27, Mauerstraße</p>
+      <div class="sumrow">
+        <div class="sumbox ${nOpen ? 'warn' : ''}"><b>${nOpen}</b><span>${nOpen === 1 ? 'Anfrage wartet' : 'Anfragen warten'} auf dich</span></div>
+        <div class="sumbox ok"><b>${yes.length}</b><span>${yes.length === 1 ? 'zugesagter Einsatz' : 'zugesagte Einsätze'}</span></div>
+      </div>
+    </section>
+    ${open.length ? `<h2 class="sec">Bitte gib Bescheid</h2>${open.map(card).join('')}` : `<div class="allgood">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per E-Mail.</small></div>`}
+    <h2 class="sec">Wann kannst du nicht?</h2>
+    <p class="sec-help">Tippe die Tage an, an denen du nicht verfügbar bist. Nochmal tippen nimmt es wieder raus. ${esc(CFG.senderName)} sieht das sofort und plant dich dann nicht ein.</p>
+    ${techCalHtml(t)}
+    ${yes.length ? `<h2 class="sec">Deine nächsten Einsätze <button class="linkbtn" id="ics">📅 in meinen Kalender</button></h2><div class="mini-list">${yes.map((s) => line(s, 'yes')).join('')}</div>` : ''}
+    ${no.length ? `<details class="nolist"><summary>Abgesagt (${no.length})</summary><div class="mini-list">${no.map((s) => line(s, 'no')).join('')}</div></details>` : ''}
+    <p class="note center">Fragen? Einfach ${esc(CFG.senderName)} anrufen oder auf die Anfrage-Mail antworten.</p>`;
+
+  const answer = async (keys, status, note) => {
     try {
-      for (const k of keys) { const note = (m.querySelector(`[data-c="${CSS.escape(k)}"]`) || {}).value || ''; await store.respond(S.user.email, k, status, note); }
-      await reload(); toast(status === 'zugesagt' ? 'Danke für die Zusage!' : 'Absage gespeichert'); renderTech();
+      for (const k of keys) await store.respond(S.user.email, k, status, note || '');
+      await reload(); toast(status === 'zugesagt' ? 'Danke! Zusage ist gespeichert ✓' : 'Absage ist gespeichert'); renderTech();
     } catch (e) { toast(e.message); }
   };
-  m.querySelectorAll('[data-ans]').forEach((b) => (b.onclick = () => answer([b.dataset.k], b.dataset.ans)));
-  m.querySelectorAll('[data-all]').forEach((b) => (b.onclick = () => answer(b.dataset.all.split('|'), 'zugesagt')));
+  m.querySelectorAll('.job-card').forEach((c) => {
+    const keys = [...c.querySelectorAll('.jc-day')].map((d) => d.dataset.k);
+    const reason = c.querySelector('.jc-reason'); const acts = c.querySelector(':scope > .jc-actions');
+    c.querySelector('[data-all="zugesagt"]').onclick = () => answer(keys, 'zugesagt');
+    c.querySelector('[data-askno]').onclick = () => { acts.classList.add('hidden'); reason.classList.remove('hidden'); reason.querySelector('input').focus(); };
+    c.querySelector('[data-cancel]').onclick = () => { reason.classList.add('hidden'); acts.classList.remove('hidden'); };
+    reason.querySelector('[data-all="abgesagt"]').onclick = () => answer(keys, 'abgesagt', reason.querySelector('input').value.trim());
+    const split = c.querySelector('[data-split]');
+    if (split) split.onclick = () => { c.querySelectorAll('.jc-one').forEach((x) => x.classList.remove('hidden')); acts.classList.add('hidden'); split.classList.add('hidden'); };
+    c.querySelectorAll('[data-one]').forEach((b) => (b.onclick = () => answer([b.dataset.k], b.dataset.one)));
+  });
+  m.querySelectorAll('[data-change]').forEach((b) => (b.onclick = () => {
+    if (b.dataset.change === 'abgesagt' && !confirm('Diesen Einsatz wirklich absagen?')) return;
+    answer([b.dataset.k], b.dataset.change);
+  }));
+  if ($('#ics')) $('#ics').onclick = () => icsFor(yes, t);
+  wireTechCal(t);
 }
 
 /* ---------------- Start ---------------- */

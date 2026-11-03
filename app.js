@@ -137,7 +137,7 @@ function dataSig() {
   const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '')).sort().join('|');
   const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases, x.manager_email, x.company].join(',')).join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
-  return [a, u, t, o, S.plan ? S.plan.importedAt : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
+  return [a, u, t, o, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
 }
 // neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
 function paint(anchorSel) {
@@ -192,12 +192,76 @@ async function offerSlots(keys, anchorSel) {
   toast(`${keys.length === 1 ? 'Einsatz' : keys.length + ' Einsätze'} ausgeschrieben – Push an alle mit 🔔`);
 }
 
+/* ---------------- Tage / Plätze von Hand entfernen ---------------- */
+// Entfernte Einträge stehen in plan.removed und werden bei jedem neuen Einlesen wieder herausgenommen.
+const rmCount = (p) => (p && p.removed ? p.removed.days.length + p.removed.slots.length : 0);
+function applyRemovals(plan, rem) {
+  const rd = new Set(((rem && rem.days) || []).map((x) => x.date)); const rs = new Set(((rem && rem.slots) || []).map((x) => x.key));
+  const out = { days: [], slots: [] };
+  plan.days = plan.days.filter((d) => { if (rd.has(d.date)) { out.days.push({ date: d.date, day: d }); return false; } return true; });
+  plan.days.forEach((d) => { d.slots = d.slots.filter((s) => { if (rs.has(s.key)) { out.slots.push({ key: s.key, date: d.date, slot: s }); return false; } return true; }); });
+  plan.removed = out; return plan;
+}
+async function removeFromPlan(kind, id) {
+  const p = JSON.parse(JSON.stringify(S.plan)); const rem = p.removed || { days: [], slots: [] };
+  let keys = []; let what = '';
+  if (kind === 'day') {
+    const d = p.days.find((x) => x.date === id); if (!d) return;
+    keys = d.slots.map((s) => s.key); what = fmtDate(id); rem.days.push({ date: id, day: d }); p.days = p.days.filter((x) => x !== d);
+  } else {
+    const d = p.days.find((x) => x.slots.some((s) => s.key === id)); if (!d) return;
+    const sl = d.slots.find((s) => s.key === id); keys = [id]; what = `${fmtDate(d.date)} ${sl.zeit || ''}`.trim();
+    rem.slots.push({ key: id, date: d.date, slot: sl }); d.slots = d.slots.filter((s) => s.key !== id);
+  }
+  const asg = keys.map((k) => S.asg[k]).filter(Boolean);
+  const active = asg.filter((a) => a.tech_id && a.status !== 'abgesagt');
+  if (active.length) {
+    const names = [...new Set(active.map((a) => ((techById(a.tech_id) || {}).name || '?').split(' ')[0]))].join(', ');
+    if (!confirm(`${what}: ${names} ist dafür eingeteilt.\n\nDie Einteilung wird gelöscht${active.some((a) => a.status !== 'geplant') ? ' und per Push Bescheid gegeben' : ''}. Entfernen?`)) return;
+  }
+  p.removed = rem;
+  const prevPlan = S.plan; const prevAsg = Object.assign({}, S.asg);
+  const ok = await optimistic(() => { S.plan = p; keys.forEach((k) => delete S.asg[k]); },
+    async () => { await store.savePlan(p); if (asg.length) await store.deleteAssignments(asg.map((a) => a.slot_key)); }, null,
+    () => { S.plan = prevPlan; S.asg = prevAsg; });
+  if (!ok) return;
+  active.filter((a) => a.status !== 'geplant').forEach((a) => notify('techs', [a.tech_id], 'Einsatz entfällt – KOM27', `${what}: Der Einsatz wurde aus der Planung genommen.`, 'rm-' + a.slot_key));
+  toast(`${kind === 'day' ? 'Tag' : 'Platz'} ${what} entfernt – rückgängig über „🗑 Entfernt“ oben`);
+}
+async function restoreToPlan(kind, id) {
+  const p = JSON.parse(JSON.stringify(S.plan)); const rem = p.removed; if (!rem) return;
+  if (kind === 'day') {
+    const r = rem.days.find((x) => x.date === id); if (!r) return;
+    rem.days = rem.days.filter((x) => x !== r); p.days.push(r.day); p.days.sort((a, b) => a.date.localeCompare(b.date));
+  } else {
+    const r = rem.slots.find((x) => x.key === id); if (!r) return;
+    const d = p.days.find((x) => x.date === r.date); if (!d) return toast('Erst den ganzen Tag wiederherstellen.');
+    rem.slots = rem.slots.filter((x) => x !== r); d.slots.push(r.slot); d.slots.sort((a, b) => (a.idx || 0) - (b.idx || 0));
+  }
+  const prev = S.plan;
+  if (await optimistic(() => (S.plan = p), () => store.savePlan(p), null, () => (S.plan = prev))) toast('Wiederhergestellt ✓');
+}
+function removedBar() {
+  const r = S.plan && S.plan.removed; if (!rmCount(S.plan)) return '';
+  const list = r.days.map((x) => ({ t: x.date, h: `<b>${esc(fmtDate(x.date))}</b> · ganzer Tag (${x.day.slots.length} ${x.day.slots.length === 1 ? 'Platz' : 'Plätze'})`, b: `data-rsday="${x.date}"` }))
+    .concat(r.slots.map((x) => ({ t: x.date, h: `<b>${esc(fmtDate(x.date))}</b> · Platz ${esc(x.slot.zeit || '')} ${esc(x.slot.va || '')}`, b: `data-rsslot="${esc(x.key)}"` })))
+    .sort((a, b) => a.t.localeCompare(b.t));
+  return `<details class="removed"><summary>🗑 Entfernt (${list.length}) – bleiben auch beim nächsten Einlesen draußen</summary>
+    <ul>${list.map((x) => `<li><span>${x.h}</span><button class="btn small" ${x.b}>Wiederherstellen</button></li>`).join('')}</ul></details>`;
+}
+function wireRemove() {
+  document.querySelectorAll('[data-rmday]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); removeFromPlan('day', b.dataset.rmday); }));
+  document.querySelectorAll('[data-rmslot]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); removeFromPlan('slot', b.dataset.rmslot); }));
+  document.querySelectorAll('[data-rsday]').forEach((b) => (b.onclick = () => restoreToPlan('day', b.dataset.rsday)));
+  document.querySelectorAll('[data-rsslot]').forEach((b) => (b.onclick = () => restoreToPlan('slot', b.dataset.rsslot)));
+}
+
 /* ---------------- Excel-Abgleich beim Neu-Einlesen ---------------- */
 function diffPlans(old, neu) {
   const today = todayISO();
   const oS = {}; old.days.forEach((d) => d.slots.forEach((x) => (oS[x.key] = Object.assign({ cancelled: d.cancelled }, x))));
   const nS = {}; const nDay = {}; neu.days.forEach((d) => { nDay[d.date] = d; d.slots.forEach((x) => (nS[x.key] = Object.assign({ cancelled: d.cancelled }, x))); });
-  const items = []; const moves = [];
+  const items = []; const moves = []; const drops = [];
   const taken = new Set(Object.values(S.asg).filter((a) => a.tech_id && nS[a.slot_key]).map((a) => a.slot_key));
   const nm = (id) => ((techById(id) || {}).name || '?').split(' ')[0];
   Object.values(S.asg).filter((a) => a.tech_id && a.status !== 'abgesagt').forEach((a) => {
@@ -210,6 +274,9 @@ function diffPlans(old, neu) {
         taken.add(c.key); moves.push({ from: a.slot_key, to: c.key });
         if ((c.zeit || '') !== (o.zeit || '')) items.push({ type: 'time', key: c.key, tech_id: a.tech_id, notify: true, text: `${fmtDate(o.date)} · ${nm(a.tech_id)}: Zeit ${o.zeit || '?'} → ${c.zeit || '?'}` });
         else items.push({ type: 'moved', key: c.key, tech_id: a.tech_id, text: `${fmtDate(o.date)} · ${nm(a.tech_id)}: Eintrag in der Excel geändert, Einteilung übernommen` });
+      } else if (Object.values(S.asg).some((b) => b !== a && b.tech_id === a.tech_id && b.status !== 'abgesagt' && nS[b.slot_key] && nS[b.slot_key].date === o.date)) {
+        drops.push(a.slot_key); // derselbe Techniker ist an dem Tag schon eingeteilt (parallele VAs = ein Einsatz)
+        items.push({ type: 'moved', key: a.slot_key, tech_id: a.tech_id, text: `${fmtDate(o.date)} · ${nm(a.tech_id)}: doppelte Einteilung zusammengeführt (parallele Veranstaltungen)` });
       } else items.push({ type: 'gone', key: a.slot_key, tech_id: a.tech_id, notify: true, text: `${fmtDate(o.date)} ${o.zeit || ''} ${o.va || ''}: Einsatz von ${nm(a.tech_id)} steht nicht mehr in der Excel` });
       return;
     }
@@ -219,7 +286,7 @@ function diffPlans(old, neu) {
   const added = Object.keys(nS).filter((k) => !oS[k] && nS[k].date >= today && !moves.some((m) => m.to === k));
   const ad = [...new Set(added.map((k) => nS[k].date))].sort();
   if (added.length) items.unshift({ type: 'new', text: `${added.length} ${added.length === 1 ? 'neuer Platz' : 'neue Plätze'} für Techniker: ${ad.slice(0, 6).map((d) => fmtDate(d)).join(', ')}${ad.length > 6 ? ' …' : ''}` });
-  return { items, moves };
+  return { items, moves, drops };
 }
 const CHG_ICON = { new: '➕', time: '🕑', moved: '↪', gone: '❗', cancel: '🚫' };
 function changesBanner() {
@@ -409,7 +476,8 @@ async function importFile(file, srcHash) {
     const plan = window.KOM27Parser.parseWorkbook(wb);
     plan.fileName = file.name;
     try { plan.sourceHash = srcHash || await sha256hex(buf); } catch (e) {}
-    const old = S.plan; const ch = old && old.days ? diffPlans(old, plan) : null;
+    const old = S.plan; applyRemovals(plan, old && old.removed);
+    const ch = old && old.days ? diffPlans(old, plan) : null;
     if (ch) plan.changes = { at: plan.importedAt, items: ch.items };
     await store.savePlan(plan);
     S.plan = plan;
@@ -418,6 +486,7 @@ async function importFile(file, srcHash) {
       await store.saveAssignments(rows); await store.deleteAssignments(ch.moves.map((mv) => mv.from));
       ch.moves.forEach((mv) => delete S.asg[mv.from]); rows.forEach((r) => (S.asg[r.slot_key] = r));
     }
+    if (ch && ch.drops.length) { await store.deleteAssignments(ch.drops); ch.drops.forEach((k) => delete S.asg[k]); }
     const n = plan.days.reduce((a, d) => a + d.slots.length, 0);
     toast(`Excel eingelesen: ${plan.days.length} Tage, ${n} Techniker-Einsätze${ch && ch.items.length ? ` · ${ch.items.length} Änderung${ch.items.length > 1 ? 'en' : ''} erkannt` : ''}`);
     renderMaster();
@@ -554,7 +623,7 @@ function renderPlan() {
       html += `<div ${gi === 0 ? `id="d-${d.date}"` : ''} class="row ${d.date < today ? 'past' : ''} ${d.date === today ? 'today' : ''} ${d.cancelled ? 'cancel' : ''} ${g.none ? 'none' : ''}">
         <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
-          <div class="va-id">${esc(g.k)} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}</div>
+          <div class="va-id">${esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
           <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room)].filter(Boolean).join(' · ')}
             ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
         </div>
@@ -564,7 +633,7 @@ function renderPlan() {
           const cf = t && a.status !== 'abgesagt' && !d.cancelled ? conflictsFor(t.id, s, TL) : [];
           const off = !t || st === 'abgesagt' ? offerOf(s.key) : null; const ints = off ? interestOf(s.key) : [];
           const canOffer = (!t || st === 'abgesagt') && !off && d.date >= today && !d.cancelled;
-          return `<div class="slot st-${st}" data-sk="${esc(s.key)}">
+          return `<div class="slot st-${st}" data-sk="${esc(s.key)}">${g.slots.length > 1 || d.slots.length > 1 ? `<button class="rm rm-slot" data-rmslot="${esc(s.key)}" title="Nur diesen Platz entfernen" aria-label="Platz entfernen">✕</button>` : ''}
             <select data-slot="${esc(s.key)}" aria-label="Techniker">${techOpts(t ? t.id : '', s)}</select>
             <div class="slot-foot"><span class="time">${esc(s.zeit || 'Zeit offen')}</span>
               ${t ? `<button class="pill ${a.status}" data-stm="${esc(s.key)}" title="Status ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''} ▾</button>` : '<span class="pill leer">unbesetzt</span>'}</div>
@@ -582,6 +651,7 @@ function renderPlan() {
   });
 
   m.innerHTML = importBar() + (S.plan ? `
+    ${removedBar()}
     ${changesBanner()}
     ${S.techs.length ? '' : `<div class="banner">Lege zuerst unter <b>Techniker</b> dein Stamm-Team an (Namen aus der Excel lassen sich mit einem Klick übernehmen).</div>`}
     <div class="toolbar">
@@ -617,6 +687,7 @@ function renderPlan() {
   const days = monthDays;
   $('#month').onchange = (e) => { S.month = e.target.value; S.keep = new Set(); renderMaster(); };
   wireChanges();
+  wireRemove();
   const anchor = (key) => `[data-sk="${CSS.escape(key)}"]`;
   const keepKey = (key) => { (S.keep = S.keep || new Set()).add(key); };
   document.querySelectorAll('select[data-slot]').forEach((sel) => (sel.onchange = () => {

@@ -24,6 +24,8 @@
     return String(v);
   };
   const clean = (s) => txt(s).replace(/[\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+  // mehrzeiliger Text (Ausstattungslisten): Zeilen behalten, Tabs/„| Stück“ entfernen
+  const cleanML = (v) => txt(v).split(/\r?\n/).map((l) => l.replace(/\|\s*Stück/gi, '').replace(/\t+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
   const iso = (d) => d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
   const vaId = (s) => { const m = /VA\s*\d{6,}-\d+/i.exec(s || ''); return m ? m[0].replace(/\s/g, '').toUpperCase() : null; };
   const vaDays = (id) => { // VA26110405-01 -> ['04','05']
@@ -56,6 +58,16 @@
       else if (/^(saal|seminar|foyer)/.test(h)) col.rooms.push([c, clean(ws.getCell(head, c).value)]);
     }
     if (!col.buch && col.vazeit) col.buch = 0;
+    // Weitere Spalten (Bemerkungen, Hybrid, Diskussionsanlage, Zusatz …) mit Überschrift merken
+    const used = new Set([col.anz, col.name, col.zeit, col.va, col.buch, col.einlass, col.vazeit, ...col.rooms.map((x) => x[0])]);
+    const label = (c) => {
+      const parts = [0, 1, 2].map((k) => clean(ws.getCell(head + k, c).value)).filter(Boolean);
+      const out = [];
+      parts.forEach((p) => { if (!out.some((o) => o.toLowerCase() === p.toLowerCase()) && !/^(service|anzahl)$/i.test(p)) out.push(p); });
+      return out.join(' · ');
+    };
+    const extraCols = [];
+    for (let c = col.zeit + 1; c <= Math.min(ws.columnCount || 35, 40); c++) { if (used.has(c) || c < 2) continue; const l = label(c); if (l) extraCols.push([c, l]); }
     const days = [];
     let cur = null;
     const last = Math.min(ws.rowCount, head + 120);
@@ -82,7 +94,10 @@
         color: MULTI[fillOf(cells.e)] || MULTI[fillOf(cells.i)] || null,
         vazeit: col.vazeit ? clean(ws.getCell(r, col.vazeit).value) : '',
         buch: col.buch ? clean(ws.getCell(r, col.buch).value) : '',
-        info: rooms.join(' · ')
+        info: rooms.join(' · '),
+        einlass: col.einlass ? clean(ws.getCell(r, col.einlass).value) : '',
+        rooms: col.rooms.map(([c, n]) => [n, cleanML(ws.getCell(r, c).value)]).filter((x) => x[1]),
+        extras: extraCols.map(([c, l]) => [l, cleanML(ws.getCell(r, c).value)]).filter((x) => x[1] && !/^x$/i.test(x[1]))
       });
     }
     return days;
@@ -127,7 +142,8 @@
         if (!color && va && prev) { const p = prev.slots.find((x) => x.va === va && x.color); if (p) color = p.color; }
         const vk = va || '-';
         const n = day.slots.filter((x) => (x.va || '-') === vk).length;
-        day.slots.push({ key: d.date + '#' + vk + '#' + n, date: d.date, idx, zeit: s.zeit, excelName: s.name, note: s.note || '', va: va, color: color || null, label: s.va || '' });
+        day.slots.push({ key: d.date + '#' + vk + '#' + n, date: d.date, idx, zeit: s.zeit, excelName: s.name, note: s.note || '', va: va, color: color || null, label: s.va || '',
+          det: { buch: s.buch || '', einlass: s.einlass || '', vazeit: s.vazeit || '', rooms: s.rooms || [], extras: s.extras || [] } });
       });
       day.vaIds = [...new Set(d.rows.map((r) => r._va).filter(Boolean))];
       prev = day;

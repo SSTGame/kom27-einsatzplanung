@@ -105,3 +105,37 @@ begin
     end if;
   end loop;
 end $$;
+
+-- Push-Mitteilungen: welche Geräte benachrichtigt werden wollen
+create table if not exists push_subscriptions (
+  endpoint text primary key,
+  email text not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text default '',
+  created_at timestamptz default now()
+);
+alter table push_subscriptions enable row level security;
+drop policy if exists push_own on push_subscriptions;
+create policy push_own on push_subscriptions for all to authenticated
+  using (lower(email) = lower(auth.jwt() ->> 'email') or is_admin())
+  with check (lower(email) = lower(auth.jwt() ->> 'email'));
+
+-- Schlüsselpaar für Push (legt der Dienst "notify" selbst an; für Seitenbesucher gesperrt – keine Policy)
+create table if not exists push_config (
+  id int primary key default 1,
+  public_key text not null,
+  private_key text not null
+);
+alter table push_config enable row level security;
+
+-- Techniker sehen, wer am selben Tag mit im Einsatz ist (nur Name, Tag, Status)
+create or replace function my_colleagues() returns table(slot_key text, name text, status text)
+language sql stable security definer set search_path = public as $$
+  select a.slot_key, t.name, a.status
+    from assignments a join technicians t on t.id = a.tech_id
+   where a.status in ('angefragt', 'zugesagt')
+     and a.tech_id is distinct from my_tech_id()
+     and split_part(a.slot_key, '#', 1) in (select split_part(slot_key, '#', 1) from assignments where tech_id = my_tech_id() and status in ('angefragt', 'zugesagt'));
+$$;
+grant execute on function my_colleagues() to authenticated;

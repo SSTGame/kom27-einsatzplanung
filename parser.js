@@ -121,11 +121,29 @@
         if (!names.length) slotRows.push({ ...r, name: '', note });
         else names.forEach((n) => slotRows.push({ ...r, name: n, note }));
       });
+      // Dieselbe Person mehrfach am Tag (parallele VAs) = ein Einsatz
+      const merged = [];
+      slotRows.forEach((s) => {
+        const k = s.name ? s.name.toLowerCase() : '';
+        const m = k && merged.find((x) => x.name && x.name.toLowerCase() === k);
+        if (m) { if (s._va && s._va !== m._va) m.also = (m.also || []).concat(s._va); return; }
+        merged.push(Object.assign({}, s, { also: [] }));
+      });
+      // Mehr Zeilen als „Anzahl“: überzählige Zeilen ohne Namen sind parallele VAs desselben Einsatzes
+      if (d.anzahl && merged.length > d.anzahl) {
+        for (let i = merged.length - 1; i >= 0 && merged.length > d.anzahl; i--) {
+          if (merged[i].name) continue;
+          const [x] = merged.splice(i, 1);
+          const tgt = merged.find((y) => y.zeit === x.zeit) || merged[0];
+          if (tgt && x._va && x._va !== tgt._va) tgt.also = tgt.also.concat(x._va);
+        }
+      }
+      slotRows.length = 0; merged.forEach((s) => slotRows.push(s));
       // Fehlende Plätze bis "Anzahl" auffüllen
       const need = Math.max(d.anzahl || 0, d.anzahl ? 0 : slotRows.length);
       while (slotRows.length < need) {
         const base = slotRows[slotRows.length - 1] || d.rows[0];
-        slotRows.push({ ...base, name: '', zeit: base.zeit || '' });
+        slotRows.push({ ...base, name: '', also: [], zeit: base.zeit || '' });
       }
       if (!d.anzahl && slotRows.length && !slotRows.some((s) => s.zeit)) slotRows.length = 0;
       const dayVa = (d.rows.find((r) => r._va) || {})._va || null;
@@ -142,7 +160,7 @@
         if (!color && va && prev) { const p = prev.slots.find((x) => x.va === va && x.color); if (p) color = p.color; }
         const vk = va || '-';
         const n = day.slots.filter((x) => (x.va || '-') === vk).length;
-        day.slots.push({ key: d.date + '#' + vk + '#' + n, date: d.date, idx, zeit: s.zeit, excelName: s.name, note: s.note || '', va: va, color: color || null, label: s.va || '',
+        day.slots.push({ key: d.date + '#' + vk + '#' + n, date: d.date, idx, zeit: s.zeit, excelName: s.name, note: s.note || '', va: va, also: [...new Set((s.also || []).filter((x) => x && x !== va))], color: color || null, label: s.va || '',
           det: { buch: s.buch || '', einlass: s.einlass || '', vazeit: s.vazeit || '', rooms: s.rooms || [], extras: s.extras || [] } });
       });
       day.vaIds = [...new Set(d.rows.map((r) => r._va).filter(Boolean))];

@@ -448,3 +448,69 @@ dl.extras dt { color: var(--muted); font-size: 13px; } dl.extras dd { margin: 0;
 .tc-head b { display: block; } .tc-head small { color: var(--muted); margin: 0; }
 .hint.ok { background: color-mix(in srgb, var(--st-zugesagt) 10%, var(--panel)); }
 .slot .hint { border-radius: 6px; padding: 3px 6px; margin-top: 3px; }
+
+/* ---------- v4: Master-Ansicht auf dem Handy ---------- */
+nav.tabs .tic { font-style: normal; display: none; }
+.lo-i { display: none; }
+.hint.boss { color: #6b4fbb; background: color-mix(in srgb, #6b4fbb 9%, var(--panel)); }
+@media (prefers-color-scheme: dark) { .hint.boss { color: #b9a6f2; } }
+.sig { font-size: 12px; color: var(--muted); } .sig.ok { color: var(--st-zugesagt); font-weight: 600; } .sig.no { color: var(--st-abgesagt); font-weight: 600; }
+.jc-who { font-weight: 700; font-size: 16px; }
+#toTeam, #toMe { width: 100%; margin: 4px 0 6px; }
+.calcard select { width: 100%; min-width: 0; font-size: 16px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+@media (max-width: 700px) {
+  body.is-master { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .is-master .top-inner { padding: 8px 12px; gap: 8px; flex-wrap: nowrap; }
+  .is-master .brand { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .is-master .brand small { display: none; }
+  .is-master #logout { font-size: 12px; padding: 5px 9px; flex: none; }
+  .is-master nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--panel); border-top: 1px solid var(--line);
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; box-shadow: 0 -4px 16px rgba(0, 0, 0, .06); }
+  .is-master nav.tabs button { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; font-size: 11px; border-radius: 10px; position: relative; }
+  .is-master nav.tabs .tic { display: block; font-size: 20px; line-height: 1.1; }
+  .is-master nav.tabs button.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+  .is-master nav.tabs .tbadge { position: absolute; top: 2px; right: 14%; margin: 0; font-size: 10px; }
+  .is-master #toast { bottom: calc(76px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); }
+  .is-master main { padding: 12px; }
+  .importline { padding: 6px 10px; margin-bottom: 10px; font-size: 13px; }
+  .importline .hide-sm { display: none; }
+  .toolbar { gap: 6px; }
+  .toolbar .monthnav { width: 100%; display: flex; align-items: center; gap: 6px; }
+  .toolbar .monthnav select { flex: 1; min-width: 0; font-size: 19px; }
+  .toolbar .spacer { display: none; }
+  .toolbar .btn { padding: 7px 10px; font-size: 13px; }
+  .toolbar .seg { margin-left: 0; }
+  .chips { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 0 -12px 10px; padding: 2px 12px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; }
+  .pastsw { flex: none; white-space: nowrap; }
+  .row { grid-template-columns: 50px minmax(0, 1fr); }
+  .c-date { font-size: 13px; line-height: 1.25; }
+  .c-date b { display: block; }
+  .c-va { min-width: 0; }
+  .changes { padding: 8px 10px; } .changes .btn { font-size: 12px; }
+  /* Techniker als Karten */
+  table.list.techs thead { display: none; }
+  table.list.techs, table.list.techs tbody { display: block; }
+  table.list.techs tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; padding: 12px; border-bottom: 1px solid var(--line); }
+  table.list.techs td { display: block; padding: 0; border: 0; min-width: 0; }
+  table.list.techs td::before { content: attr(data-l); display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  table.list.techs td input[type=text], table.list.techs td input[type=email] { width: 100%; min-width: 0; font-size: 16px; }
+  table.list.techs td.td-del { align-self: end; justify-self: end; }
+  table.list.techs tr.tr-add { display: block; }
+  table.list.techs tr.tr-add td::before { display: none; }
+  .feed .fa { display: none; }
+  .hcard summary { padding: 10px 12px; }
+}
+.cal-opts { display: grid; gap: 8px; margin: 14px 0 10px; }
+.cal-opts .big { text-align: center; text-decoration: none; display: block; }
+.cal-help { font-size: 14px; margin: 6px 0 10px; } .cal-help summary { cursor: pointer; color: var(--accent); }
+.cal-help ol { margin: 6px 0 0 18px; padding: 0; }
+#sheet [data-dl] { width: 100%; margin-top: 8px; }
+
+/* v6 SharePoint-Abgleich */
+.syncline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 14px;padding:8px 12px;border-radius:10px;font-size:13px;background:var(--panel);border:1px solid var(--line)}
+.syncline.new{background:#eef6ff;border-color:#9cc3f5;color:#0b3d75}
+.syncline.err{background:#fff4f2;border-color:#f3b3a8;color:#8a1f0f}
+.syncline .spacer{flex:1}
+@media (prefers-color-scheme:dark){.syncline.new{background:#0f2a47;color:#cfe3ff;border-color:#2f5d93}.syncline.err{background:#3a1712;color:#ffd1c8;border-color:#7a3226}}

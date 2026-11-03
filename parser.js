@@ -66,6 +66,10 @@
       parts.forEach((p) => { if (!out.some((o) => o.toLowerCase() === p.toLowerCase()) && !/^(service|anzahl)$/i.test(p)) out.push(p); });
       return out.join(' · ');
     };
+    // Spalten „Medientechnik KOM27“ (vor „Anzahl“): Name steht eine Zeile darunter, „x“ = an dem Tag vor Ort
+    const komCols = [];
+    for (let c = 2; c < col.anz; c++) if (/medientechnik/i.test(clean(ws.getCell(head, c).value))) { const n = clean(ws.getCell(head + 1, c).value); if (n) komCols.push([c, n]); }
+    komCols.forEach(([c]) => used.add(c));
     const extraCols = [];
     for (let c = col.zeit + 1; c <= Math.min(ws.columnCount || 35, 40); c++) { if (used.has(c) || c < 2) continue; const l = label(c); if (l) extraCols.push([c, l]); }
     const days = [];
@@ -77,9 +81,10 @@
       const a = isSlave ? null : aCell.value;
       const aVal = a && a.result instanceof Date ? a.result : a;
       if (aVal instanceof Date) {
-        cur = { date: iso(aVal), rows: [], free: fillOf(ws.getCell(r, 1)) === FREE, cancelled: false, blocked: false, anzahl: 0 };
+        cur = { date: iso(aVal), rows: [], free: fillOf(ws.getCell(r, 1)) === FREE, cancelled: false, blocked: false, anzahl: 0, kom: [] };
         days.push(cur);
       } else if (!cur) continue;
+      komCols.forEach(([c, n]) => { if (/^x+$/i.test(clean(ws.getCell(r, c).value)) && !cur.kom.includes(n)) cur.kom.push(n); });
       const cells = { d: ws.getCell(r, col.anz), e: ws.getCell(r, col.name), f: ws.getCell(r, col.zeit), i: ws.getCell(r, col.va) };
       const anz = parseInt(clean(cells.d.value), 10);
       if (aVal instanceof Date && !isNaN(anz)) cur.anzahl = anz;
@@ -107,7 +112,7 @@
     const out = [];
     let prev = null;
     for (const d of days) {
-      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, vas: [], info: '', slots: [] };
+      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, kom: d.kom || [], vas: [], info: '', slots: [] };
       d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id; });
       day.vazeit = (d.rows.find((r) => r.vazeit) || {}).vazeit || '';
       // Zeilen mit Einsatzzeit oder Name = Slots; "Marcel/Basti" splitten

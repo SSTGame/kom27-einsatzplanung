@@ -624,7 +624,7 @@ function renderPlan() {
         <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
           <div class="va-id">${esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
-          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room)].filter(Boolean).join(' · ')}
+          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 ? '🏢 ' + esc(d.kom.join(', ')) : ''].filter(Boolean).join(' · ')}
             ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
         </div>
         <div class="c-slots">${g.none ? '<span class="muted small">kein Techniker angefordert</span>' : g.slots.map((s) => {
@@ -1054,6 +1054,24 @@ function timeline(s) {
     <div class="tl-row"><span class="tl-l"></span><div class="tl-ticks">${ticks.join('')}</div></div></div>`;
 }
 
+// Zellentext aus der Excel in Aufbau-Punkte zerlegen. In der Excel ist der Text oft von Hand umbrochen –
+// Folgezeilen (nach „für“, „dem“, „v.“, offener Klammer …) gehören zum Punkt davor, „(…)“ ist ein Hinweis zum Punkt davor.
+const CONT_END = /(?:\s(?:für|v\.|von|vom|dem|den|der|die|das|des|im|in|am|an|auf|aus|bei|mit|nach|vor|zur|zum|und|oder|sowie|inkl\.|incl\.|ca\.|bzw\.|evtl\.|ggf\.|je|pro)|[A-Za-zÄÖÜäöüß]-)$/i;
+function equipItems(text) {
+  const out = []; let hard = true;
+  const opn = (t) => (t.match(/\(/g) || []).length > (t.match(/\)/g) || []).length;
+  String(text || '').replace(/\r/g, '').split('\n').forEach((raw) => {
+    const l = raw.replace(/\t+/g, ' ').replace(/\s*\|\s*Stück\s*$/i, '').replace(/\s+/g, ' ').trim();
+    if (!l) { hard = true; return; }
+    const prev = out[out.length - 1]; const last = prev ? (prev.sub != null ? prev.sub : prev.t) : '';
+    if (prev && !hard && (opn(last) || CONT_END.test(' ' + last))) { if (prev.sub != null) prev.sub += ' ' + l; else prev.t += ' ' + l; }
+    else if (prev && !hard && l[0] === '(') prev.sub = prev.sub ? prev.sub + ' ' + l : l;
+    else out.push({ t: l, sub: null });
+    hard = false;
+  });
+  if (out.length === 1 && !out[0].sub && out[0].t.split(',').length > 2) return out[0].t.split(',').map((x) => ({ t: x.trim(), sub: null })).filter((x) => x.t);
+  return out;
+}
 function equipHtml(s) {
   const det = s.det || {};
   let rooms = det.rooms && det.rooms.length ? det.rooms : null;
@@ -1061,10 +1079,9 @@ function equipHtml(s) {
   if (!rooms) return `<p class="muted">Für diesen Tag steht in der Excel noch nichts zum Aufbau.</p>`;
   const done = doneGet()[s.key] || [];
   return rooms.map(([room, text], ri) => {
-    let items = text.split('\n').map((x) => x.trim()).filter(Boolean);
-    if (items.length === 1 && items[0].split(',').length > 2) items = items[0].split(',').map((x) => x.trim()).filter(Boolean);
+    const items = equipItems(text);
     return `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="check">${items.map((it, ii) => { const id = ri + '.' + ii; const on = done.includes(id);
-      return `<li class="${on ? 'done' : ''} ${isImportant(it) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${id}" ${on ? 'checked' : ''}><span>${esc(it)}</span></label></li>`; }).join('')}</ul></div>`;
+      return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${id}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</span></label></li>`; }).join('')}</ul></div>`;
   }).join('');
 }
 
@@ -1097,6 +1114,8 @@ function openJob(key, list) {
     ${a.actual_start ? `<div class="hint ok">⏱ Bestätigte Arbeitszeit: ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''} = ${fmtH(actualHours(a))}</div>` : ''}
     ${isOffer ? '' : `<h3>👥 Mit dir im Haus</h3>`}
     ${isOffer ? '' : coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">Nach aktuellem Stand bist du allein eingeteilt.</p>`}
+    <h3>🏢 Medientechnik KOM27 vor Ort</h3>
+    ${!s.day.kom ? `<p class="muted small">Erscheint nach dem nächsten Einlesen der Excel.</p>` : s.day.kom.length ? `<div class="coll">${s.day.kom.map((n) => `<span class="cchip kom">${esc(n)}</span>`).join('')}</div>` : `<p class="muted">Laut Excel ist an dem Tag niemand von der KOM27-Medientechnik eingetragen.</p>`}
     <h3>📍 Ort</h3>
     <p>KOM27, Mauerstraße, Berlin · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('KOM27 Mauerstraße Berlin')}" target="_blank" rel="noopener">Route öffnen</a></p>
     <div class="sh-actions">

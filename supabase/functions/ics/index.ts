@@ -4,7 +4,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const pad = (n: number) => String(n).padStart(2, "0");
-const esc = (s: string) => String(s ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+const esc = (s: string) => String(s ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
 const fold = (line: string) => { // Zeilen nach RFC 5545 auf 75 Bytes umbrechen
   const enc = new TextEncoder(); const out: string[] = []; let cur = "";
   for (const ch of line) { if (enc.encode(cur + ch).length > 74) { out.push(cur); cur = " " + ch; } else cur += ch; }
@@ -12,6 +12,23 @@ const fold = (line: string) => { // Zeilen nach RFC 5545 auf 75 Bytes umbrechen
 };
 const VTZ = ["BEGIN:VTIMEZONE", "TZID:Europe/Berlin", "BEGIN:DAYLIGHT", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200", "TZNAME:CEST", "DTSTART:19700329T020000", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "END:DAYLIGHT",
   "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100", "TZNAME:CET", "DTSTART:19701025T030000", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "END:STANDARD", "END:VTIMEZONE"];
+
+// Zellentext in Aufbau-Punkte zerlegen (gleiche Regeln wie in der App): von Hand umbrochene Zeilen wieder zusammenfügen
+const CONT_END = /(?:\s(?:für|v\.|von|vom|dem|den|der|die|das|des|im|in|am|an|auf|aus|bei|mit|nach|vor|zur|zum|und|oder|sowie|inkl\.|incl\.|ca\.|bzw\.|evtl\.|ggf\.|je|pro)|[A-Za-zÄÖÜäöüß]-)$/i;
+function equipItems(text: string) {
+  const out: { t: string; sub: string | null }[] = []; let hard = true;
+  const opn = (t: string) => (t.match(/\(/g) || []).length > (t.match(/\)/g) || []).length;
+  String(text || "").replace(/\r/g, "").split("\n").forEach((raw) => {
+    const l = raw.replace(/\t+/g, " ").replace(/\s*\|\s*Stück\s*$/i, "").replace(/\s+/g, " ").trim();
+    if (!l) { hard = true; return; }
+    const prev = out[out.length - 1]; const last = prev ? (prev.sub != null ? prev.sub : prev.t) : "";
+    if (prev && !hard && (opn(last) || CONT_END.test(" " + last))) { if (prev.sub != null) prev.sub += " " + l; else prev.t += " " + l; }
+    else if (prev && !hard && l[0] === "(") prev.sub = prev.sub ? prev.sub + " " + l : l;
+    else out.push({ t: l, sub: null });
+    hard = false;
+  });
+  return out;
+}
 
 Deno.serve(async (req) => {
   const tok = new URL(req.url).searchParams.get("t") ?? "";
@@ -44,9 +61,9 @@ Deno.serve(async (req) => {
         start = `DTSTART;VALUE=DATE:${ymd}`; end = `DTEND;VALUE=DATE:${nx.toISOString().slice(0, 10).replace(/-/g, "")}`;
       }
       const det = s.det || {};
-      const rooms = (det.rooms || []).map(([r, txt]: [string, string]) => `${r}:\n${String(txt).split("\n").map((x) => "• " + x).join("\n")}`).join("\n\n");
+      const rooms = (det.rooms || []).map(([r, txt]: [string, string]) => `${r}:\n${equipItems(txt).map((i) => "• " + i.t + (i.sub ? " " + i.sub : "")).join("\n")}`).join("\n\n");
       const desc = [a.status === "angefragt" ? "⏳ ANFRAGE – noch nicht zugesagt" : "✓ zugesagt", `Einsatzzeit: ${s.zeit || "folgt"}`,
-        det.vazeit || d.vazeit ? `Veranstaltung: ${det.vazeit || d.vazeit}` : "", det.einlass ? `Einlass: ${det.einlass}` : "", s.va ? `VA: ${s.va}` : "", rooms ? "\nAufbau:\n" + rooms : ""].filter(Boolean).join("\n");
+        det.vazeit || d.vazeit ? `Veranstaltung: ${det.vazeit || d.vazeit}` : "", det.einlass ? `Einlass: ${det.einlass}` : "", s.va ? `VA: ${s.va}` : "", d.kom?.length ? `KOM27 vor Ort: ${d.kom.join(", ")}` : "", rooms ? "\nAufbau:\n" + rooms : ""].filter(Boolean).join("\n");
       const roomList = [...new Set(String(d.info || "").match(/(Saal \d|Seminar \d|Foyer)/g) || [])].join(", ");
       ev.push(["BEGIN:VEVENT", `UID:${s.key.replace(/[^\w-]/g, "")}@kom27-einsatzplanung`, `DTSTAMP:${stamp}`, start, end,
         `SUMMARY:${esc((a.status === "angefragt" ? "❓ " : "") + "KOM27" + (roomList ? " · " + roomList : "") + (s.va ? " · " + s.va : ""))}`,

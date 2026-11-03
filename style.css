@@ -527,3 +527,7 @@ details.removed summary{cursor:pointer;color:var(--muted)}
 details.removed ul{list-style:none;margin:8px 0 0;padding:0}
 details.removed li{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:5px 0;border-top:1px solid var(--line)}
 @media (hover:none){.va-id .rm,.slot .rm-slot{opacity:.6}}
+.cchip.kom{background:#eef2ff;color:#3730a3;border-color:#c7d2fe}
+@media (prefers-color-scheme:dark){.cchip.kom{background:#1e1b4b;color:#c7d2fe;border-color:#3730a3}}
+ul.check li .sub{display:block;font-size:13px;color:var(--muted);margin-top:2px;line-height:1.35}
+ul.check li.done .sub{text-decoration:none}

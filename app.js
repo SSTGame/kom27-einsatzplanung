@@ -190,11 +190,13 @@ function renderMaster() {
 
 function importBar() {
   const when = S.plan ? new Date(S.plan.importedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : null;
-  return `<div class="drop" id="drop">
-      <b>Excel aktualisieren:</b> aktuelle Datei aus SharePoint herunterladen und hier hineinziehen – oder
-      <label class="btn small" style="display:inline-block">Datei wählen<input type="file" id="file" accept=".xlsx" hidden></label>
-      ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint öffnen ↗</a>` : ''}
-      <div class="note" style="margin-top:6px">${when ? 'Stand der Daten: ' + esc(when) : 'Noch keine Excel eingelesen.'}</div>
+  return `<div class="importline" id="drop">
+      <span class="dot ${S.plan ? 'ok' : ''}"></span>
+      <span>${when ? 'Excel-Stand: <b>' + esc(when) + '</b>' : '<b>Noch keine Excel eingelesen</b>'}</span>
+      <span class="muted hide-sm">· neue Datei einfach hierher ziehen oder</span>
+      <span class="spacer"></span>
+      ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint ↗</a>` : ''}
+      <label class="btn small">Excel einlesen<input type="file" id="file" accept=".xlsx" hidden></label>
     </div>`;
 }
 
@@ -220,69 +222,158 @@ async function importFile(file) {
   } catch (e) { console.error(e); toast('Fehler beim Einlesen: ' + e.message); }
 }
 function wireImport() {
-  const drop = $('#drop'); if (!drop) return;
+  const drop = $('#drop'); const zone = $('#main'); if (!drop || !zone) return;
   $('#file').onchange = (e) => e.target.files[0] && importFile(e.target.files[0]);
-  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
-  drop.ondragleave = () => drop.classList.remove('over');
-  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) importFile(f); };
+  zone.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+  zone.ondragleave = (e) => { if (!zone.contains(e.relatedTarget)) drop.classList.remove('over'); };
+  zone.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) importFile(f); };
 }
 
 function monthsAvailable() { return [...new Set(allDays().map((d) => d.date.slice(0, 7)))].sort(); }
+
+function isoWeek(iso) {
+  const d = new Date(iso + 'T12:00:00Z'); const day = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - day);
+  const y = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)); return Math.ceil(((d - y) / 86400000 + 1) / 7);
+}
+const roomsOf = (info) => [...new Set((info || '').match(/(Saal \d|Seminar \d|Foyer)/g) || [])].join(', ');
+const slotState = (s) => { const a = S.asg[s.key]; return a && a.tech_id ? a.status : 'leer'; };
+const FILTERS = [['alle', 'Alle'], ['leer', 'Unbesetzt'], ['geplant', 'Nicht angefragt'], ['angefragt', 'Wartet auf Antwort'], ['zugesagt', 'Zugesagt'], ['abgesagt', 'Abgesagt']];
+
+function gridHtml(days, today) {
+  const techs = S.techs.filter((t) => t.active !== false);
+  const map = {}; const need = {}; const filled = {}; const sum = {};
+  days.forEach((d) => { if (d.cancelled) return; d.slots.forEach((s) => {
+    need[d.date] = (need[d.date] || 0) + 1;
+    const a = S.asg[s.key];
+    if (a && a.tech_id && a.status !== 'abgesagt') { filled[d.date] = (filled[d.date] || 0) + 1; ((map[a.tech_id] = map[a.tech_id] || {})[d.date] = map[a.tech_id][d.date] || []).push({ s, a }); sum[a.tech_id] = (sum[a.tech_id] || 0) + 1; }
+  }); });
+  const th = days.map((d) => { const f = fmtDate(d.date); return `<th class="${d.free ? 'we' : ''} ${d.date === today ? 'today' : ''}"><span>${f.slice(0, 2)}</span>${d.date.slice(8, 10)}</th>`; }).join('');
+  const needRow = days.map((d) => {
+    const n = need[d.date] || 0; const f = filled[d.date] || 0;
+    if (!n) return `<td class="${d.free ? 'we' : ''}"></td>`;
+    return `<td class="${d.free ? 'we' : ''}"><button class="need ${f >= n ? 'full' : 'miss'}" data-jump="${d.date}" title="${f} von ${n} Plätzen besetzt">${f}/${n}</button></td>`;
+  }).join('');
+  const rowsH = techs.map((t) => `<tr><th class="name">${esc(t.name)}</th>${days.map((d) => {
+    const e = (map[t.id] || {})[d.date];
+    if (!e) return `<td class="${d.free ? 'we' : ''}"></td>`;
+    const worst = ['abgesagt', 'geplant', 'angefragt', 'zugesagt'].find((st) => e.some((x) => x.a.status === st));
+    const tip = e.map((x) => `${x.s.zeit || ''} ${x.s.va || ''} – ${ST_LABEL[x.a.status]}`).join('\n');
+    return `<td class="${d.free ? 'we' : ''}"><button class="gcell ${worst} ${e.length > 1 ? 'dbl' : ''}" data-jump="${d.date}" title="${esc(tip)}">${esc((e[0].s.zeit || '•').slice(0, 2))}${e.length > 1 ? '²' : ''}</button></td>`;
+  }).join('')}<td class="sum">${sum[t.id] || 0}</td></tr>`).join('');
+  return `<div class="legend"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant <span class="lg miss"></span>Platz offen · Zahl = Arbeitsbeginn · Klick = zum Tag springen</div>
+    <div class="card gridwrap"><table class="grid"><thead><tr><th class="name">Techniker</th>${th}<th class="sum">Σ</th></tr></thead>
+    <tbody><tr class="needrow"><th class="name">Besetzt / Bedarf</th>${needRow}<td class="sum"></td></tr>${rowsH || `<tr><td colspan="${days.length + 2}" class="empty-msg">Noch keine Techniker angelegt.</td></tr>`}</tbody></table></div>`;
+}
 
 function renderPlan() {
   const m = $('#main');
   const today = todayISO();
   if (!S.month) S.month = today.slice(0, 7);
+  if (!S.filter) S.filter = 'alle';
   const months = monthsAvailable();
-  const futureSlots = allSlots().filter((s) => s.date >= today && !s.day.cancelled);
-  const cnt = { leer: 0, geplant: 0, angefragt: 0, zugesagt: 0, abgesagt: 0 };
-  futureSlots.forEach((s) => { const a = S.asg[s.key]; cnt[a && a.tech_id ? a.status : 'leer']++; });
+  const mi = months.indexOf(S.month);
+  const monthDays = allDays().filter((d) => d.date.startsWith(S.month));
+  const fromDate = S.showPast ? '' : today;
+  const visDays = monthDays.filter((d) => d.date >= fromDate && !d.free);
+  const cnt = { alle: 0, leer: 0, geplant: 0, angefragt: 0, zugesagt: 0, abgesagt: 0 };
+  visDays.forEach((d) => !d.cancelled && d.slots.forEach((s) => { cnt[slotState(s)]++; cnt.alle++; }));
+  // Wer ist an welchem Tag schon eingeteilt? (für Konflikthinweise in der Auswahl)
+  const busyOn = {}; const loadM = {};
+  monthDays.forEach((d) => d.slots.forEach((x) => { const a = S.asg[x.key]; if (a && a.tech_id && a.status !== 'abgesagt') { (busyOn[d.date] = busyOn[d.date] || {})[a.tech_id] = x.key; loadM[a.tech_id] = (loadM[a.tech_id] || 0) + 1; } }));
+  const techOpts = (sel, slot) => {
+    const dec = new Set(((S.asg[slot.key] || {}).declined) || []);
+    const list = S.techs.filter((t) => t.active !== false || t.id === sel);
+    const busy = (t) => busyOn[slot.date] && busyOn[slot.date][t.id] && busyOn[slot.date][t.id] !== slot.key;
+    const opt = (t, suffix) => `<option value="${t.id}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}${t.id === sel ? '' : suffix}</option>`;
+    const free = list.filter((t) => !busy(t) && !dec.has(t.id)).sort((a, b) => (loadM[a.id] || 0) - (loadM[b.id] || 0));
+    const taken = list.filter((t) => busy(t) && !dec.has(t.id));
+    const no = list.filter((t) => dec.has(t.id));
+    return `<option value="">– unbesetzt –</option>`
+      + (free.length ? `<optgroup label="Frei an diesem Tag (wenigste Einsätze zuerst)">${free.map((t) => opt(t, `  · ${loadM[t.id] || 0} im Monat`)).join('')}</optgroup>` : '')
+      + (taken.length ? `<optgroup label="Schon eingeteilt an diesem Tag">${taken.map((t) => opt(t, '  ⚠ doppelt')).join('')}</optgroup>` : '')
+      + (no.length ? `<optgroup label="Hat für diesen Einsatz abgesagt">${no.map((t) => opt(t, '  ✗ abgesagt')).join('')}</optgroup>` : '');
+  };
 
-  const days = allDays().filter((d) => d.date.startsWith(S.month) && (d.slots.length || d.vas.length || d.free));
-  const shown = S.onlyOpen ? days.filter((d) => d.slots.some((s) => { const a = S.asg[s.key]; return !a || !a.tech_id || a.status !== 'zugesagt'; })) : days;
-  const techOpts = (sel) => `<option value="">— frei —</option>` + S.techs.filter((t) => t.active !== false || t.id === sel).map((t) => `<option value="${t.id}" ${t.id === sel ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+  // Tage aller Mehrtages-Gruppen (für „Tag 1/3“)
+  const gDays = {};
+  allDays().forEach((d) => d.slots.forEach((s) => { if (s.group) (gDays[s.group] = gDays[s.group] || new Set()).add(d.date); }));
+  Object.keys(gDays).forEach((k) => (gDays[k] = [...gDays[k]].sort()));
+
+  // Zeilen: je Tag und Veranstaltung eine Zeile
+  let html = ''; let lastWeek = null; let rows = 0;
+  visDays.forEach((d) => {
+    const groups = [];
+    d.slots.forEach((s) => { const k = s.va || s.label || '–'; let g = groups.find((x) => x.k === k); if (!g) groups.push((g = { k, slots: [] })); g.slots.push(s); });
+    if (!groups.length) {
+      if (S.filter !== 'alle' || !d.vas.length) return;
+      groups.push({ k: [...new Set(d.vas)].join(' · '), slots: [], none: true });
+    }
+    const show = S.filter === 'alle' ? groups : groups.filter((g) => g.slots.some((s) => slotState(s) === S.filter));
+    if (!show.length) return;
+    const wk = isoWeek(d.date);
+    if (wk !== lastWeek) { html += `<div class="week">KW ${wk}</div>`; lastWeek = wk; }
+    show.forEach((g, gi) => {
+      rows++;
+      const s0 = g.slots[0] || {};
+      const lbl = (g.slots.map((s) => s.label).find((l) => /aufbau|abbau/i.test(l)) || '').match(/aufbau|abbau/i);
+      const gd = s0.group ? gDays[s0.group] : null;
+      const tag = gd ? `<span class="tag">Tag ${gd.indexOf(d.date) + 1}/${gd.length}</span>` : '';
+      const room = roomsOf(d.info);
+      html += `<div ${gi === 0 ? `id="d-${d.date}"` : ''} class="row ${d.date < today ? 'past' : ''} ${d.date === today ? 'today' : ''} ${d.cancelled ? 'cancel' : ''} ${g.none ? 'none' : ''}">
+        <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
+        <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
+          <div class="va-id">${esc(g.k)} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}</div>
+          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room)].filter(Boolean).join(' · ')}
+            ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
+        </div>
+        <div class="c-slots">${g.none ? '<span class="muted small">kein Techniker angefordert</span>' : g.slots.map((s) => {
+          const a = S.asg[s.key]; const st = slotState(s); const t = a && a.tech_id ? techById(a.tech_id) : null;
+          const excelDiff = s.excelName && (!t || matchTech(s.excelName) !== t);
+          const dbl = t && d.slots.some((x) => x.key !== s.key && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status !== 'abgesagt');
+          return `<div class="slot st-${st}">
+            <select data-slot="${esc(s.key)}" aria-label="Techniker">${techOpts(t ? t.id : '', s)}</select>
+            <div class="slot-foot"><span class="time">${esc(s.zeit || 'Zeit offen')}</span>
+              ${t ? `<button class="pill ${a.status}" data-cycle="${esc(s.key)}" title="Klicken zum Ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''}</button>` : '<span class="pill leer">unbesetzt</span>'}</div>
+            ${dbl ? '<div class="hint warn">⚠ an diesem Tag doppelt eingeteilt</div>' : ''}
+            ${excelDiff ? `<div class="hint" title="So steht es in der KOM27-Excel">Excel: ${esc(s.excelName)}</div>` : ''}
+          </div>`;
+        }).join('')}</div>
+      </div>`;
+    });
+  });
 
   m.innerHTML = importBar() + (S.plan ? `
     ${S.techs.length ? '' : `<div class="banner">Lege zuerst unter <b>Techniker</b> dein Stamm-Team an (Namen aus der Excel lassen sich mit einem Klick übernehmen).</div>`}
-    <div class="stats">
-      <div class="stat"><b>${cnt.leer}</b><span>unbesetzt (ab heute)</span></div>
-      <div class="stat"><b>${cnt.geplant}</b><span>geplant, nicht angefragt</span></div>
-      <div class="stat"><b>${cnt.angefragt}</b><span>warten auf Antwort</span></div>
-      <div class="stat"><b>${cnt.zugesagt}</b><span>zugesagt</span></div>
-      <div class="stat"><b>${cnt.abgesagt}</b><span>abgesagt – Ersatz nötig</span></div>
-    </div>
-    <div class="bar">
-      <select id="month" class="btn">${months.map((x) => `<option value="${x}" ${x === S.month ? 'selected' : ''}>${MON[+x.slice(5, 7) - 1]} ${x.slice(0, 4)}</option>`).join('')}</select>
-      <label class="btn"><input type="checkbox" id="onlyOpen" ${S.onlyOpen ? 'checked' : ''}> nur noch nicht zugesagte</label>
+    <div class="toolbar">
+      <div class="monthnav">
+        <button class="btn small" id="mPrev" ${mi <= 0 ? 'disabled' : ''} aria-label="Vormonat">‹</button>
+        <select id="month">${months.map((x) => `<option value="${x}" ${x === S.month ? 'selected' : ''}>${MON[+x.slice(5, 7) - 1]} ${x.slice(0, 4)}</option>`).join('')}</select>
+        <button class="btn small" id="mNext" ${mi >= months.length - 1 ? 'disabled' : ''} aria-label="Nächster Monat">›</button>
+      </div>
+      <div class="seg" role="tablist"><button data-view="liste" class="${S.view !== 'raster' ? 'on' : ''}">Liste</button><button data-view="raster" class="${S.view === 'raster' ? 'on' : ''}">Raster</button></div>
       <div class="spacer"></div>
-      <button class="btn primary" id="auto">Auto-Einteilung</button>
       <button class="btn" id="copy">Zusagen kopieren</button>
+      <button class="btn primary" id="auto">Auto-Einteilung</button>
     </div>
-    <div class="card days">${shown.map((d) => {
-      const vaTxt = [...new Set(d.vas)].join(' · ');
-      return `<div class="day ${d.free ? 'free' : ''} ${d.cancelled ? 'cancel' : ''} ${d.date === today ? 'today' : ''}">
-        <div class="date">${fmtDate(d.date)}<small>${d.free ? 'frei' : d.cancelled ? 'abgesagt' : d.anzahl ? d.anzahl + ' Techniker' : ''}</small></div>
-        <div class="body">
-          ${vaTxt || d.vazeit || d.info ? `<div class="meta">${vaTxt ? `<b>${esc(vaTxt)}</b>` : ''}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}${d.info ? ' · ' + esc(d.info.slice(0, 160)) : ''}</div>` : ''}
-          <div class="slots">${d.slots.map((s) => {
-            const a = S.asg[s.key]; const has = a && a.tech_id; const t = has ? techById(a.tech_id) : null;
-            const excelDiff = s.excelName && (!t || matchTech(s.excelName) !== t);
-            return `<div class="slot ${s.color ? 'c-' + s.color : ''} ${has ? '' : 'empty'}" title="${esc(s.group ? 'Mehrtägig: ' + s.group : s.va || '')}">
-              <span class="time">${esc(s.zeit || '—')}</span>
-              <select data-slot="${esc(s.key)}">${techOpts(has ? a.tech_id : '')}</select>
-              ${has ? `<button class="pill ${a.status}" data-cycle="${esc(s.key)}" title="Klicken zum Ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''}</button>` : `<span class="pill leer">offen</span>`}
-              ${excelDiff ? `<span class="hint" title="So steht es in der Excel">Excel: ${esc(s.excelName)}</span>` : ''}
-              ${!s.excelName && s.note ? `<span class="hint">${esc(s.note)}</span>` : ''}
-            </div>`;
-          }).join('') || (d.free ? '' : '<span class="note">kein Techniker angefordert</span>')}</div>
-        </div></div>`;
-    }).join('') || '<div class="req muted">Keine Einträge in diesem Monat.</div>'}</div>
-    <p class="note">Farbiger Rand = mehrtägige Veranstaltung (wie in der Excel). Status anklicken, um ihn von Hand zu ändern (z. B. nach telefonischer Zusage).</p>
+    ${S.view === 'raster' ? gridHtml(monthDays, today) : `<div class="chips">${FILTERS.map(([k, l]) => `<button class="chip f-${k} ${S.filter === k ? 'on' : ''}" data-filter="${k}">${l}<b>${cnt[k]}</b></button>`).join('')}
+      <label class="pastsw"><input type="checkbox" id="showPast" ${S.showPast ? 'checked' : ''}> vergangene Tage</label></div>
+    <div class="card plan">${rows ? html : `<div class="empty-msg">${S.filter === 'alle' ? 'Keine Einsätze in diesem Zeitraum.' : 'Nichts mit diesem Status. 👍'}</div>`}</div>`}
+    <p class="note">Farbiger Balken = mehrtägige Veranstaltung (wie in der Excel). Status anklicken, um ihn von Hand zu ändern, z. B. nach einer telefonischen Zusage.</p>
   ` : '');
   wireImport();
   if (!S.plan) return;
+  const go = (i) => { if (months[i]) { S.month = months[i]; renderMaster(); } };
+  $('#mPrev').onclick = () => go(mi - 1);
+  $('#mNext').onclick = () => go(mi + 1);
+  document.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.filter; renderMaster(); }));
+  if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
+  document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; renderMaster(); }));
+  document.querySelectorAll('[data-jump]').forEach((c) => (c.onclick = () => {
+    S.view = 'liste'; S.filter = 'alle'; if (c.dataset.jump < today) S.showPast = true; renderMaster();
+    const el = document.getElementById('d-' + c.dataset.jump); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
+  }));
+  const days = monthDays;
   $('#month').onchange = (e) => { S.month = e.target.value; renderMaster(); };
-  $('#onlyOpen').onchange = (e) => { S.onlyOpen = e.target.checked; renderMaster(); };
   document.querySelectorAll('select[data-slot]').forEach((sel) => (sel.onchange = async () => {
     const key = sel.dataset.slot; const id = sel.value; const prev = S.asg[key] || {};
     try {

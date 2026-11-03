@@ -113,3 +113,98 @@ table.list input[type=text], table.list input[type=email] { width: 100%; border:
   .job .line .when { min-width: 0; width: 100%; }
   table.list .hide-sm { display: none; }
 }
+
+/* ---------- Planung (übersichtliche Tabelle) ---------- */
+.importline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--panel); border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 14px; font-size: 14px; }
+.importline.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.importline .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-leer); flex: none; }
+.importline .dot.ok { background: var(--st-zugesagt); }
+
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.monthnav { display: flex; align-items: center; gap: 4px; }
+.monthnav select { border: 0; background: transparent; font-size: 20px; font-weight: 700; padding: 2px 4px; cursor: pointer; }
+
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.chip { border: 1px solid var(--line); background: var(--panel); border-radius: 99px; padding: 5px 12px; cursor: pointer; font-size: 13px; display: inline-flex; gap: 7px; align-items: center; }
+.chip b { font-size: 12px; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--bg); text-align: center; }
+.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip.on b { background: color-mix(in srgb, var(--bg) 25%, transparent); color: inherit; }
+.chip.f-leer b { color: var(--st-leer); } .chip.f-abgesagt b { color: var(--st-abgesagt); } .chip.f-zugesagt b { color: var(--st-zugesagt); } .chip.f-angefragt b { color: var(--st-angefragt); }
+.chip.on.f-leer b, .chip.on.f-abgesagt b, .chip.on.f-zugesagt b, .chip.on.f-angefragt b { color: inherit; }
+.pastsw { margin-left: auto; font-size: 13px; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+
+.plan { overflow: hidden; }
+.week { padding: 6px 14px; font-size: 12px; font-weight: 700; letter-spacing: .4px; color: var(--muted); background: var(--bg); border-top: 1px solid var(--line); text-transform: uppercase; }
+.week:first-child { border-top: 0; }
+.row { display: grid; grid-template-columns: 78px minmax(200px, 300px) 1fr; border-top: 1px solid var(--line); align-items: stretch; }
+.week + .row { border-top: 0; }
+.row.past { opacity: .5; }
+.row.today .c-date { color: var(--accent); }
+.row.cancel { opacity: .45; }
+.row.none .c-va { color: var(--muted); }
+.c-date { padding: 12px 0 12px 14px; font-size: 14px; white-space: nowrap; }
+.c-date b { display: inline-block; width: 22px; }
+.c-va { padding: 10px 12px; border-left: 4px solid transparent; min-width: 0; }
+.c-va.c-gelb { border-left-color: var(--c-gelb); } .c-va.c-orange { border-left-color: var(--c-orange); } .c-va.c-rosa { border-left-color: var(--c-rosa); }
+.va-id { font-weight: 600; font-size: 14px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.va-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.tag.red { color: var(--st-abgesagt); border-color: var(--st-abgesagt); }
+details.more { display: inline; }
+details.more summary { display: inline; cursor: pointer; color: var(--accent); margin-left: 4px; list-style: none; }
+details.more summary::-webkit-details-marker { display: none; }
+details.more[open] div { margin-top: 6px; padding: 8px 10px; background: var(--bg); border-radius: 6px; color: var(--ink); white-space: pre-wrap; font-size: 12.5px; }
+.c-slots { padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-content: center; }
+.c-slots .small { font-size: 13px; }
+.slot { flex-direction: column; align-items: stretch; gap: 2px; width: 196px; padding: 6px 8px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px; background: var(--panel); }
+.slot.st-leer { border-left-color: var(--st-leer); border-style: dashed; border-left-style: solid; background: color-mix(in srgb, var(--st-leer) 6%, var(--panel)); }
+.slot.st-geplant { border-left-color: var(--st-geplant); }
+.slot.st-angefragt { border-left-color: var(--st-angefragt); }
+.slot.st-zugesagt { border-left-color: var(--st-zugesagt); }
+.slot.st-abgesagt { border-left-color: var(--st-abgesagt); background: color-mix(in srgb, var(--st-abgesagt) 7%, var(--panel)); }
+.slot select { width: 100%; max-width: none; font-size: 15px; padding: 1px 0; }
+.slot-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.slot .hint { font-size: 11px; }
+.empty-msg { padding: 28px; text-align: center; color: var(--muted); }
+
+@media (max-width: 800px) {
+  .row { grid-template-columns: 64px 1fr; }
+  .c-slots { grid-column: 1 / -1; padding: 0 12px 12px; }
+  .slot { width: 100%; }
+  .pastsw { margin-left: 0; }
+}
+
+/* Ansicht umschalten */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-left: 6px; }
+.seg button { border: 0; background: var(--panel); padding: 6px 12px; cursor: pointer; font-size: 13px; color: var(--muted); }
+.seg button.on { background: var(--ink); color: var(--bg); }
+.slot select optgroup { font-style: normal; color: var(--muted); }
+.hint.warn { color: var(--st-abgesagt); }
+.row.flash { animation: flash 1.6s ease; }
+@keyframes flash { 0%, 40% { background: color-mix(in srgb, var(--accent) 18%, transparent); } 100% { background: transparent; } }
+
+/* Raster: Techniker × Tage */
+.legend { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.lg { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-left: 6px; }
+.lg.zugesagt { background: var(--st-zugesagt); } .lg.angefragt { background: var(--st-angefragt); } .lg.geplant { background: var(--st-geplant); } .lg.miss { background: var(--st-leer); }
+.gridwrap { overflow-x: auto; }
+table.grid { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+table.grid th, table.grid td { padding: 3px 2px; text-align: center; border-bottom: 1px solid var(--line); min-width: 34px; }
+table.grid thead th { font-weight: 600; color: var(--muted); padding: 6px 2px; position: sticky; top: 0; background: var(--panel); }
+table.grid thead th span { display: block; font-weight: 400; font-size: 10.5px; }
+table.grid th.name { position: sticky; left: 0; z-index: 2; background: var(--panel); text-align: left; padding: 6px 12px; min-width: 130px; font-size: 13px; color: var(--ink); white-space: nowrap; border-right: 1px solid var(--line); }
+table.grid thead th.name { z-index: 3; color: var(--muted); }
+table.grid .we { background: var(--free); }
+table.grid th.today { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+table.grid td.sum, table.grid th.sum { font-weight: 700; padding: 0 10px; border-left: 1px solid var(--line); }
+.needrow th, .needrow td { background: var(--bg); }
+.need { border: 0; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 3px 0; width: 30px; cursor: pointer; }
+.need.full { background: color-mix(in srgb, var(--st-zugesagt) 15%, transparent); color: var(--st-zugesagt); }
+.need.miss { background: var(--st-leer); color: #fff; }
+.gcell { border: 0; border-radius: 6px; width: 30px; height: 26px; color: #fff; font-weight: 700; font-size: 11px; cursor: pointer; }
+.gcell.zugesagt { background: var(--st-zugesagt); } .gcell.angefragt { background: var(--st-angefragt); } .gcell.geplant { background: var(--st-geplant); } .gcell.abgesagt { background: var(--st-abgesagt); }
+.gcell.dbl { outline: 2px solid var(--st-abgesagt); outline-offset: 1px; }
+.row.none { font-size: 13px; }
+.row.none .c-date, .row.none .c-va, .row.none .c-slots { padding-top: 6px; padding-bottom: 6px; }
+.row.none .va-id { font-weight: 500; font-size: 13px; }
+.row.none .va-sub { display: none; }

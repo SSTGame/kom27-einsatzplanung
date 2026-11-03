@@ -139,3 +139,59 @@ language sql stable security definer set search_path = public as $$
      and split_part(a.slot_key, '#', 1) in (select split_part(slot_key, '#', 1) from assignments where tech_id = my_tech_id() and status in ('angefragt', 'zugesagt'));
 $$;
 grant execute on function my_colleagues() to authenticated;
+
+-- Arbeitszeiten: Techniker bestätigen Beginn/Ende/Pause ihrer zugesagten Einsätze
+alter table assignments add column if not exists actual_start text;
+alter table assignments add column if not exists actual_end text;
+alter table assignments add column if not exists break_min int;
+alter table assignments add column if not exists time_note text default '';
+alter table assignments add column if not exists time_at timestamptz;
+
+create or replace function log_time(p_slot text, p_start text, p_end text, p_break int, p_note text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_start !~ '^\d{1,2}:\d{2}$' or p_end !~ '^\d{1,2}:\d{2}$' then raise exception 'Ungültige Uhrzeit'; end if;
+  if p_break is null or p_break < 0 or p_break > 600 then raise exception 'Ungültige Pause'; end if;
+  update assignments
+     set actual_start = p_start, actual_end = p_end, break_min = p_break, time_note = coalesce(left(p_note, 300), ''), time_at = now()
+   where slot_key = p_slot and tech_id = my_tech_id() and status = 'zugesagt';
+  if not found then raise exception 'Kein zugesagter Einsatz gefunden'; end if;
+end $$;
+grant execute on function log_time(text, text, text, int, text) to authenticated;
+
+-- Offene Einsätze ausschreiben: Techniker melden „Ich hätte Zeit“
+create table if not exists offers (
+  slot_key text primary key,
+  note text default '',
+  created_at timestamptz default now()
+);
+create table if not exists offer_interest (
+  slot_key text references offers(slot_key) on delete cascade,
+  tech_id uuid references technicians(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (slot_key, tech_id)
+);
+alter table offers enable row level security;
+alter table offer_interest enable row level security;
+drop policy if exists offers_read on offers;
+create policy offers_read on offers for select to authenticated using (true);
+drop policy if exists offers_admin on offers;
+create policy offers_admin on offers for all to authenticated using (is_admin()) with check (is_admin());
+drop policy if exists oi_read on offer_interest;
+create policy oi_read on offer_interest for select to authenticated using (is_admin() or tech_id = my_tech_id());
+drop policy if exists oi_ins on offer_interest;
+create policy oi_ins on offer_interest for insert to authenticated with check (tech_id = my_tech_id() or is_admin());
+drop policy if exists oi_upd on offer_interest;
+create policy oi_upd on offer_interest for update to authenticated using (tech_id = my_tech_id() or is_admin()) with check (tech_id = my_tech_id() or is_admin());
+drop policy if exists oi_del on offer_interest;
+create policy oi_del on offer_interest for delete to authenticated using (tech_id = my_tech_id() or is_admin());
+
+do $$
+declare t text;
+begin
+  foreach t in array array['offers','offer_interest'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;

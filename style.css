@@ -268,3 +268,27 @@ h2.sec .linkbtn { text-transform: none; letter-spacing: 0; }
 .nolist { margin-top: 18px; }
 .nolist summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
 .note.center { text-align: center; margin-top: 26px; }
+
+/* Abwesenheits-Kalender */
+.sec-help { font-size: 13.5px; color: var(--muted); margin: -4px 2px 10px; }
+.calcard { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cal-head b { font-size: 17px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.cal-grid i { font-style: normal; text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 2px; }
+.cday { aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 15px; font-weight: 600; cursor: pointer; position: relative; padding: 0; }
+.cday.we { background: var(--bg); }
+.cday:disabled { opacity: .35; cursor: default; }
+.cday.today { border-color: var(--accent); color: var(--accent); }
+.cday.job-zugesagt::after, .cday.job-angefragt::after { content: ''; position: absolute; left: 50%; bottom: 5px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--st-zugesagt); }
+.cday.job-angefragt::after { background: var(--st-angefragt); }
+.cday.off { background: var(--st-abgesagt); border-color: var(--st-abgesagt); color: #fff; text-decoration: line-through; }
+.cday.off::after { background: #fff !important; }
+.cal-note input { width: 100%; margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 14px; }
+.cal-legend { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.lgd { width: 12px; height: 12px; border-radius: 4px; display: inline-block; margin-left: 6px; }
+.lgd.off { background: var(--st-abgesagt); } .lgd.l-ok { background: var(--st-zugesagt); border-radius: 50%; width: 8px; height: 8px; } .lgd.l-ask { background: var(--st-angefragt); border-radius: 50%; width: 8px; height: 8px; }
+.cal-sum { font-size: 13px; margin-top: 8px; color: var(--ink); }
+/* Raster: abgemeldet */
+.gblock { display: inline-block; width: 30px; height: 26px; line-height: 26px; border-radius: 6px; color: var(--st-abgesagt); font-weight: 700; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--st-abgesagt) 14%, transparent) 0 4px, transparent 4px 8px); }
+.lg.blocked { background: repeating-linear-gradient(45deg, var(--st-abgesagt) 0 2px, transparent 2px 4px); border: 1px solid var(--st-abgesagt); }

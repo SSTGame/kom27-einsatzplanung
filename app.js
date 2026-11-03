@@ -181,6 +181,7 @@ function renderLogin(msg) {
 function header(extra) {
   return `<header class="top"><div class="top-inner">
     <div class="brand">KOM27 Einsatzplanung<small>${DEMO ? 'Demo' : esc(S.user.email)}</small></div>
+    <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
     <button class="btn small" id="logout">Abmelden</button></div></header>`;
 }
@@ -636,7 +637,50 @@ async function boot() {
     S.admin = await store.isAdmin(S.user.email);
     await reload();
     S.admin ? renderMaster() : renderTech();
+    startLive();
   } catch (e) { console.error(e); renderLogin(e.message); }
+}
+
+/* ---------------- Live-Aktualisierung ---------------- */
+let liveTimer = null; let liveOn = false;
+function scheduleLive(delay) { clearTimeout(liveTimer); liveTimer = setTimeout(liveRefresh, delay ?? 400); }
+async function liveRefresh() {
+  if (!S.user || S.recovery) return;
+  // nicht mitten in eine Eingabe hinein neu zeichnen
+  const ae = document.activeElement;
+  if ((ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) && ae.closest('#app')) || document.querySelector('.jc-reason:not(.hidden), .jc-one:not(.hidden)')) return scheduleLive(2500);
+  const oldAsg = S.asg; const oldUnav = new Set(S.unav.map((u) => u.tech_id + '|' + u.day));
+  try { await reload(); } catch (e) { return; }
+  const msgs = [];
+  if (S.admin) {
+    const slotByKey = {}; allSlots().forEach((x) => (slotByKey[x.key] = x));
+    Object.values(S.asg).forEach((a) => {
+      const o = oldAsg[a.slot_key];
+      if (o && o.status !== a.status && (a.status === 'zugesagt' || a.status === 'abgesagt') && o.status === 'angefragt') {
+        const t = techById(a.tech_id); const sl = slotByKey[a.slot_key];
+        msgs.push(`${t ? t.name.split(' ')[0] : 'Techniker'} hat ${a.status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'}${sl ? ' (' + fmtDate(sl.date) + ')' : ''}`);
+      }
+    });
+    const added = S.unav.filter((u) => !oldUnav.has(u.tech_id + '|' + u.day));
+    if (added.length) { const t = techById(added[0].tech_id); msgs.push(`${t ? t.name.split(' ')[0] : 'Ein Techniker'} hat ${added.length} Tag${added.length > 1 ? 'e' : ''} als „kann nicht“ eingetragen`); }
+  }
+  const y = window.scrollY;
+  S.admin ? renderMaster() : renderTech();
+  window.scrollTo(0, y);
+  if (msgs.length) toast(msgs.slice(0, 3).join(' · ') + (msgs.length > 3 ? ` (+${msgs.length - 3})` : ''));
+}
+function startLive() {
+  if (liveOn) return; liveOn = true;
+  if (DEMO) {
+    window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
+  } else {
+    const ch = store.sb.channel('kom27-live');
+    ['assignments', 'unavailability', 'technicians', 'plan'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
+  }
+  // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen
+  setInterval(() => { if (!document.hidden) scheduleLive(0); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleLive(0); });
 }
 if (!DEMO) store.sb.auth.onAuthStateChange((ev, session) => {
   if (ev === 'PASSWORD_RECOVERY') { S.recovery = true; renderLogin(); return; }

@@ -387,3 +387,64 @@ dl.extras dt { color: var(--muted); font-size: 13px; } dl.extras dd { margin: 0;
 .sh-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
 .sh-actions .big { flex: 1; min-width: 140px; }
 .sh-actions:empty { display: none; }
+
+/* ---------- v3: flüssige Bedienung & neue Funktionen ---------- */
+.sumrow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sumrow.wide { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 12px; }
+@media (max-width: 560px) { .sumrow.wide { grid-template-columns: 1fr 1fr; } .sumbox b { font-size: 24px; } }
+.sumbox.warn b { color: var(--st-leer); }
+.lg.abgesagt { background: var(--st-abgesagt); }
+.pill[data-stm] { cursor: pointer; }
+.stmenu { position: fixed; z-index: 60; min-width: 190px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 6px; animation: fadein .1s ease-out; }
+.stmenu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px 10px; border-radius: 8px; cursor: pointer; text-align: left; font-size: 14px; }
+.stmenu button .lg { margin: 0; }
+.stmenu button:hover, .stmenu button:focus-visible { background: var(--bg); outline: none; }
+.stmenu button.on { font-weight: 700; }
+.stm-note { font-size: 12px; padding: 6px 10px 2px; border-top: 1px solid var(--line); margin-top: 4px; }
+.stm-note.muted { border: 0; margin: 0; padding-top: 2px; }
+.hint.ok { color: var(--st-zugesagt); }
+.offer-btn { align-self: flex-start; font-size: 12px; margin-top: 2px; }
+.offer-box { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; margin-top: 4px; padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); color: var(--accent); }
+.offer-box > span { width: 100%; font-weight: 600; }
+.take { border: 1px solid var(--st-zugesagt); color: var(--st-zugesagt); background: var(--panel); border-radius: 99px; font-size: 12px; font-weight: 600; padding: 2px 9px; cursor: pointer; }
+.take:hover { background: var(--st-zugesagt); color: #fff; }
+.tbadge { font-size: 11px; font-weight: 700; background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 6px; margin-left: 4px; }
+.changes { border: 1px solid color-mix(in srgb, var(--st-leer) 45%, var(--line)); background: color-mix(in srgb, var(--st-leer) 8%, var(--panel)); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
+.chg-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.changes ul { margin: 8px 0 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.changes li { padding: 4px 0; border-top: 1px solid color-mix(in srgb, var(--st-leer) 20%, transparent); font-size: 14px; }
+.changes li.chg-gone, .changes li.chg-cancel { color: var(--st-abgesagt); }
+.feed { padding: 10px 14px; margin-bottom: 12px; }
+.feed h3 { margin: 0 0 6px; font-size: 15px; }
+.feed ul { list-style: none; margin: 0; padding: 0; }
+.feed li { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.feed .fi { flex: none; } .feed .ft { flex: 1; min-width: 0; } .feed .fa { flex: none; color: var(--muted); font-size: 12px; }
+.hcard { margin-bottom: 8px; padding: 0; }
+.hcard summary { cursor: pointer; padding: 10px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.hcard .hs { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.hcard .hs .ok { color: var(--st-zugesagt); } .hcard .hs .warn, .htab .warn { color: var(--st-leer); font-weight: 600; }
+.htab { width: 100%; font-size: 13px; }
+.htab td, .htab th { padding: 5px 8px; white-space: nowrap; }
+.htab input[type=time], .htab select { font-size: 13px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.htab tr.future { opacity: .55; }
+.hcard[open] { overflow-x: auto; }
+.time-card, .offer-card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+.offer-card { display: block; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.offer-card.is-in { border-color: var(--st-zugesagt); background: color-mix(in srgb, var(--st-zugesagt) 5%, var(--panel)); }
+.in-msg { flex: 1; align-self: center; font-weight: 600; color: var(--st-zugesagt); }
+.tc-body { flex: 1; min-width: 0; }
+.tc-head small { color: var(--muted); margin-left: 6px; }
+.tform { margin-top: 8px; display: grid; gap: 8px; }
+.tf-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tf-row label { font-size: 12px; color: var(--muted); display: grid; gap: 2px; }
+.tform input, .tform select { width: 100%; min-width: 0; font-size: 16px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.tf-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tf-sum { font-size: 13px; color: var(--muted); }
+.job-card, .mini-line, .jc-day { transition: height .22s ease, opacity .18s ease, margin .22s ease, padding .22s ease; }
+.leaving { opacity: 0; margin-top: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; border-width: 0 !important; }
+.slot, .pill { transition: background-color .15s, border-color .15s; }
+
+.tc-top { display: flex; gap: 12px; align-items: center; }
+.tc-head b { display: block; } .tc-head small { color: var(--muted); margin: 0; }
+.hint.ok { background: color-mix(in srgb, var(--st-zugesagt) 10%, var(--panel)); }
+.slot .hint { border-radius: 6px; padding: 3px 6px; margin-top: 3px; }

@@ -195,3 +195,101 @@ begin
     end if;
   end loop;
 end $$;
+
+-- Projektleiter-Freigabe: Techniker mit eigenem Chef
+alter table technicians add column if not exists company text default '';
+alter table technicians add column if not exists manager_email text;
+alter table assignments add column if not exists tech_reply text;
+alter table assignments add column if not exists tech_reply_note text default '';
+alter table assignments add column if not exists tech_reply_at timestamptz;
+
+create or replace function my_managed_ids() returns setof uuid
+language sql stable security definer set search_path = public as $$
+  select id from technicians where coalesce(manager_email, '') <> '' and lower(manager_email) = lower(auth.jwt() ->> 'email');
+$$;
+grant execute on function my_managed_ids() to authenticated;
+
+drop policy if exists tech_read on technicians;
+create policy tech_read on technicians for select to authenticated using (is_admin() or id = my_tech_id() or id in (select my_managed_ids()));
+drop policy if exists asg_read on assignments;
+create policy asg_read on assignments for select to authenticated using (is_admin() or tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
+drop policy if exists unav_read on unavailability;
+create policy unav_read on unavailability for select to authenticated using (is_admin() or tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
+drop policy if exists unav_write on unavailability;
+create policy unav_write on unavailability for all to authenticated
+  using (is_admin() or tech_id = my_tech_id() or tech_id in (select my_managed_ids()))
+  with check (is_admin() or tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
+
+-- Zusagen: Techniker ohne Chef selbst, sonst nur sein Projektleiter
+create or replace function respond(p_slot text, p_status text, p_note text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_status not in ('zugesagt','abgesagt') then raise exception 'Ungültiger Status'; end if;
+  update assignments a
+     set status = p_status,
+         note = coalesce(p_note, ''),
+         updated_at = now(),
+         declined = case when p_status = 'abgesagt' then array_append(a.declined, a.tech_id) else a.declined end
+   where a.slot_key = p_slot
+     and ((a.tech_id = my_tech_id() and not exists (select 1 from technicians t where t.id = a.tech_id and coalesce(t.manager_email, '') <> ''))
+          or a.tech_id in (select my_managed_ids()));
+  if not found then raise exception 'Kein Einsatz gefunden oder keine Berechtigung'; end if;
+end $$;
+
+-- Techniker mit Chef: unverbindliche Rückmeldung „könnte / kann nicht“
+create or replace function tech_signal(p_slot text, p_ok boolean, p_note text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update assignments
+     set tech_reply = case when p_ok then 'kann' else 'kann_nicht' end, tech_reply_note = coalesce(left(p_note, 300), ''), tech_reply_at = now()
+   where slot_key = p_slot and tech_id = my_tech_id() and status in ('angefragt', 'geplant');
+  if not found then raise exception 'Kein offener Einsatz gefunden'; end if;
+end $$;
+grant execute on function tech_signal(text, boolean, text) to authenticated;
+
+-- Kalender-Abo: persönlicher Schlüssel je Techniker (kann in der App erneuert werden)
+alter table technicians add column if not exists cal_token uuid default gen_random_uuid();
+update technicians set cal_token = gen_random_uuid() where cal_token is null;
+create or replace function new_cal_token() returns uuid
+language plpgsql security definer set search_path = public as $$
+declare t uuid := gen_random_uuid();
+begin
+  update technicians set cal_token = t where id = my_tech_id();
+  if not found then raise exception 'Kein Techniker-Zugang'; end if;
+  return t;
+end $$;
+grant execute on function new_cal_token() to authenticated;
+
+-- Erinnerung am Vortag: Zeitplan ruft jeden Abend den Dienst „notify“ auf
+create table if not exists cron_config (
+  id int primary key default 1,
+  secret text not null default replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
+  remind_last text
+);
+insert into cron_config (id) values (1) on conflict do nothing;
+alter table cron_config enable row level security; -- keine Policy: nur der Server-Dienst darf lesen
+
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+-- ===== v6: VA-Kalender automatisch von SharePoint abholen =====
+create table if not exists excel_sync (
+  id int primary key default 1 check (id = 1),
+  share_url text, hash text, fetched_at timestamptz, changed_at timestamptz, last_try timestamptz, last_error text
+);
+create table if not exists excel_file (id int primary key default 1 check (id = 1), hash text, b64 text, fetched_at timestamptz);
+alter table excel_sync enable row level security;
+alter table excel_file enable row level security;
+drop policy if exists sync_admin on excel_sync;
+create policy sync_admin on excel_sync for all using (is_admin()) with check (is_admin());
+drop policy if exists file_admin on excel_file;
+create policy file_admin on excel_file for select using (is_admin());
+insert into excel_sync (id) values (1) on conflict do nothing;
+do $$ begin
+  alter publication supabase_realtime add table excel_sync;
+exception when others then null; end $$;
+
+-- Zeitpläne: Erinnerung jeden Abend (17:00 UTC), SharePoint-Abgleich stündlich zwischen 5 und 21 Uhr UTC
+do $$ begin perform cron.unschedule(jobid) from cron.job where jobname in ('kom27-erinnerung', 'kom27-excel'); end $$;
+select cron.schedule('kom27-erinnerung', '0 17 * * *', $cmd$ select net.http_post(url := 'https://jnwcmusamhijctwjyfbh.supabase.co/functions/v1/notify', headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer <ANON-KEY aus config.js>', 'apikey', '<ANON-KEY aus config.js>', 'x-kom27-cron', (select secret from public.cron_config where id = 1)), body := '{"action":"remind"}'::jsonb); $cmd$);
+select cron.schedule('kom27-excel', '7 5-21 * * *', $cmd$ select net.http_post(url := 'https://jnwcmusamhijctwjyfbh.supabase.co/functions/v1/excel-sync', headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer <ANON-KEY aus config.js>', 'apikey', '<ANON-KEY aus config.js>', 'x-kom27-cron', (select secret from public.cron_config where id = 1)), body := '{}'::jsonb, timeout_milliseconds := 60000); $cmd$);

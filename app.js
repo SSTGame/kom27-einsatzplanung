@@ -56,9 +56,18 @@ const DemoStore = {
   async saveAssignments(list) { const d = this.d(); list.forEach((a) => (d.asg[a.slot_key] = a)); this.w(d); },
   async deleteAssignments(keys) { const d = this.d(); keys.forEach((k) => delete d.asg[k]); this.w(d); },
   async savePush() {}, async deletePush() {},
-  async respond(email, key, status, note) {
+  async techSignal(email, key, ok, note) {
     const d = this.d(); const t = d.techs.find((x) => (x.email || '').toLowerCase() === email); const a = d.asg[key];
-    if (!t || !a || a.tech_id !== t.id) throw new Error('Kein Einsatz gefunden.');
+    if (!t || !a || a.tech_id !== t.id || !['angefragt', 'geplant'].includes(a.status)) throw new Error('Kein offener Einsatz gefunden.');
+    Object.assign(a, { tech_reply: ok ? 'kann' : 'kann_nicht', tech_reply_note: note || '', tech_reply_at: nowISO() }); this.w(d);
+  },
+  async respond(email, key, status, note) {
+    const d = this.d(); const a = d.asg[key];
+    const owner = a && d.techs.find((x) => x.id === a.tech_id);
+    const own = owner && (owner.email || '').toLowerCase() === email && !(owner.manager_email || '').trim();
+    const boss = owner && (owner.manager_email || '').trim().toLowerCase() === email;
+    if (!a || !(own || boss)) throw new Error('Kein Einsatz gefunden oder keine Berechtigung.');
+    const t = owner;
     a.status = status; a.note = note || ''; a.updated_at = nowISO();
     if (status === 'abgesagt') a.declined = [...new Set([...(a.declined || []), t.id])];
     this.w(d);
@@ -96,11 +105,18 @@ function makeSupabaseStore() {
     async saveAssignments(list) { if (list.length) chk(await sb.from('assignments').upsert(list)); },
     async deleteAssignments(keys) { if (keys.length) chk(await sb.from('assignments').delete().in('slot_key', keys)); },
     async respond(_email, key, status, note) { chk(await sb.rpc('respond', { p_slot: key, p_status: status, p_note: note || '' })); },
+    async techSignal(_email, key, ok, note) { chk(await sb.rpc('tech_signal', { p_slot: key, p_ok: ok, p_note: note || '' })); },
+    async newCalToken() { return chk(await sb.rpc('new_cal_token')); },
+    async verifyLink(token_hash, type) { chk(await sb.auth.verifyOtp({ token_hash, type })); },
     async saveOffers(rows) { if (rows.length) chk(await sb.from('offers').upsert(rows)); },
     async deleteOffers(keys) { if (keys.length) chk(await sb.from('offers').delete().in('slot_key', keys)); },
     async addInterest(key, tech_id) { chk(await sb.from('offer_interest').upsert({ slot_key: key, tech_id })); },
     async removeInterest(key, tech_id) { chk(await sb.from('offer_interest').delete().eq('slot_key', key).eq('tech_id', tech_id)); },
     async logTime(_email, key, st, en, brk, note) { chk(await sb.rpc('log_time', { p_slot: key, p_start: st, p_end: en, p_break: brk, p_note: note || '' })); },
+    async getSync() { const r = await sb.from('excel_sync').select('share_url, hash, fetched_at, changed_at, last_try, last_error').eq('id', 1).maybeSingle(); return r.error ? null : r.data; },
+    async getSyncFile() { return chk(await sb.from('excel_file').select('hash, b64').eq('id', 1).maybeSingle()); },
+    async syncNow() { const { data, error } = await sb.functions.invoke('excel-sync', { body: {} }); if (error) throw error; return data || {}; },
+    async setShareUrl(u) { chk(await sb.from('excel_sync').upsert({ id: 1, share_url: u || null })); },
     async savePush(row) { chk(await sb.from('push_subscriptions').upsert(row)); },
     async deletePush(endpoint) { chk(await sb.from('push_subscriptions').delete().eq('endpoint', endpoint)); }
   };
@@ -110,18 +126,18 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
 /* ---------------- Flüssige Darstellung ---------------- */
 // Signatur der fachlichen Daten (ohne Zeitstempel) – ändert sich nichts, wird nicht neu gezeichnet
 function dataSig() {
-  const a = Object.values(S.asg || {}).map((x) => [x.slot_key, x.tech_id, x.status, x.note || '', (x.declined || []).join(','), x.actual_start || '', x.actual_end || '', x.break_min ?? '']).sort().join('|');
+  const a = Object.values(S.asg || {}).map((x) => [x.slot_key, x.tech_id, x.status, x.note || '', (x.declined || []).join(','), x.actual_start || '', x.actual_end || '', x.break_min ?? '', x.tech_reply || '']).sort().join('|');
   const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '')).sort().join('|');
-  const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases].join(',')).join('|');
+  const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases, x.manager_email, x.company].join(',')).join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
-  return [a, u, t, o, S.plan ? S.plan.importedAt : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
+  return [a, u, t, o, S.plan ? S.plan.importedAt : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
 }
 // neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
 function paint(anchorSel) {
@@ -228,6 +244,11 @@ const allDays = () => (S.plan ? S.plan.days : []);
 const allSlots = () => allDays().flatMap((d) => d.slots.map((s) => Object.assign({ day: d }, s)));
 const techById = (id) => S.techs.find((t) => t.id === id);
 const myTech = () => S.techs.find((t) => (t.email || '').toLowerCase() === S.user.email);
+// Techniker mit eigenem Chef: die verbindliche Zusage gibt der Projektleiter
+const mgrMail = (t) => ((t && t.manager_email) || '').trim().toLowerCase();
+const hasMgr = (t) => !!mgrMail(t);
+const mgrLabel = (t) => (t && t.company ? t.company : mgrMail(t) || 'deinem Projektleiter');
+const myTeam = () => S.techs.filter((t) => hasMgr(t) && mgrMail(t) === S.user.email);
 
 function matchTech(name) {
   if (!name) return null;
@@ -285,7 +306,9 @@ function autoAssign() {
 
 /* ---------------- Render: Login ---------------- */
 function renderLogin(msg) {
+  document.body.classList.remove('is-master');
   const demoTechs = DEMO ? (DemoStore.d().techs || []).filter((t) => t.email) : [];
+  if (DEMO) [...new Set((DemoStore.d().techs || []).map(mgrMail).filter(Boolean))].forEach((m) => demoTechs.push({ email: m, name: 'Projektleiter ' + m.split('@')[0] }));
   $('#app').innerHTML = `
   <div class="card login">
     <h1>KOM27 Einsatzplanung</h1>
@@ -315,7 +338,7 @@ function renderLogin(msg) {
   $('#in').onclick = async () => { try { const [e, p] = creds(); S.user = await store.signIn(e, p); boot(); } catch (e) { err(e); } };
   $('#pw').onkeydown = (ev) => { if (ev.key === 'Enter') $('#in').click(); };
   $('#up').onclick = async () => {
-    try { const [e, p] = creds(); if (p.length < 8) throw new Error('Passwort bitte mit mindestens 8 Zeichen.'); const u = await store.signUp(e, p); if (u) { S.user = u; boot(); } else err('Fast fertig: Bitte den Bestätigungslink in deiner E-Mail anklicken, dann hier anmelden.'); } catch (e) { err(e); }
+    try { const [e, p] = creds(); if (p.length < 8) throw new Error('Passwort bitte mit mindestens 8 Zeichen.'); const u = await store.signUp(e, p); if (u) { S.user = u; boot(); } else err('Fast fertig! Wir haben dir eine E-Mail mit dem Betreff „KOM27 Einsatzplanung – E-Mail bestätigen“ geschickt. Tippe dort auf „E-Mail bestätigen“ – danach bist du drin. (Nichts gekommen? Bitte im Spam-Ordner schauen.)'); } catch (e) { err(e); }
   };
   $('#forgot').onclick = async () => { try { const [e] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); await store.reset(e); err('Link zum Zurücksetzen wurde per E-Mail geschickt.'); } catch (e) { err(e); } };
   document.querySelectorAll('[data-demo]').forEach((b) => (b.onclick = async () => { S.user = await store.signIn(b.dataset.demo); boot(); }));
@@ -327,15 +350,17 @@ function header(extra) {
     <div class="brand">KOM27 Einsatzplanung<small>${DEMO ? 'Demo' : esc(S.user.email)}</small></div>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
-    <button class="btn small" id="logout">Abmelden</button></div></header>`;
+    <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true">⎋</span></button></div></header>`;
 }
 
 function renderMaster() {
   const nInt = (S.interest || []).filter((i) => offerOf(i.slot_key)).length;
   const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker']];
-  const nav = `<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${l}</button>`).join('')}</nav>`;
+  const IC = { plan: '📋', req: '📨', hours: '⏱', techs: '👥' };
+  const nav = `<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}"><i class="tic">${IC[k]}</i><span>${l}</span></button>`).join('')}</nav>`;
   $('#app').innerHTML = header(nav) + `<main id="main"></main>`;
-  document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; renderMaster(); }));
+  document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { const same = S.tab === b.dataset.tab; S.tab = b.dataset.tab; renderMaster(); if (!same) window.scrollTo(0, 0); }));
+  document.body.classList.add('is-master');
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   ({ plan: renderPlan, req: renderReq, hours: renderHours, techs: renderTechs })[S.tab]();
 }
@@ -349,7 +374,23 @@ function importBar() {
       <span class="spacer"></span>
       ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint ↗</a>` : ''}
       <label class="btn small">Excel einlesen<input type="file" id="file" accept=".xlsx" hidden></label>
-    </div>`;
+    </div>${syncBar()}`;
+}
+// automatischer Abgleich mit SharePoint (nur online, nur Master)
+function syncBar() {
+  if (DEMO || !store.getSync) return '';
+  const y = S.sync; const t = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+  if (!y || !y.share_url) return `<div class="syncline muted"><span>🔗 Automatischer Abgleich mit SharePoint ist aus.</span><span class="spacer"></span><button class="btn small" id="syncCfg">Link hinterlegen</button></div>`;
+  const neu = y.hash && (!S.plan || S.plan.sourceHash !== y.hash);
+  if (neu) return `<div class="syncline new"><span>📥 <b>Neue Version auf SharePoint</b> (geändert ${esc(t(y.changed_at))})</span><span class="spacer"></span><button class="btn small primary" id="syncApply">Übernehmen</button></div>`;
+  return `<div class="syncline ${y.last_error ? 'err' : 'muted'}"><span>${y.last_error ? '⚠️ Abruf fehlgeschlagen: ' + esc(y.last_error) : '✓ Aktuell mit SharePoint · zuletzt geprüft ' + esc(t(y.last_try))}</span><span class="spacer"></span><button class="btn small ghost" id="syncNow">Jetzt prüfen</button><button class="btn small ghost" id="syncCfg" title="SharePoint-Link ändern">⚙</button></div>`;
+}
+const sha256hex = async (buf) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((x) => x.toString(16).padStart(2, '0')).join('');
+async function applySync() {
+  toast('Hole Excel von SharePoint …');
+  const f = await store.getSyncFile(); if (!f || !f.b64) throw new Error('Noch keine Datei abgeholt');
+  const bin = atob(f.b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  await importFile(new File([u], 'VA-Kalender (SharePoint).xlsx'), f.hash);
 }
 
 let excelLib;
@@ -358,14 +399,16 @@ async function loadExcelJS() {
   if (!excelLib) excelLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'; s.onload = res; s.onerror = () => rej(new Error('ExcelJS konnte nicht geladen werden')); document.head.appendChild(s); });
   await excelLib;
 }
-async function importFile(file) {
+async function importFile(file, srcHash) {
   try {
     toast('Lese Excel …');
     await loadExcelJS();
+    const buf = await file.arrayBuffer();
     const wb = new window.ExcelJS.Workbook();
-    await wb.xlsx.load(await file.arrayBuffer());
+    await wb.xlsx.load(buf);
     const plan = window.KOM27Parser.parseWorkbook(wb);
     plan.fileName = file.name;
+    try { plan.sourceHash = srcHash || await sha256hex(buf); } catch (e) {}
     const old = S.plan; const ch = old && old.days ? diffPlans(old, plan) : null;
     if (ch) plan.changes = { at: plan.importedAt, items: ch.items };
     await store.savePlan(plan);
@@ -381,6 +424,10 @@ async function importFile(file) {
   } catch (e) { console.error(e); toast('Fehler beim Einlesen: ' + e.message); }
 }
 function wireImport() {
+  const btn = (id, fn) => { const b = $(id); if (b) b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { toast('Fehler: ' + (e.message || e)); } finally { b.disabled = false; } }; };
+  btn('#syncApply', applySync);
+  btn('#syncNow', async () => { toast('Prüfe SharePoint …'); const r = await store.syncNow(); S.sync = await store.getSync(); toast(r.error ? 'Abruf fehlgeschlagen: ' + r.error : r.changed ? 'Neue Version gefunden 📥' : 'Keine Änderung – alles aktuell ✓'); renderMaster(); });
+  btn('#syncCfg', async () => { const u = prompt('SharePoint-Link der Excel („Jeder mit dem Link kann anzeigen“). Leer lassen zum Ausschalten:', (S.sync && S.sync.share_url) || ''); if (u === null) return; await store.setShareUrl(u.trim()); if (u.trim()) await store.syncNow(); S.sync = await store.getSync(); renderMaster(); });
   const drop = $('#drop'); const zone = $('#main'); if (!drop || !zone) return;
   $('#file').onchange = (e) => e.target.files[0] && importFile(e.target.files[0]);
   zone.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
@@ -522,6 +569,7 @@ function renderPlan() {
             <div class="slot-foot"><span class="time">${esc(s.zeit || 'Zeit offen')}</span>
               ${t ? `<button class="pill ${a.status}" data-stm="${esc(s.key)}" title="Status ändern${a.note ? ' – Notiz: ' + esc(a.note) : ''}">${ST_LABEL[a.status]}${a.note ? ' 💬' : ''} ▾</button>` : '<span class="pill leer">unbesetzt</span>'}</div>
             ${cf.map((c) => `<div class="hint warn">⚠ ${esc(c.txt)}</div>`).join('')}
+            ${t && hasMgr(t) ? `<div class="hint boss" title="Zusage gibt ${esc(mgrMail(t))}">🏢 ${esc(mgrLabel(t))}${a.status === 'angefragt' ? (a.tech_reply === 'kann' ? ' · 👍 ' + esc(t.name.split(' ')[0]) + ' könnte – Freigabe offen' : a.tech_reply === 'kann_nicht' ? ' · ✗ ' + esc(t.name.split(' ')[0]) + ' kann nicht' : ' · Freigabe offen') : ''}</div>` : ''}
             ${a && a.actual_start ? `<div class="hint ok" title="vom Techniker bestätigte Arbeitszeit">⏱ ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''}</div>` : ''}
             ${canOffer ? `<button class="linkbtn offer-btn" data-offer="${esc(s.key)}">📣 ausschreiben</button>` : ''}
             ${off ? `<div class="offer-box"><span>📣 ausgeschrieben${ints.length ? '' : ' – noch keine Meldung'}</span>${ints.map((i) => { const it = techById(i.tech_id); return it ? `<button class="take" data-take="${esc(s.key)}" data-tid="${it.id}" title="${esc(it.name)} einteilen (gilt als zugesagt)">🙋 ${esc(it.name.split(' ')[0])} einteilen</button>` : ''; }).join('')}<button class="linkbtn" data-unoffer="${esc(s.key)}">zurückziehen</button></div>` : ''}
@@ -546,6 +594,7 @@ function renderPlan() {
       <div class="spacer"></div>
       ${(() => { const n = visDays.filter((d) => !d.cancelled).reduce((acc, d) => acc + d.slots.filter((x) => (slotState(x) === 'leer' || slotState(x) === 'abgesagt') && !offerOf(x.key)).length, 0); return n ? `<button class="btn" id="offerAll" title="Alle unbesetzten Einsätze dieses Monats an alle Techniker schicken – wer Zeit hat, meldet sich">📣 Offene ausschreiben (${n})</button>` : ''; })()}
       <button class="btn" id="copy">Zusagen kopieren</button>
+      <button class="btn" id="pdfMonth" title="Monatsplan als PDF / zum Drucken">🖨 PDF</button>
       <button class="btn primary" id="auto">Auto-Einteilung</button>
     </div>
     ${S.view === 'raster' ? gridHtml(monthDays, today) : `<div class="chips">${FILTERS.map(([k, l]) => `<button class="chip f-${k} ${S.filter === k ? 'on' : ''}" data-filter="${k}">${l}<b>${cnt[k]}</b></button>`).join('')}
@@ -596,10 +645,10 @@ function renderPlan() {
   }));
   document.querySelectorAll('[data-take]').forEach((b) => (b.onclick = () => {
     const key = b.dataset.take; const t = techById(b.dataset.tid); const prev = S.asg[key]; const po = S.offers; const pi = S.interest;
-    const a = { slot_key: key, tech_id: t.id, status: 'zugesagt', note: 'über Ausschreibung', declined: (prev || {}).declined || [], requested_at: nowISO(), updated_at: nowISO() };
+    const a = { slot_key: key, tech_id: t.id, status: hasMgr(t) ? 'angefragt' : 'zugesagt', note: 'über Ausschreibung', declined: (prev || {}).declined || [], requested_at: nowISO(), updated_at: nowISO() };
     const sl = allSlots().find((x) => x.key === key);
     optimistic(() => { S.asg[key] = a; S.offers = S.offers.filter((o) => o.slot_key !== key); S.interest = S.interest.filter((i) => i.slot_key !== key); },
-      async () => { await store.saveAssignments([a]); await store.deleteOffers([key]); notify('techs', [t.id], 'Du bist eingeteilt ✓', `KOM27 ${sl ? fmtDate(sl.date) + ', ' + (sl.zeit || '') : ''} – danke!`, 'take-' + key); toast(`${firstName(t)} ist eingeteilt`); },
+      async () => { await store.saveAssignments([a]); await store.deleteOffers([key]); notify('techs', [t.id], hasMgr(t) ? 'Einsatz – Freigabe beim Projektleiter' : 'Du bist eingeteilt ✓', `KOM27 ${sl ? fmtDate(sl.date) + ', ' + (sl.zeit || '') : ''} – danke!`, 'take-' + key); toast(`${firstName(t)} ist eingeteilt`); },
       anchor(key), () => { if (prev) S.asg[key] = prev; else delete S.asg[key]; S.offers = po; S.interest = pi; });
   }));
   $('#auto').onclick = async () => {
@@ -610,6 +659,7 @@ function renderPlan() {
     await optimistic(() => ch.forEach((a) => (S.asg[a.slot_key] = a)), () => store.saveAssignments(ch), null, () => (S.asg = prev));
     toast(`${ch.length} Einsätze eingeteilt (Status „geplant“). Jetzt unter „Anfragen“ verschicken.`);
   };
+  $('#pdfMonth').onclick = () => printMonth(S.month);
   $('#copy').onclick = async () => {
     const lines = days.map((d) => { const n = d.slots.map((s) => S.asg[s.key]).filter((a) => a && a.tech_id && a.status === 'zugesagt').map((a) => techById(a.tech_id)?.name).filter(Boolean); return n.length ? fmtDate(d.date) + '\t' + n.join(', ') : null; }).filter(Boolean);
     try { await navigator.clipboard.writeText(lines.join('\n')); toast(`${lines.length} Tage in die Zwischenablage kopiert`); } catch (e) { toast('Kopieren nicht möglich'); }
@@ -624,7 +674,9 @@ const slotLine = (s) => `${fmtDate(s.date, true)}, ${s.zeit || 'Zeit folgt'}${s.
 function mailFor(t, slots, reminder) {
   const body = `Hallo ${t.name.split(' ')[0]},\n\n${reminder ? 'kurze Erinnerung – ich brauche noch deine Rückmeldung zu diesen Einsätzen' : 'ich habe neue Einsatzanfragen für dich'} im KOM27 (ÖPP Mauerstraße, Medientechnik):\n\n${slots.map((s) => '• ' + slotLine(s)).join('\n')}\n\nBitte bestätige kurz hier, ob du kannst:\n${APP_URL()}\n\nDanke & Gruß\n${CFG.senderName}`;
   const subj = (reminder ? 'Erinnerung: ' : '') + 'KOM27 Einsatzanfrage – ' + (slots.length === 1 ? fmtDate(slots[0].date, true) : slots.length + ' Termine');
-  return `mailto:${encodeURIComponent(t.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+  const cc = hasMgr(t) ? `&cc=${encodeURIComponent(mgrMail(t))}` : '';
+  const body2 = hasMgr(t) ? body.replace('Bitte bestätige kurz hier, ob du kannst:', `Die verbindliche Zusage gibt ${mgrLabel(t)} (in Kopie) – bitte dort oder hier freigeben:`) : body;
+  return `mailto:${encodeURIComponent(t.email)}?subject=${encodeURIComponent(subj)}${cc}&body=${encodeURIComponent(body2)}`;
 }
 
 /* ---------------- Neuigkeiten ---------------- */
@@ -634,6 +686,7 @@ function feedHtml() {
   Object.values(S.asg).forEach((a) => {
     const n = nm(a.tech_id); const x = sk[a.slot_key]; if (!n || !x) return;
     if ((a.status === 'zugesagt' || a.status === 'abgesagt') && a.updated_at) ev.push({ at: a.updated_at, ic: a.status === 'zugesagt' ? '✅' : '❌', txt: `<b>${esc(n)}</b> ${a.status === 'zugesagt' ? 'zugesagt' : 'abgesagt'} · ${fmtDate(x.date)} ${esc(x.zeit || '')}${a.note ? ' – „' + esc(a.note) + '“' : ''}` });
+    if (a.tech_reply_at && a.status === 'angefragt') ev.push({ at: a.tech_reply_at, ic: a.tech_reply === 'kann' ? '👍' : '✋', txt: `<b>${esc(n)}</b> meldet: ${a.tech_reply === 'kann' ? 'könnte' : 'kann nicht'} · ${fmtDate(x.date)} – Freigabe durch ${esc(mgrLabel(techById(a.tech_id)))} offen` });
     if (a.time_at) ev.push({ at: a.time_at, ic: '⏱', txt: `<b>${esc(n)}</b> hat Arbeitszeit bestätigt · ${fmtDate(x.date)} (${fmtH(actualHours(a) || 0)})` });
   });
   (S.interest || []).forEach((i) => { const n = nm(i.tech_id); const x = sk[i.slot_key]; if (n && x && i.created_at) ev.push({ at: i.created_at, ic: '🙋', txt: `<b>${esc(n)}</b> hätte Zeit · ${fmtDate(x.date)} ${esc(x.zeit || '')}${offerOf(i.slot_key) ? '' : ' (erledigt)'}` }); });
@@ -671,6 +724,7 @@ function renderHours() {
       <div class="monthnav"><select id="hMonth">${months.map((x) => `<option value="${x}" ${x === S.month ? 'selected' : ''}>${MON[+x.slice(5, 7) - 1]} ${x.slice(0, 4)}</option>`).join('')}</select></div>
       <div class="spacer"></div>
       ${missT.length ? `<button class="btn" id="hRemind">⏰ Fehlende Zeiten anfragen (${miss.length})</button>` : ''}
+      <button class="btn" id="hPdf" ${sl.length ? '' : 'disabled'}>🖨 PDF</button>
       <button class="btn primary" id="hCsv" ${sl.length ? '' : 'disabled'}>⬇ CSV für Abrechnung</button></div>
     <div class="sumrow wide"><div class="sumbox"><b>${sl.length}</b><span>zugesagte Einsätze</span></div><div class="sumbox"><b>${String(Math.round(totP * 10) / 10).replace('.', ',')}</b><span>Plan-Stunden*</span></div>
       <div class="sumbox ok"><b>${String(Math.round(totI * 10) / 10).replace('.', ',')}</b><span>bestätigte Ist-Stunden</span></div><div class="sumbox ${miss.length ? 'warn' : ''}"><b>${miss.length}</b><span>Zeiten fehlen noch</span></div></div>
@@ -689,6 +743,7 @@ function renderHours() {
     missT.forEach((id) => { const n = miss.filter((x) => S.asg[x.key].tech_id === id); notify('techs', [id], 'Bitte Arbeitszeit bestätigen ⏱', `${n.length === 1 ? '1 Einsatz' : n.length + ' Einsätze'} ohne Zeit: ${n.slice(0, 3).map((x) => fmtDate(x.date)).join(', ')} – kurz in der App eintragen`, 'time'); });
     toast(`Push an ${missT.length} Techniker geschickt (wer 🔔 aktiviert hat)`);
   };
+  $('#hPdf').onclick = () => printHours(S.month);
   $('#hCsv').onclick = () => {
     const num = (h) => (h === null || h === undefined ? '' : String(Math.round(h * 100) / 100).replace('.', ','));
     const q = (x) => '"' + String(x ?? '').replace(/"/g, '""') + '"';
@@ -707,9 +762,10 @@ function renderReq() {
     return { t, neu: sl.filter((s) => S.asg[s.key].status === 'geplant'), wait: sl.filter((s) => S.asg[s.key].status === 'angefragt'), no: sl.filter((s) => S.asg[s.key].status === 'abgesagt') };
   }).filter((r) => r.neu.length || r.wait.length || r.no.length);
   const hasPush = (t) => t.email && S.pushEmails && S.pushEmails.has(t.email.toLowerCase());
-  m.innerHTML = `<div id="pushBox"></div>${feedHtml()}<div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+  m.innerHTML = `<div id="pushBox"></div>${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
+    ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}
     ${neu.length ? `<div><b>Neu (${neu.length})</b><ul>${neu.map((s) => `<li>${esc(slotLine(s))}</li>`).join('')}</ul></div>` : ''}
     ${wait.length ? `<div class="muted"><b>Wartet auf Antwort (${wait.length})</b><ul>${wait.map((s) => `<li>${esc(slotLine(s))}</li>`).join('')}</ul></div>` : ''}
     ${no.length ? `<div style="color:var(--st-abgesagt)"><b>Abgesagt – Ersatz einteilen (${no.length})</b><ul>${no.map((s) => `<li>${esc(slotLine(s))}${S.asg[s.key].note ? ' – „' + esc(S.asg[s.key].note) + '“' : ''}</li>`).join('')}</ul></div>` : ''}
@@ -739,6 +795,10 @@ function renderReq() {
     location.href = mailFor(r.t, r.wait, true);
   }));
   fillPushBox(true);
+  if ($('#remindNow')) $('#remindNow').onclick = async () => {
+    try { const { data, error } = await store.sb.functions.invoke('notify', { body: { action: 'remind' } }); if (error) throw error; toast(data && data.sent ? `Erinnerung an ${data.techs} Techniker gesendet (${data.sent} Geräte)` : 'Morgen hat niemand mit aktivierten Mitteilungen einen zugesagten Einsatz.'); }
+    catch (e) { toast('Erinnerung fehlgeschlagen: ' + (e.message || e)); }
+  };
   m.querySelectorAll('[data-replace]').forEach((b) => (b.onclick = async () => {
     const ch = autoAssign(); if (!ch.length) return toast('Kein freier Ersatz gefunden.');
     try { await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a)); toast(`${ch.length} Einsätze neu eingeteilt`); renderMaster(); } catch (e) { toast(e.message); }
@@ -752,22 +812,26 @@ function renderTechs() {
   const sugg = [...known].sort();
   m.innerHTML = `
   ${sugg.length ? `<div class="bar"><span class="note">In der Excel gefunden, noch nicht angelegt:</span>${sugg.map((n) => `<button class="btn small" data-addname="${esc(n)}">+ ${esc(n)}</button>`).join('')}</div>` : ''}
-  <div class="card"><table class="list">
-    <thead><tr><th>Name</th><th>E-Mail (= Login)</th><th class="hide-sm">Andere Schreibweisen in der Excel</th><th>Aktiv</th><th class="hide-sm">Einsätze ab heute</th><th></th></tr></thead>
+  <div class="card"><table class="list techs">
+    <thead><tr><th>Name</th><th>E-Mail (= Login)</th><th>Firma</th><th>Freigabe durch<br><small>E-Mail Projektleiter</small></th><th>Andere Schreibweisen in der Excel</th><th>Aktiv</th><th>Einsätze ab heute</th><th></th></tr></thead>
     <tbody>${S.techs.map((t) => `<tr data-id="${t.id}">
-      <td><input type="text" data-f="name" value="${esc(t.name)}"></td>
-      <td><input type="email" data-f="email" value="${esc(t.email || '')}" placeholder="name@…"></td>
-      <td class="hide-sm"><input type="text" data-f="aliases" value="${esc(t.aliases || '')}" placeholder="z. B. Kevin R., Kevin Rehfeld"></td>
-      <td><input type="checkbox" data-f="active" ${t.active !== false ? 'checked' : ''}></td>
-      <td class="hide-sm">${slotsOfTech(t.id, today).length}</td>
-      <td><button class="btn small" data-del="${t.id}">Entfernen</button></td></tr>`).join('')}
-      <tr><td colspan="6"><button class="btn" id="addTech">+ Techniker hinzufügen</button></td></tr>
+      <td data-l="Name"><input type="text" data-f="name" value="${esc(t.name)}"></td>
+      <td data-l="E-Mail (= Login)"><input type="email" data-f="email" value="${esc(t.email || '')}" placeholder="name@…"></td>
+      <td data-l="Firma"><input type="text" data-f="company" value="${esc(t.company || '')}" placeholder="leer = eigenes Team"></td>
+      <td data-l="Freigabe durch (Projektleiter)"><input type="email" data-f="manager_email" value="${esc(t.manager_email || '')}" placeholder="leer = sagt selbst zu"></td>
+      <td data-l="Andere Schreibweisen"><input type="text" data-f="aliases" value="${esc(t.aliases || '')}" placeholder="z. B. Kevin R., Kevin Rehfeld"></td>
+      <td data-l="Aktiv"><input type="checkbox" data-f="active" ${t.active !== false ? 'checked' : ''}></td>
+      <td data-l="Einsätze ab heute">${slotsOfTech(t.id, today).length}</td>
+      <td class="td-del"><button class="btn small" data-del="${t.id}">Entfernen</button></td></tr>`).join('')}
+      <tr class="tr-add"><td colspan="8"><button class="btn" id="addTech">+ Techniker hinzufügen</button></td></tr>
     </tbody></table></div>
+  <p class="note"><b>Techniker mit eigenem Chef:</b> Bei „Freigabe durch“ die E-Mail des Projektleiters eintragen. Der Techniker sieht seine Anfragen und meldet „könnte / kann nicht“, die verbindliche Zusage gibt der Projektleiter – er meldet sich mit dieser E-Mail selbst an und sieht nur sein Team.</p>
   <p class="note">Jeder Techniker meldet sich mit genau dieser E-Mail an. Beim ersten Mal klickt er auf „Konto anlegen“ und wählt sein Passwort selbst. Er sieht nur seine eigenen Einsätze.</p>`;
   const save = async (t) => { try { const r = await store.saveTech(t); const i = S.techs.findIndex((x) => x.id === r.id); if (i >= 0) S.techs[i] = r; else S.techs.push(r); } catch (e) { toast(e.message); } };
   m.querySelectorAll('tr[data-id] input').forEach((inp) => (inp.onchange = async () => {
     const t = Object.assign({}, techById(inp.closest('tr').dataset.id));
-    const f = inp.dataset.f; t[f] = f === 'active' ? inp.checked : f === 'email' ? inp.value.trim().toLowerCase() : inp.value.trim();
+    const f = inp.dataset.f; t[f] = f === 'active' ? inp.checked : f === 'email' || f === 'manager_email' ? inp.value.trim().toLowerCase() : inp.value.trim();
+    if (f === 'manager_email' && t[f] && t[f] === (t.email || '').toLowerCase()) { toast('Projektleiter-E-Mail darf nicht die eigene sein.'); inp.value = ''; return; }
     await save(t); toast('Gespeichert');
   }));
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
@@ -775,7 +839,7 @@ function renderTechs() {
     if (!confirm(`${t.name} entfernen? Seine Einteilungen werden gelöscht.`)) return;
     try { await store.deleteTech(t.id); await reload(); renderMaster(); } catch (e) { toast(e.message); }
   }));
-  const add = async (name) => { await save({ id: uid(), name, email: '', aliases: '', active: true }); renderMaster(); };
+  const add = async (name) => { await save({ id: uid(), name, email: '', aliases: '', active: true, company: '', manager_email: null }); renderMaster(); };
   $('#addTech').onclick = () => add('Neuer Techniker');
   m.querySelectorAll('[data-addname]').forEach((b) => (b.onclick = () => add(b.dataset.addname)));
 }
@@ -901,7 +965,7 @@ const isImportant = (l) => /probe|!|achtung|wichtig|signal|umbau|nach va|vor va|
 
 function colleaguesOf(s) {
   const mine = S.asg[s.key]; const myId = mine && mine.tech_id;
-  if (S.admin) return allSlots().filter((x) => x.date === s.date && x.key !== s.key && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].tech_id !== myId && ['angefragt', 'zugesagt'].includes(S.asg[x.key].status))
+  if (S.admin || S.mgrMode) return allSlots().filter((x) => x.date === s.date && x.key !== s.key && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].tech_id !== myId && ['angefragt', 'zugesagt'].includes(S.asg[x.key].status))
     .map((x) => ({ name: (techById(S.asg[x.key].tech_id) || {}).name || '?', status: S.asg[x.key].status, zeit: x.zeit, same: x.va === s.va }));
   return (S.coll || []).filter((c) => c.slot_key.startsWith(s.date + '#')).map((c) => {
     const x = allSlots().find((y) => y.key === c.slot_key) || {};
@@ -965,7 +1029,7 @@ function openJob(key, list) {
     <h3>📍 Ort</h3>
     <p>KOM27, Mauerstraße, Berlin · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('KOM27 Mauerstraße Berlin')}" target="_blank" rel="noopener">Route öffnen</a></p>
     <div class="sh-actions">
-      ${status === 'angefragt' && !S.admin ? `<button class="big yes" data-ans="zugesagt">✓ Ich kann</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>` : ''}
+      ${status === 'angefragt' && !S.admin && !(hasMgr(myTech()) && !S.mgrMode && a.tech_reply) ? (S.mgrMode ? `<button class="big yes" data-ans="zugesagt">✓ Zusagen für ${esc(((techById(a.tech_id) || {}).name || '').split(' ')[0])}</button><button class="big no" data-ans="abgesagt">✗ Absagen</button>` : `<button class="big yes" data-ans="zugesagt">${hasMgr(myTech()) ? '👍 Ich könnte' : '✓ Ich kann'}</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>`) : ''}
       ${status === 'zugesagt' ? `<button class="big ghost" data-ics>📅 In meinen Kalender</button>` : ''}
       ${isOffer ? (meIn ? `<button class="big ghost" data-oint="off">Meldung zurückziehen</button>` : `<button class="big yes" data-oint="on">🙋 Ich hätte Zeit</button>`) : ''}
     </div>
@@ -1019,19 +1083,171 @@ function wireTimeForms(root, saveFn) {
   });
 }
 
+/* ---------------- Kalender-Abo ---------------- */
+const calUrl = (t) => (!DEMO && t && t.cal_token && CFG.supabaseUrl ? `${CFG.supabaseUrl.replace(/\/$/, '')}/functions/v1/ics?t=${t.cal_token}` : '');
+function calSheet(t, yes) {
+  const url = calUrl(t); const web = url.replace(/^https?:/, 'webcal:');
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Kalender">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button></div>
+    <h2 style="margin:0 0 6px">📅 Einsätze im Kalender</h2>
+    ${url ? `<p class="muted">Einmal abonnieren – danach erscheinen neue Einsätze, Zeitänderungen und Absagen automatisch in deinem Handy-Kalender. Anfragen stehen mit ❓ drin, bis sie zugesagt sind.</p>
+      <div class="cal-opts">
+        <a class="big yes" href="${esc(web)}">🍎 iPhone / Mac: Kalender abonnieren</a>
+        <button class="big ghost" data-copy>🔗 Link kopieren (Google / Outlook)</button>
+      </div>
+      <details class="cal-help"><summary>So geht’s bei Google Kalender</summary><ol><li>Link oben kopieren</li><li>calendar.google.com am Computer öffnen → links „Weitere Kalender +“ → „Per URL“</li><li>Link einfügen → „Kalender hinzufügen“. Er erscheint danach auch in der Google-Kalender-App.</li></ol></details>
+      <p class="muted small">Der Link ist persönlich – bitte nicht weitergeben. <button class="linkbtn danger" data-renew>Link erneuern</button> (der alte funktioniert dann nicht mehr)</p>` : `<p class="muted">Das Kalender-Abo ist bald verfügbar. Bis dahin kannst du deine Einsätze einmalig in den Kalender übernehmen.</p>`}
+    <button class="big ghost" data-dl ${yes.length ? '' : 'disabled'}>⬇ Einmalig herunterladen (${yes.length} Einsätze)</button>
+  </div></div>`;
+  const old = $('#sheet'); if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', html); document.body.classList.add('noscroll');
+  const box = $('#sheet'); const close = () => { box.remove(); document.body.classList.remove('noscroll'); };
+  box.onclick = (e) => { if (e.target === box) close(); };
+  box.querySelector('[data-close]').onclick = close;
+  box.querySelector('[data-dl]').onclick = () => icsFor(yes, t);
+  const cp = box.querySelector('[data-copy]');
+  if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(url); toast('Link kopiert ✓'); } catch (e) { prompt('Link kopieren:', url); } };
+  const rn = box.querySelector('[data-renew]');
+  if (rn) rn.onclick = async () => { if (!confirm('Neuen Link erstellen? Der alte Kalender-Link funktioniert dann nicht mehr – du musst neu abonnieren.')) return; try { t.cal_token = await store.newCalToken(); close(); calSheet(t, yes); toast('Neuer Link erstellt'); } catch (e) { toast(e.message); } };
+}
+
+/* ---------------- Druckansicht / PDF ---------------- */
+function printDoc(title, body) {
+  const w = window.open('', '_blank'); if (!w) return toast('Bitte Pop-ups für diese Seite erlauben.');
+  w.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>
+    body{font:12px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1c1f24;margin:18px}h1{font-size:18px;margin:0 0 2px}.sub{color:#69707c;margin:0 0 14px}
+    table{width:100%;border-collapse:collapse;margin-bottom:14px}th,td{border-bottom:1px solid #dde1e7;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f2f4f7;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+    tr.wk td{background:#f7f8fa;font-weight:700;color:#69707c}.st{font-size:11px;font-weight:600;border-radius:99px;padding:1px 6px;color:#fff;white-space:nowrap}
+    .zugesagt{background:#16884a}.angefragt{background:#1f6feb}.geplant{background:#7a828f}.abgesagt{background:#d1342f}.leer{background:#c27c00}.r{text-align:right}.muted{color:#69707c}
+    .bar{position:sticky;top:0;background:#fff;padding:8px 0;margin-bottom:8px;border-bottom:1px solid #dde1e7}.bar button{font-size:14px;padding:8px 14px;border-radius:8px;border:0;background:#1f5eff;color:#fff}
+    @media print{.bar{display:none}body{margin:0}tr{break-inside:avoid}}</style></head><body>
+    <div class="bar"><button onclick="window.print()">🖨 Drucken / als PDF sichern</button></div>${body}
+    <p class="muted">Erstellt ${new Date().toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })} · KOM27 Einsatzplanung</p></body></html>`);
+  w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 400);
+}
+function printMonth(month) {
+  const days = allDays().filter((d) => d.date.startsWith(month) && (d.slots.length || d.vas.length) && !d.free);
+  let lastWk = null; let rows = '';
+  days.forEach((d) => {
+    const wk = isoWeek(d.date); if (wk !== lastWk) { rows += `<tr class="wk"><td colspan="6">KW ${wk}</td></tr>`; lastWk = wk; }
+    const sl = d.slots.length ? d.slots : [null];
+    sl.forEach((x, i) => { const a = x && S.asg[x.key]; const t = a && a.tech_id ? techById(a.tech_id) : null; const st = x ? slotState(x) : '';
+      rows += `<tr><td>${i === 0 ? fmtDate(d.date) : ''}</td><td>${esc(x ? x.va || '' : [...new Set(d.vas)].join(', '))}${d.cancelled ? ' <b>(abgesagt)</b>' : ''}</td><td>${i === 0 ? esc(roomsOf(d.info)) : ''}</td><td>${esc(x ? x.zeit || '' : '')}</td><td>${t ? esc(t.name) + (hasMgr(t) ? ' <span class="muted">(' + esc(mgrLabel(t)) + ')</span>' : '') : x ? '–' : '<span class="muted">kein Techniker</span>'}</td><td>${x ? `<span class="st ${st}">${st === 'leer' ? 'offen' : ST_LABEL[st]}</span>` : ''}</td></tr>`; });
+  });
+  printDoc(`KOM27 Einsatzplan ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}`, `<h1>Medientechnik KOM27 – Einsatzplan ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}</h1><p class="sub">ÖPP Mauerstraße · Excel-Stand ${S.plan ? new Date(S.plan.importedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '–'}</p>
+    <table><thead><tr><th>Datum</th><th>Veranstaltung</th><th>Raum</th><th>Einsatzzeit</th><th>Techniker</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Keine Einsätze</td></tr>'}</tbody></table>`);
+}
+function printHours(month) {
+  const sl = allSlots().filter((x) => x.date.startsWith(month) && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled).sort((a, b) => a.date.localeCompare(b.date));
+  const per = {}; sl.forEach((x) => (per[S.asg[x.key].tech_id] = per[S.asg[x.key].tech_id] || []).push(x));
+  const n = (h) => (h === null || h === undefined ? '–' : String(Math.round(h * 100) / 100).replace('.', ','));
+  let tot = [0, 0]; let body = '';
+  S.techs.filter((t) => per[t.id]).forEach((t) => {
+    const l = per[t.id]; let p = 0; let ist = 0;
+    const rows = l.map((x) => { const a = S.asg[x.key]; const ih = actualHours(a); p += planHours(x); ist += ih || 0;
+      return `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.va || '')}</td><td>${esc(x.zeit || '')}</td><td>${a.actual_start ? esc(a.actual_start) + '–' + esc(a.actual_end) : '–'}</td><td class="r">${a.break_min ?? '–'}</td><td class="r">${n(planHours(x))}</td><td class="r"><b>${n(ih)}</b></td><td>${esc(a.time_note || '')}</td></tr>`; }).join('');
+    tot = [tot[0] + p, tot[1] + ist];
+    body += `<h2 style="font-size:14px;margin:12px 0 4px">${esc(t.name)}${t.company ? ' <span class="muted">· ' + esc(t.company) + '</span>' : ''}</h2><table><thead><tr><th>Datum</th><th>VA</th><th>Plan</th><th>Ist</th><th class="r">Pause</th><th class="r">Plan h</th><th class="r">Ist h</th><th>Anmerkung</th></tr></thead>
+      <tbody>${rows}<tr><td colspan="5"><b>Summe ${l.length} Einsätze</b></td><td class="r"><b>${n(p)}</b></td><td class="r"><b>${n(ist)}</b></td><td></td></tr></tbody></table>`;
+  });
+  printDoc(`KOM27 Stunden ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}`, `<h1>Medientechnik KOM27 – Stundenübersicht ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}</h1><p class="sub">${sl.length} zugesagte Einsätze · Plan ${n(tot[0])} h · bestätigt ${n(tot[1])} h (Plan = Einsatzzeit abzüglich gesetzlicher Pause)</p>${body || '<p>Keine zugesagten Einsätze.</p>'}`);
+}
+
+/* ---------------- Projektleiter (Techniker mit eigenem Chef) ---------------- */
+function renderManager(team, me) {
+  document.body.classList.remove('is-master');
+  S.mgrMode = true;
+  const today = todayISO(); const ids = new Set(team.map((x) => x.id));
+  $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
+  $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
+  const m = $('#main');
+  const sl = allSlots().filter((x) => x.date >= today && S.asg[x.key] && ids.has(S.asg[x.key].tech_id) && !x.day.cancelled).sort((a, b) => a.date.localeCompare(b.date));
+  const st = (x) => S.asg[x.key].status;
+  const groups = []; const gi = {};
+  sl.filter((x) => st(x) === 'angefragt').forEach((x) => { const tid = S.asg[x.key].tech_id; const k = tid + '|' + (x.group || x.key); if (!(k in gi)) { gi[k] = groups.length; groups.push({ k, t: techById(tid), va: x.va, slots: [] }); } groups[gi[k]].slots.push(x); });
+  const yes = sl.filter((x) => st(x) === 'zugesagt');
+  const company = [...new Set(team.map((x) => x.company).filter(Boolean))].join(', ');
+  const sig = (a) => (a.tech_reply === 'kann' ? '<span class="sig ok">👍 kann</span>' : a.tech_reply === 'kann_nicht' ? '<span class="sig no">✗ kann nicht</span>' : '<span class="sig">– noch keine Meldung</span>');
+  const card = (g) => `<article class="job-card" data-mg="${esc(g.k)}">
+      <div class="jc-head"><span class="jc-who">👤 ${esc(g.t ? g.t.name : '?')}</span>${g.slots.length > 1 ? `<span class="jc-badge">${g.slots.length} Tage</span>` : ''}</div>
+      <div class="jc-where">${esc(g.va || 'Einsatz')} · KOM27 Mauerstraße${roomsOf(g.slots[0].day.info) ? ' · ' + esc(roomsOf(g.slots[0].day.info)) : ''}</div>
+      <div class="jc-days">${g.slots.map((x) => `<div class="jc-day" data-k="${esc(x.key)}">${dateBox(x.date)}<button class="jc-time jc-open" data-open="${esc(x.key)}"><b>${esc(niceTime(x.zeit))}</b><small>${sig(S.asg[x.key])}${S.asg[x.key].tech_reply_note ? ' „' + esc(S.asg[x.key].tech_reply_note) + '“' : ''}${unavOf(g.t.id, x.date) ? ' · ⛔ als „kann nicht“ eingetragen' : ''}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>
+      <div class="jc-actions"><button class="big yes" data-mok="${esc(g.slots.map((x) => x.key).join(','))}">✓ Zusagen${g.slots.length > 1 ? ' – alle Tage' : ''}</button><button class="big no" data-mno="${esc(g.slots.map((x) => x.key).join(','))}">✗ Absagen</button></div>
+    </article>`;
+  const ranges = team.map((x) => ({ t: x, r: unavRanges(x.id, today) })).filter((x) => x.r.length);
+  m.innerHTML = `
+    <section class="hello">
+      <h1>Freigaben für dein Team</h1>
+      <p>KOM27 Mauerstraße · Medientechnik${company ? ' · ' + esc(company) : ''}</p>
+      <div id="pushBox"></div>
+      <div class="sumrow">
+        <div class="sumbox ${groups.length ? 'warn' : ''}"><b>${sl.filter((x) => st(x) === 'angefragt').length}</b><span>Anfragen warten auf Freigabe</span></div>
+        <div class="sumbox ok"><b>${yes.length}</b><span>zugesagte Einsätze</span></div>
+        <div class="sumbox"><b>${team.length}</b><span>${team.length === 1 ? 'Techniker' : 'Techniker'} im Team</span></div>
+      </div>
+    </section>
+    ${me ? `<button class="big ghost" id="toMe">🙋 Zu meinen eigenen Einsätzen</button>` : ''}
+    ${groups.length ? `<h2 class="sec" id="openSec">Bitte freigeben</h2><p class="sec-help">Deine Techniker sehen die Anfragen auch und melden, ob sie könnten. Die verbindliche Zusage gibst du.</p>${groups.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Keine offenen Anfragen<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
+    <h2 class="sec">⛔ Abwesenheiten im Team</h2>
+    <div class="calcard"><div class="range-row"><label>Techniker<select id="mT">${team.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label></div>
+      <div class="range-row"><label>Von<input type="date" id="mFrom" min="${today}"></label><label>Bis<input type="date" id="mTo" min="${today}"></label></div>
+      <input type="text" id="mNote" placeholder="Grund, z. B. anderes Projekt">
+      <button class="big no solid" id="mAdd">Als „kann nicht“ eintragen</button>
+      <div class="cal-sum">${ranges.length ? ranges.map(({ t, r }) => r.map((x) => `<div class="rline"><span><b>${esc(t.name)}</b> ${x.from === x.to ? shortDate(x.from) : shortDate(x.from) + ' – ' + shortDate(x.to)} <small>${x.note ? esc(x.note) : ''}</small></span><button class="linkbtn danger" data-mdel="${t.id}|${x.days.join(',')}">löschen</button></div>`).join('')).join('') : 'Keine Abwesenheiten eingetragen.'}</div></div>
+    ${yes.length ? `<h2 class="sec">Kommende Einsätze deines Teams</h2><div class="mini-list">${yes.map((x) => `<div class="mini-line">${dateBox(x.date)}<button class="ml-txt jc-open" data-open="${esc(x.key)}"><b>${esc((techById(S.asg[x.key].tech_id) || {}).name || '')} · ${esc(niceTime(x.zeit))}</b><small>${esc(x.va || '')} · ${untilTxt(x.date)}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>` : ''}
+    <p class="note center">Fragen? ${esc(CFG.senderName)} erreichst du über die Anfrage-Mail.</p>`;
+  const decide = async (keys, status, note) => {
+    const prev = keys.map((k) => S.asg[k]); const t = techById(S.asg[keys[0]].tech_id);
+    const ok = await optimistic(() => keys.forEach((k) => (S.asg[k] = Object.assign({}, S.asg[k], { status, note: note || '', updated_at: nowISO() }))),
+      () => Promise.all(keys.map((k) => store.respond(S.user.email, k, status, note || ''))), '#openSec', () => keys.forEach((k, i) => (S.asg[k] = prev[i])));
+    if (!ok) return;
+    const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date)).join(', ');
+    notify('admins', [], `${t ? t.name : 'Techniker'}: ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'} (Projektleiter)`, dates + (note ? ' – „' + note + '“' : ''), 'mgr-' + (t ? t.id : ''));
+    if (t) notify('techs', [t.id], status === 'zugesagt' ? 'Einsatz bestätigt ✓' : 'Einsatz abgesagt', `KOM27 ${dates}${status === 'zugesagt' ? ' – dein Projektleiter hat zugesagt.' : ''}`, 'mgr-t-' + t.id);
+    toast(status === 'zugesagt' ? 'Zusage gespeichert ✓' : 'Absage gespeichert');
+  };
+  window.__answer = (keys, status, note) => decide(keys, status, note);
+  m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
+  m.querySelectorAll('[data-mok]').forEach((b) => (b.onclick = () => decide(b.dataset.mok.split(','), 'zugesagt')));
+  m.querySelectorAll('[data-mno]').forEach((b) => (b.onclick = () => { const r = prompt('Kurzer Grund (optional):', ''); if (r === null) return; decide(b.dataset.mno.split(','), 'abgesagt', r.trim()); }));
+  if ($('#toMe')) $('#toMe').onclick = () => { S.view2 = 'me'; S.mgrMode = false; paint(); window.scrollTo(0, 0); };
+  $('#mFrom').oninput = (e) => { if (!$('#mTo').value || $('#mTo').value < e.target.value) $('#mTo').value = e.target.value; };
+  $('#mAdd').onclick = async () => {
+    const tid = $('#mT').value; const from = $('#mFrom').value; const to = $('#mTo').value || from; const note = $('#mNote').value.trim();
+    if (!from) return toast('Bitte ein Startdatum wählen.'); if (to < from) return toast('„Bis“ liegt vor „Von“.');
+    const days = daysBetween(from, to); if (days.length > 120) return toast('Bitte höchstens 120 Tage auf einmal.');
+    const prev = S.unav;
+    const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO() }))); },
+      () => store.setUnavMany(tid, days, note), null, () => (S.unav = prev));
+    if (ok) { notify('admins', [], `${(techById(tid) || {}).name || 'Techniker'} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''} · eingetragen vom Projektleiter`, 'unav-' + tid); toast('Eingetragen'); }
+  };
+  m.querySelectorAll('[data-mdel]').forEach((b) => (b.onclick = () => {
+    const [tid, list] = b.dataset.mdel.split('|'); const days = list.split(','); const set = new Set(days); const prev = S.unav;
+    optimistic(() => (S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day)))), () => store.clearUnavMany(tid, days), null, () => (S.unav = prev));
+  }));
+  fillPushBox(false);
+}
+
 function renderTech() {
+  document.body.classList.remove('is-master');
   const t = myTech();
   const today = todayISO();
   $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
+  const team = myTeam().filter((x) => !t || x.id !== t.id);
+  if (team.length && (!t || S.view2 !== 'me')) return renderManager(team, t);
+  S.mgrMode = false;
   if (!t) { m.innerHTML = `<section class="hello"><h1>Fast geschafft</h1><p>Dein Login <b>${esc(S.user.email)}</b> ist noch keinem Techniker zugeordnet. Bitte gib ${esc(CFG.senderName)} kurz Bescheid, dann siehst du hier deine Einsätze.</p></section>`; return; }
 
   const sl = slotsOfTech(t.id, today).filter((s) => S.asg[s.key].status !== 'geplant');
   const st = (s) => S.asg[s.key].status;
   // nach Veranstaltung gruppieren
   const groupsOf = (list) => { const out = []; const idx = {}; list.forEach((s) => { const g = s.group || s.key; if (!(g in idx)) { idx[g] = out.length; out.push({ id: g, va: s.va, slots: [] }); } out[idx[g]].slots.push(s); }); return out; };
-  const open = groupsOf(sl.filter((s) => st(s) === 'angefragt'));
+  const boss = hasMgr(t);
+  const replied = (s) => boss && S.asg[s.key].tech_reply;
+  const open = groupsOf(sl.filter((s) => st(s) === 'angefragt' && !replied(s)));
+  const waiting = sl.filter((s) => st(s) === 'angefragt' && replied(s));
   const yes = sl.filter((s) => st(s) === 'zugesagt');
   const no = sl.filter((s) => st(s) === 'abgesagt');
   const nOpen = open.reduce((a, g) => a + g.slots.length, 0);
@@ -1058,16 +1274,17 @@ function renderTech() {
         <div class="jc-one hidden"><button class="mini yes" data-one="zugesagt" data-k="${esc(s.key)}" aria-label="Kann ich">✓</button><button class="mini no" data-one="abgesagt" data-k="${esc(s.key)}" aria-label="Kann nicht">✗</button></div>
       </div>`).join('')}</div>
       <button class="jc-detail" data-open="${esc(s0.key)}">🛠 Was baue ich auf? · Zeiten & Details ›</button>
+      ${boss ? `<div class="hint boss">🏢 Die verbindliche Zusage gibt <b>${esc(mgrLabel(t))}</b>. Sag hier, ob du grundsätzlich kannst – die Meldung geht direkt dorthin.</div>` : ''}
       <div class="jc-actions">
-        <button class="big yes" data-all="zugesagt">✓ Ich kann${multi ? ` – alle ${g.slots.length} Tage` : ''}</button>
+        <button class="big yes" data-all="zugesagt">${boss ? '👍 Ich könnte' : '✓ Ich kann'}${multi ? ` – alle ${g.slots.length} Tage` : ''}</button>
         <button class="big no" data-askno>✗ Kann nicht</button>
       </div>
       <div class="jc-reason hidden"><label>Kurzer Grund (optional)</label><input type="text" placeholder="z. B. Urlaub, anderer Job …"><div class="jc-actions"><button class="big no solid" data-all="abgesagt">Absage senden</button><button class="big ghost" data-cancel>Zurück</button></div></div>
       ${multi ? `<button class="linkbtn" data-split>Ich kann nur an einzelnen Tagen</button>` : ''}
     </article>`;
   };
-  const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} <span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}</small><span class="jc-more">Details ›</span></button>
-      ${kind === 'yes' ? `<button class="linkbtn danger" data-change="abgesagt" data-k="${esc(s.key)}">doch absagen</button>` : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
+  const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} <span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
+      ${kind === 'wait' ? `<button class="linkbtn" data-resig="${esc(s.key)}">ändern</button>` : boss ? '' : kind === 'yes' ? `<button class="linkbtn danger" data-change="abgesagt" data-k="${esc(s.key)}">doch absagen</button>` : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
   m.innerHTML = `
     <section class="hello">
@@ -1080,7 +1297,10 @@ function renderTech() {
         <div class="sumbox"><b>${String(Math.round(monH * 10) / 10).replace('.', ',')}</b><span>Stunden im ${MON[+mon.slice(5, 7) - 1]}</span></div>
       </div>
     </section>
+    ${team.length ? `<button class="big ghost" id="toTeam">👥 Zu den Freigaben für dein Team</button>` : ''}
     ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid</h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
+    ${waiting.length ? `<h2 class="sec">⏳ Wartet auf Freigabe durch ${esc(mgrLabel(t))}</h2><div class="mini-list">${waiting.map((s) => line(s, 'wait')).join('')}</div>` : ''}
+    ${boss && yes.length ? `<p class="sec-help">Änderungen an zugesagten Einsätzen bitte über ${esc(mgrLabel(t))}.</p>` : ''}
     ${toLog.length ? `<h2 class="sec" id="timeSec">⏱ Arbeitszeit bestätigen</h2><p class="sec-help">Kurz eintragen, wie lange du wirklich da warst – ${esc(CFG.senderName)} braucht das für die Abrechnung. Vorausgefüllt mit der geplanten Zeit.</p>
       ${toLog.map((x) => `<article class="time-card"><div class="tc-top">${dateBox(x.date)}<div class="tc-head"><b>${esc(x.va || 'Einsatz')}</b><small>${esc(longDate(x.date))} · geplant ${esc(x.zeit || '–')}</small></div></div>${timeForm(x, S.asg[x.key])}</article>`).join('')}` : ''}
     ${offered.length ? `<h2 class="sec" id="offerSec">📣 Offene Einsätze – hast du Zeit?</h2><p class="sec-help">Diese Einsätze sind noch nicht besetzt. Melde dich, wenn du kannst – ${esc(CFG.senderName)} entscheidet dann und du bekommst Bescheid.</p>
@@ -1095,7 +1315,7 @@ function renderTech() {
     <h2 class="sec">Wann kannst du nicht?</h2>
     <p class="sec-help">Tippe die Tage an, an denen du nicht verfügbar bist. Nochmal tippen nimmt es wieder raus. ${esc(CFG.senderName)} sieht das sofort und plant dich dann nicht ein.</p>
     ${techCalHtml(t)}
-    ${yes.length ? `<h2 class="sec">Deine nächsten Einsätze <button class="linkbtn" id="ics">📅 in meinen Kalender</button></h2><div class="mini-list">${yes.map((s) => line(s, 'yes')).join('')}</div>` : ''}
+    ${yes.length ? `<h2 class="sec">Deine nächsten Einsätze <button class="linkbtn" id="ics">📅 Kalender-Abo</button></h2><div class="mini-list">${yes.map((s) => line(s, 'yes')).join('')}</div>` : ''}
     ${no.length ? `<details class="nolist"><summary>Abgesagt (${no.length})</summary><div class="mini-list">${no.map((s) => line(s, 'no')).join('')}</div></details>` : ''}
     ${logged.length ? `<details class="nolist"><summary>Bestätigte Arbeitszeiten (${logged.length})</summary><div class="mini-list">${logged.map((x) => { const a = S.asg[x.key]; return `<div class="mini-line">${dateBox(x.date)}<div class="ml-txt"><b>${esc(a.actual_start)}–${esc(a.actual_end)} · ${fmtH(actualHours(a))}</b><small>${esc(x.va || '')}${a.break_min ? ' · ' + a.break_min + ' min Pause' : ''}${a.time_note ? ' · „' + esc(a.time_note) + '“' : ''}</small></div><button class="linkbtn" data-tedit="${esc(x.key)}">ändern</button></div>`; }).join('')}</div></details>` : ''}
     <p class="note center">Fragen? Einfach ${esc(CFG.senderName)} anrufen oder auf die Anfrage-Mail antworten.</p>`;
@@ -1114,12 +1334,24 @@ function renderTech() {
     const ml = document.querySelector(`[data-change][data-k="${CSS.escape(keys[0])}"]`);
     calm(5000);
     await collapse(whole ? jc : jc ? card : ml ? ml.closest('.mini-line') : null);
+    const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date));
+    if (boss) { // nur Rückmeldung – die Zusage gibt der Projektleiter
+      const ok = status === 'zugesagt';
+      keys.forEach((k) => (S.asg[k] = Object.assign({}, S.asg[k], { tech_reply: ok ? 'kann' : 'kann_nicht', tech_reply_note: note || '', tech_reply_at: nowISO() })));
+      paint(jc ? '#openSec' : null);
+      toast(`Danke! ${mgrLabel(t)} bekommt deine Meldung und gibt die Zusage.`);
+      try {
+        await Promise.all(keys.map((k) => store.techSignal(S.user.email, k, ok, note || '')));
+        notify('manager', [], `${t.name} ${ok ? 'könnte 👍' : 'kann nicht ✗'} – bitte entscheiden`, 'KOM27: ' + dates.join(', ') + (note ? ' – „' + note + '“' : ''), 'sig-' + t.id);
+        calm(1500);
+      } catch (e) { keys.forEach((k, i) => (S.asg[k] = prev[i])); paint(); toast('Nicht gespeichert: ' + e.message); }
+      return;
+    }
     keys.forEach((k) => (S.asg[k] = Object.assign({}, S.asg[k], { status, note: note || '', updated_at: nowISO() })));
     paint(jc ? '#openSec' : null);
     toast(status === 'zugesagt' ? 'Danke! Zusage ist gespeichert ✓' : 'Absage ist gespeichert');
     try {
       await Promise.all(keys.map((k) => store.respond(S.user.email, k, status, note || '')));
-      const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date));
       notify('admins', [], `${firstName(t)} hat ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'}`, dates.join(', ') + (note ? ' – „' + note + '“' : ''), 'answer-' + t.id);
       calm(1500);
     } catch (e) { keys.forEach((k, i) => (S.asg[k] = prev[i])); paint(); toast('Nicht gespeichert: ' + e.message); }
@@ -1142,6 +1374,8 @@ function renderTech() {
     if (ok) toast('Arbeitszeit gespeichert ✓');
   };
   wireTimeForms(m, saveTime);
+  if ($('#toTeam')) $('#toTeam').onclick = () => { S.view2 = 'team'; paint(); window.scrollTo(0, 0); };
+  m.querySelectorAll('[data-resig]').forEach((b) => (b.onclick = () => { const k = b.dataset.resig; S.asg[k] = Object.assign({}, S.asg[k], { tech_reply: null }); calm(15000); paint('#openSec'); }));
   m.querySelectorAll('[data-tedit]').forEach((b) => (b.onclick = () => { S.editTime = b.dataset.tedit; paint(); const f = document.querySelector('#timeSec'); if (f) f.scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
   m.querySelectorAll('[data-int]').forEach((b) => (b.onclick = () => interest(b.dataset.keys.split(','), b.dataset.int === 'on')));
   window.__answer = answer;
@@ -1161,7 +1395,7 @@ function renderTech() {
     if (b.dataset.change === 'abgesagt' && !confirm('Diesen Einsatz wirklich absagen?')) return;
     answer([b.dataset.k], b.dataset.change);
   }));
-  if ($('#ics')) $('#ics').onclick = () => icsFor(yes, t);
+  if ($('#ics')) $('#ics').onclick = () => calSheet(t, yes);
   wireTechCal(t);
   fillPushBox(false);
 }
@@ -1234,6 +1468,12 @@ const firstName = (t) => (t ? t.name.split(' ')[0] : 'Ein Techniker');
 /* ---------------- Start ---------------- */
 async function boot() {
   try {
+    const qs = new URLSearchParams(location.search);
+    if (!DEMO && qs.get('token_hash')) { // Link aus unserer Mail: kom27…/?token_hash=…&type=email|recovery
+      const type = qs.get('type') || 'email'; history.replaceState(null, '', location.pathname);
+      try { await store.verifyLink(qs.get('token_hash'), type); if (type === 'recovery') S.recovery = true; else toast('E-Mail bestätigt ✓ – willkommen!'); }
+      catch (e) { return renderLogin('Der Link ist abgelaufen oder wurde schon benutzt. Bitte einfach anmelden – oder „Passwort vergessen“ antippen.'); }
+    }
     if (!S.user) S.user = await store.session();
     if (!S.user || S.recovery) return renderLogin();
     S.admin = await store.isAdmin(S.user.email);
@@ -1275,7 +1515,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

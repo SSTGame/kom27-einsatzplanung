@@ -316,3 +316,13 @@ h2.sec .linkbtn { text-transform: none; letter-spacing: 0; }
 .range-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .range-row label, .range-row input { min-width: 0; }
 .range-row input { -webkit-appearance: none; appearance: none; }
+
+/* Push-Mitteilungen */
+.pushcard { margin: 14px 0 4px; padding: 14px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.pushcard b { font-size: 15px; }
+.pushcard p { margin: 6px 0 10px; font-size: 14px; color: var(--ink); }
+.pushcard ol { margin: 6px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.6; }
+.pushcard .big { width: 100%; }
+.pushline { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.pushline .linkbtn { margin: 0 0 0 6px; font-size: 13px; }
+main > #pushBox .pushcard { margin-top: 0; margin-bottom: 14px; }

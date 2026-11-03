@@ -34,6 +34,8 @@ const DemoStore = {
   async loadAll() { const d = this.d(); return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [] }; },
   async setUnav(tech_id, day, note) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '' }); this.w(d); },
   async clearUnav(tech_id, day) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); this.w(d); },
+  async setUnavMany(tech_id, days, note) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); days.forEach((day) => d.unav.push({ tech_id, day, note: note || '' })); this.w(d); },
+  async clearUnavMany(tech_id, days) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); this.w(d); },
   async savePlan(plan) { const d = this.d(); d.plan = plan; this.w(d); },
   async saveTech(t) { const d = this.d(); const i = d.techs.findIndex((x) => x.id === t.id); if (i >= 0) d.techs[i] = t; else d.techs.push(t); this.w(d); return t; },
   async deleteTech(id) { const d = this.d(); d.techs = d.techs.filter((t) => t.id !== id); Object.values(d.asg).forEach((a) => { if (a.tech_id === id) delete d.asg[a.slot_key]; }); this.w(d); },
@@ -68,6 +70,8 @@ function makeSupabaseStore() {
     },
     async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
+    async setUnavMany(tech_id, days, note) { chk(await sb.from('unavailability').upsert(days.map((day) => ({ tech_id, day, note: note || '' })))); },
+    async clearUnavMany(tech_id, days) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).in('day', days)); },
     async savePlan(plan) { chk(await sb.from('plan').upsert({ id: 1, data: plan, imported_at: plan.importedAt })); },
     async saveTech(t) { return chk(await sb.from('technicians').upsert(Object.assign({}, t, { email: t.email || null })).select().single()); },
     async deleteTech(id) { chk(await sb.from('technicians').delete().eq('id', id)); },
@@ -504,6 +508,16 @@ function icsFor(slots, t) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'KOM27-Einsaetze-' + t.name.split(' ')[0] + '.ics'; document.body.appendChild(a); a.click(); a.remove();
 }
 
+const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+const daysBetween = (a, b) => { const out = []; for (let x = a; x <= b && out.length < 400; x = addDays(x, 1)) out.push(x); return out; };
+const shortDate = (iso) => Number(iso.slice(8, 10)) + '.' + Number(iso.slice(5, 7)) + '.';
+function unavRanges(techId, from) {
+  const list = S.unav.filter((u) => u.tech_id === techId && u.day >= from).sort((a, b) => a.day.localeCompare(b.day));
+  const out = [];
+  list.forEach((u) => { const last = out[out.length - 1]; if (last && addDays(last.to, 1) === u.day && last.note === (u.note || '')) { last.to = u.day; last.days.push(u.day); } else out.push({ from: u.day, to: u.day, note: u.note || '', days: [u.day] }); });
+  return out;
+}
+
 function techCalHtml(t) {
   const today = todayISO();
   if (!S.calMonth) S.calMonth = today.slice(0, 7);
@@ -523,8 +537,13 @@ function techCalHtml(t) {
     <div class="cal-head"><button class="btn small" data-cal="-1" ${curIdx <= 0 ? 'disabled' : ''} aria-label="Vormonat">‹</button><b>${MON[mo - 1]} ${y}</b><button class="btn small" data-cal="1" ${curIdx >= 5 ? 'disabled' : ''} aria-label="Nächster Monat">›</button></div>
     <div class="cal-grid"><i>Mo</i><i>Di</i><i>Mi</i><i>Do</i><i>Fr</i><i>Sa</i><i>So</i>${cells}</div>
     <div class="cal-note"><input type="text" id="unavNote" placeholder="Grund (optional), z. B. Urlaub – gilt für die nächsten angetippten Tage" value="${esc(S.unavNote || '')}"></div>
+    <details class="cal-range" ${S.rangeOpen ? 'open' : ''}><summary>📆 Zeitraum eintragen, z. B. Tour oder Urlaub</summary>
+      <div class="range-row"><label>Von<input type="date" id="rFrom" min="${today}" value="${esc(S.rFrom || '')}"></label><label>Bis<input type="date" id="rTo" min="${today}" value="${esc(S.rTo || '')}"></label></div>
+      <input type="text" id="rNote" placeholder="Grund, z. B. Tour mit …" value="${esc(S.rNote || '')}">
+      <button class="big no solid" id="rAdd">Ganzen Zeitraum als „kann nicht“ eintragen</button>
+    </details>
     <div class="cal-legend"><span class="lgd off"></span>kann nicht <span class="lgd l-ok"></span>Einsatz zugesagt <span class="lgd l-ask"></span>Anfrage offen</div>
-    <div class="cal-sum">${mine.length ? `Eingetragen: ${mine.map((u) => `<b>${Number(u.day.slice(8, 10))}.</b>${u.note ? ' (' + esc(u.note) + ')' : ''}`).join(', ')}` : 'Noch keine Tage eingetragen.'}</div>
+    <div class="cal-sum">${(() => { const rs = unavRanges(t.id, today); return rs.length ? `<b>Deine eingetragenen Abwesenheiten</b>${rs.map((r) => `<div class="rline"><span>${r.from === r.to ? shortDate(r.from) : shortDate(r.from) + ' – ' + shortDate(r.to)} <small>${r.days.length} Tag${r.days.length > 1 ? 'e' : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span><button class="linkbtn danger" data-rdel="${r.days.join(',')}">löschen</button></div>`).join('')}` : 'Noch keine Tage eingetragen.'; })()}</div>
   </div>`;
 }
 
@@ -536,6 +555,34 @@ function wireTechCal(t) {
     S.calMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); redraw();
   }));
   $('#unavNote').oninput = (e) => (S.unavNote = e.target.value);
+  box.querySelector('.cal-range').ontoggle = (e) => (S.rangeOpen = e.target.open);
+  ['rFrom', 'rTo', 'rNote'].forEach((id) => ($('#' + id).oninput = (e) => {
+    S[id] = e.target.value;
+    if (id === 'rFrom' && (!$('#rTo').value || $('#rTo').value < e.target.value)) { $('#rTo').value = e.target.value; S.rTo = e.target.value; }
+  }));
+  $('#rAdd').onclick = async () => {
+    const from = $('#rFrom').value; const to = $('#rTo').value || from; const note = $('#rNote').value.trim();
+    if (!from) return toast('Bitte ein Startdatum wählen.');
+    if (to < from) return toast('„Bis“ liegt vor „Von“.');
+    if (from < todayISO()) return toast('Der Zeitraum darf nicht in der Vergangenheit beginnen.');
+    const days = daysBetween(from, to);
+    if (days.length > 120) return toast('Bitte höchstens 120 Tage auf einmal eintragen.');
+    const clash = allSlots().filter((x) => days.includes(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status === 'zugesagt');
+    if (clash.length && !confirm(`In diesem Zeitraum hast du ${clash.length} Einsatz/Einsätze schon zugesagt. Trotzdem eintragen? Bitte sag dann auch ${CFG.senderName} Bescheid.`)) return;
+    const btn = $('#rAdd'); btn.disabled = true;
+    try {
+      await store.setUnavMany(t.id, days, note);
+      const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))).concat(days.map((day) => ({ tech_id: t.id, day, note })));
+      S.rFrom = S.rTo = S.rNote = ''; S.calMonth = from.slice(0, 7);
+      toast(`${days.length} Tag${days.length > 1 ? 'e' : ''} eingetragen (${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''})`);
+      redraw();
+    } catch (e) { btn.disabled = false; toast(e.message); }
+  };
+  box.querySelectorAll('[data-rdel]').forEach((b) => (b.onclick = async () => {
+    const days = b.dataset.rdel.split(',');
+    if (days.length > 1 && !confirm(`Diese ${days.length} Tage wieder freigeben?`)) return;
+    try { await store.clearUnavMany(t.id, days); const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))); redraw(); } catch (e) { toast(e.message); }
+  }));
   box.querySelectorAll('[data-day]').forEach((b) => (b.onclick = async () => {
     const day = b.dataset.day; const had = unavOf(t.id, day);
     if (!had && b.classList.contains('job-zugesagt') && !confirm('An diesem Tag hast du schon einen Einsatz zugesagt. Trotzdem als „kann nicht“ eintragen? Bitte sag dann auch ' + CFG.senderName + ' Bescheid.')) return;

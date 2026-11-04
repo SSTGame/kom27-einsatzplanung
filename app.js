@@ -449,8 +449,10 @@ function syncBar() {
   const y = S.sync; const t = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
   if (!y || !y.share_url) return `<div class="syncline muted"><span>🔗 Automatischer Abgleich mit SharePoint ist aus.</span><span class="spacer"></span><button class="btn small" id="syncCfg">Link hinterlegen</button></div>`;
   const neu = y.hash && (!S.plan || S.plan.sourceHash !== y.hash);
+  const veraltet = !neu && y.hash && S.plan && (S.plan.pv || 0) < (window.KOM27Parser.VERSION || 0);
+  if (veraltet) return `<div class="syncline new"><span>✨ <b>Das Einlesen wurde verbessert</b> – Excel einmal neu übernehmen, damit alles angezeigt wird</span><span class="spacer"></span><button class="btn small primary" id="syncApply">Neu übernehmen</button></div>`;
   if (neu) return `<div class="syncline new"><span>📥 <b>Neue Version auf SharePoint</b> (geändert ${esc(t(y.changed_at))})</span><span class="spacer"></span><button class="btn small primary" id="syncApply">Übernehmen</button></div>`;
-  return `<div class="syncline ${y.last_error ? 'err' : 'muted'}"><span>${y.last_error ? '⚠️ Abruf fehlgeschlagen: ' + esc(y.last_error) : '✓ Aktuell mit SharePoint · zuletzt geprüft ' + esc(t(y.last_try))}</span><span class="spacer"></span><button class="btn small ghost" id="syncNow">Jetzt prüfen</button><button class="btn small ghost" id="syncCfg" title="SharePoint-Link ändern">⚙</button></div>`;
+  return `<div class="syncline ${y.last_error ? 'err' : 'muted'}"><span>${y.last_error ? '⚠️ Abruf fehlgeschlagen: ' + esc(y.last_error) : '✓ Aktuell mit SharePoint · zuletzt geprüft ' + esc(t(y.last_try))}</span><span class="spacer"></span><button class="btn small ghost" id="syncNow">Jetzt prüfen</button><button class="btn small ghost" id="syncApply" title="Die zuletzt abgeholte Excel noch einmal einlesen">Neu einlesen</button><button class="btn small ghost" id="syncCfg" title="SharePoint-Link ändern">⚙</button></div>`;
 }
 const sha256hex = async (buf) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((x) => x.toString(16).padStart(2, '0')).join('');
 async function applySync() {
@@ -476,6 +478,7 @@ async function importFile(file, srcHash) {
     const plan = window.KOM27Parser.parseWorkbook(wb);
     plan.fileName = file.name;
     try { plan.sourceHash = srcHash || await sha256hex(buf); } catch (e) {}
+    plan.pv = window.KOM27Parser.VERSION || 0;
     const old = S.plan; applyRemovals(plan, old && old.removed);
     const ch = old && old.days ? diffPlans(old, plan) : null;
     if (ch) plan.changes = { at: plan.importedAt, items: ch.items };

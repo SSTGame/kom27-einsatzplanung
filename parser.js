@@ -188,6 +188,6 @@
     return { importedAt: new Date().toISOString(), days };
   }
 
-  const api = { parseWorkbook, vaDays };
+  const api = { parseWorkbook, vaDays, VERSION: 3 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

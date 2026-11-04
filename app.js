@@ -822,10 +822,10 @@ function renderHours() {
       <span class="hs"><span>${l.length} Einsätze</span><span>Plan ${fmtH(p)}</span><span class="${done.length ? 'ok' : 'muted'}">Ist ${fmtH(i)} <small>(${done.length}/${l.length} bestätigt)</small></span>${mi ? `<span class="warn">⏱ ${mi} offen</span>` : ''}</span></summary>
       <table class="list htab"><thead><tr><th>Datum</th><th>VA</th><th>Plan</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Ist</th></tr></thead><tbody>
       ${l.map((x) => { const a = S.asg[x.key]; const [ps, pe] = planFrom(x); const ih = actualHours(a); const diff = ih !== null ? ih - planHours(x) : null;
-        return `<tr data-hk="${esc(x.key)}" class="${x.date > today ? 'future' : ''}"><td>${fmtDate(x.date)}</td><td class="small">${esc(x.va || '')}</td><td class="small">${esc(x.zeit || '')}</td>
-        <td><input type="time" data-h="st" value="${esc(a.actual_start || '')}" placeholder="${ps}"></td><td><input type="time" data-h="en" value="${esc(a.actual_end || '')}" placeholder="${pe}"></td>
-        <td><select data-h="br">${['', 0, 15, 30, 45, 60, 90].map((v) => `<option value="${v}" ${String(a.break_min ?? '') === String(v) ? 'selected' : ''}>${v === '' ? '–' : v + ' min'}</option>`).join('')}</select></td>
-        <td>${ih !== null ? `<b>${fmtH(ih)}</b>${diff && Math.abs(diff) >= 0.25 ? ` <small class="${diff > 0 ? 'warn' : 'muted'}">${diff > 0 ? '+' : ''}${String(Math.round(diff * 100) / 100).replace('.', ',')}</small>` : ''}${a.time_note ? ` <span title="${esc(a.time_note)}">💬</span>` : ''}` : x.date <= today ? '<span class="warn small">fehlt</span>' : '<span class="muted small">kommt noch</span>'}</td></tr>`; }).join('')}
+        return `<tr data-hk="${esc(x.key)}" class="${x.date > today ? 'future' : ''}"><td class="h-d">${fmtDate(x.date)}</td><td class="small h-va">${esc(x.va || '')}</td><td class="small h-pl" data-l="Plan">${esc(x.zeit || '')}</td>
+        <td class="h-st" data-l="Beginn"><input type="time" data-h="st" value="${esc(a.actual_start || '')}" placeholder="${ps}"></td><td class="h-en" data-l="Ende"><input type="time" data-h="en" value="${esc(a.actual_end || '')}" placeholder="${pe}"></td>
+        <td class="h-br" data-l="Pause"><select data-h="br">${['', 0, 15, 30, 45, 60, 90].map((v) => `<option value="${v}" ${String(a.break_min ?? '') === String(v) ? 'selected' : ''}>${v === '' ? '–' : v + ' min'}</option>`).join('')}</select></td>
+        <td class="h-ist" data-l="Ist">${ih !== null ? `<b>${fmtH(ih)}</b>${diff && Math.abs(diff) >= 0.25 ? ` <small class="${diff > 0 ? 'warn' : 'muted'}">${diff > 0 ? '+' : ''}${String(Math.round(diff * 100) / 100).replace('.', ',')}</small>` : ''}${a.time_note ? ` <span title="${esc(a.time_note)}">💬</span>` : ''}` : x.date <= today ? '<span class="warn small">fehlt</span>' : '<span class="muted small">kommt noch</span>'}</td></tr>`; }).join('')}
       </tbody></table></details>`;
   }).join('');
   m.innerHTML = `<div class="toolbar">
@@ -1577,11 +1577,37 @@ function komTodayCard() {
     <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
   </section>`;
 }
+// Wochenraster für KOM27: Spalten = Tage, Zeilen = wer da ist
+const mondayOf = (iso) => { const d = new Date(iso + 'T12:00:00'); return addDays(iso, -((d.getDay() + 6) % 7)); };
+function komWeekGrid(today) {
+  const mon = S.komWeek || mondayOf(today);
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+  const byDate = {}; allDays().forEach((d) => (byDate[d.date] = d));
+  const sl = (dt) => ((byDate[dt] || {}).slots || []).filter(() => !(byDate[dt] || {}).cancelled);
+  const names = [...new Set(dates.flatMap((dt) => sl(dt).map((s) => komOf(s.key)).filter(Boolean).map((k) => k.name)))].sort((a, b) => a.localeCompare(b, 'de'));
+  const hasOpen = dates.some((dt) => sl(dt).some((s) => !komOf(s.key)));
+  const hasKom = dates.some((dt) => ((byDate[dt] || {}).kom || []).length);
+  const short = (z) => { const sp = parseSpan(z); if (!sp) return 'Zeit?'; const f = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + (m % 60 ? ':' + pad(m % 60) : ''); }; return f(sp[0]) + '–' + f(sp[1]); };
+  const chip = (s, st) => `<button class="kr-chip st-${st}" data-open="${esc(s.key)}" title="${esc((s.va || '') + ' · ' + (s.zeit || ''))}">${esc(short(s.zeit))}</button>`;
+  const head = dates.map((dt) => { const d = byDate[dt]; const n = sl(dt).length; const ok = sl(dt).filter((s) => komOf(s.key)).length; const wd = new Date(dt + 'T12:00:00').getDay();
+    return `<th class="${dt === today ? 'is-today' : ''} ${wd === 0 || wd === 6 ? 'we' : ''}"><span>${WD[wd]}</span><b>${dt.slice(8, 10)}.${dt.slice(5, 7)}.</b>${n ? `<i class="kr-need ${ok < n ? 'open' : ''}">${ok}/${n}</i>` : d && d.cancelled ? '<i class="kr-need">abgesagt</i>' : ''}</th>`; }).join('');
+  const row = (label, cls, cell) => `<tr class="${cls}"><th>${label}</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${cell(dt)}</td>`).join('')}</tr>`;
+  let rows = '';
+  if (hasKom) rows += row('🏢 KOM27', 'kr-kom', (dt) => ((byDate[dt] || {}).kom || []).map((n) => `<span class="kr-kom-n">${esc(n.split(' ')[0])}</span>`).join(''));
+  names.forEach((n) => (rows += row(esc(n), '', (dt) => sl(dt).filter((s) => komOf(s.key) && komOf(s.key).name === n).map((s) => chip(s, komOf(s.key).status)).join(''))));
+  if (hasOpen) rows += row('❗ noch offen', 'kr-open', (dt) => sl(dt).filter((s) => !komOf(s.key)).map((s) => chip(s, 'leer')).join(''));
+  const rooms = `<tr class="kr-rooms"><th>Räume</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${esc(roomsOf((byDate[dt] || {}).info || '') || '')}</td>`).join('')}</tr>`;
+  return `<section class="kr">
+    <div class="kr-nav"><button class="btn small" data-kw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-kw="0">diese Woche</button>' : ''}<button class="btn small" data-kw="7" aria-label="Woche vor">›</button></div>
+    ${names.length || hasOpen || hasKom ? `<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
+    <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine PAM-Techniker eingeplant.</div>'}
+  </section>`;
+}
 const pvBar = () => (S.preview ? `<div class="pv-bar"><span>👁 <b>Vorschau:</b> So sehen Jens & Felix die App</span><button class="btn small" id="pvEnd">Zurück zum Master</button></div>` : '');
 function renderKom() {
   document.body.classList.remove('is-master');
   const today = todayISO();
-  $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
+  $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
   const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${S.techTab !== 'kb' ? 'on' : ''}">📅 Alle Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 KOM27-Infos <small>${(S.kb || []).length}</small></button></div>`;
@@ -1590,6 +1616,8 @@ function renderKom() {
     m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
     const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
+    m.querySelectorAll('[data-kv]').forEach((b) => (b.onclick = () => { S.komView = b.dataset.kv; paint(); }));
+    m.querySelectorAll('[data-kw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.kw; S.komWeek = n ? addDays(S.komWeek || mondayOf(today), n) : mondayOf(today); paint(); }));
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
   if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml(); wire(); wireKb(m); return; }
@@ -1611,8 +1639,10 @@ function renderKom() {
       <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
       ${rows}</article>`;
   };
-  m.innerHTML = pvBar() + vt + komTodayCard() + `
-    <section class="hello">
+  const tc = komTodayCard();
+  const raster = (S.komView || 'raster') === 'raster';
+  m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
+    <section class="hello hi-kom">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
       <p>Medientechnik KOM27 · hier siehst du alle Einsätze der PAM-Techniker</p>
       <div class="sumrow">
@@ -1621,8 +1651,13 @@ function renderKom() {
         <div class="sumbox ${wOpen ? 'warn' : ''}"><b>${wOpen}</b><span>noch offen</span></div>
       </div>
     </section>
-    <label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label>
-    ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}
+    <div class="dash kom-dash"><div class="dash-main">
+    <div class="seg kv-seg"><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${raster ? '' : 'on'}">Liste</button></div>
+    ${raster ? komWeekGrid(today) : `<label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label>
+    ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
+    </div><aside class="dash-side only-d">${tc}
+      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" data-open="${esc((d.slots[0] || {}).key || '')}">${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '–'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
+    </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>`;
   wire();
 }
@@ -1631,7 +1666,7 @@ function renderTech() {
   document.body.classList.remove('is-master');
   const t = myTech();
   const today = todayISO();
-  $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
+  $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
   const team = myTeam().filter((x) => !t || x.id !== t.id);
@@ -1689,10 +1724,17 @@ function renderTech() {
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
   if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wireVt(); wireKb(m); return; }
   m.innerHTML = vt + `
+    <div class="dash"><div class="dash-main">
     <section class="hello hi-line">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
       <p>${yes.length} ${yes.length === 1 ? 'Einsatz' : 'Einsätze'} zugesagt · ${String(Math.round(monH * 10) / 10).replace('.', ',')} Std. im ${MON[+mon.slice(5, 7) - 1]}</p>
       <div id="pushBox"></div>
+      <div class="dash-kpis">
+        <a href="#openSec" class="kpi ${nOpen ? 'warn' : ''}"><b>${nOpen}</b><span>${nOpen === 1 ? 'offene Anfrage' : 'offene Anfragen'}</span></a>
+        <div class="kpi ok"><b>${yes.length}</b><span>zugesagt</span></div>
+        <div class="kpi"><b>${String(Math.round(monH * 10) / 10).replace('.', ',')}</b><span>Std. im ${MON[+mon.slice(5, 7) - 1]}</span></div>
+        ${toLog.length ? `<a href="#timeSec" class="kpi warn"><b>${toLog.length}</b><span>Arbeitszeit eintragen</span></a>` : `<div class="kpi"><b>✓</b><span>Zeiten vollständig</span></div>`}
+      </div>
     </section>
     ${todayCard(t) || nextCard(t)}
     ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid <span class="sec-n">${nOpen}</span></h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
@@ -1710,12 +1752,15 @@ function renderTech() {
         ${warn.map((w) => `<div class="hint warn">⚠ ${esc(w)}</div>`).join('')}
         <div class="jc-actions">${all ? `<span class="in-msg">✓ Du hast dich gemeldet</span><button class="big ghost" data-int="off" data-keys="${esc(g.slots.map((x) => x.key).join(','))}">zurückziehen</button>` : `<button class="big yes" data-int="on" data-keys="${esc(g.slots.map((x) => x.key).join(','))}">🙋 Ich hätte Zeit${g.slots.length > 1 ? ' – alle Tage' : ''}</button>`}</div>
       </article>`; }).join('')}` : ''}
+    </div><aside class="dash-side"><section class="dpanel">
     <h2 class="sec">Wann kannst du nicht?</h2>
     <p class="sec-help">Tippe die Tage an, an denen du nicht verfügbar bist. Nochmal tippen nimmt es wieder raus. ${esc(CFG.senderName)} sieht das sofort und plant dich dann nicht ein.</p>
     ${techCalHtml(t)}
+    </section><section class="dpanel dp-next">
     ${yes.length ? `<h2 class="sec">Deine nächsten Einsätze <button class="linkbtn" id="ics">📅 Kalender-Abo</button></h2><div class="mini-list">${yes.map((s) => line(s, 'yes')).join('')}</div>` : ''}
     ${no.length ? `<details class="nolist"><summary>Abgesagt (${no.length})</summary><div class="mini-list">${no.map((s) => line(s, 'no')).join('')}</div></details>` : ''}
     ${logged.length ? `<details class="nolist"><summary>Bestätigte Arbeitszeiten (${logged.length})</summary><div class="mini-list">${logged.map((x) => { const a = S.asg[x.key]; return `<div class="mini-line">${dateBox(x.date)}<div class="ml-txt"><b>${esc(a.actual_start)}–${esc(a.actual_end)} · ${fmtH(actualHours(a))}</b><small>${esc(x.va || '')}${a.break_min ? ' · ' + a.break_min + ' min Pause' : ''}${a.time_note ? ' · „' + esc(a.time_note) + '“' : ''}</small></div><button class="linkbtn" data-tedit="${esc(x.key)}">ändern</button></div>`; }).join('')}</div></details>` : ''}
+    </section></aside></div>
     <p class="note center">Fragen? Einfach ${esc(CFG.senderName)} anrufen oder auf die Anfrage-Mail antworten.</p>`;
 
   const collapse = (el) => new Promise((res) => {

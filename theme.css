@@ -272,3 +272,96 @@ input[type=text], input[type=email], input[type=password], input[type=search], i
 .sec-n { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; margin-left: 6px; border-radius: 12px;
   background: var(--st-leer); color: #fff; font-size: 13px; font-weight: 700; vertical-align: 3px; font-family: var(--f-num); }
 h2.sec:has(.sec-n) { justify-content: flex-start; gap: 0; }
+
+/* Stunden auf dem Handy: jede Zeile als kleine Karte statt breiter Tabelle */
+@media (max-width: 700px) {
+  .htab thead { display: none; }
+  .htab, .htab tbody { display: block; width: 100%; }
+  .htab tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "d va va" "pl pl ist" "st en br"; gap: 6px 10px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+  table.list.htab td { display: block; padding: 0; border: 0; min-width: 0; white-space: normal; background: none; }
+  .htab td.h-d { grid-area: d; font-weight: 700; }
+  .htab td.h-va { grid-area: va; text-align: right; color: var(--muted); }
+  .htab td.h-pl { grid-area: pl; } .htab td.h-ist { grid-area: ist; text-align: right; }
+  .htab td.h-st { grid-area: st; } .htab td.h-en { grid-area: en; } .htab td.h-br { grid-area: br; }
+  .htab td.h-pl::before, .htab td.h-st::before, .htab td.h-en::before, .htab td.h-br::before { content: attr(data-l); display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .htab td.h-pl::before { display: inline; margin-right: 6px; }
+  .htab input[type=time], .htab select { width: 100%; min-width: 0; font-size: 16px; padding: 8px 6px; border-radius: 10px; box-sizing: border-box; }
+}
+/* Arbeitszeit-Karte des Technikers: Felder nie abschneiden */
+.time-card input[type=time], .time-card select, .htab input[type=time] { min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; font-variant-numeric: tabular-nums; }
+.time-card input[type=time], .htab input[type=time] { -webkit-appearance: none; appearance: none; display: block; min-height: 44px; text-align: left; }
+.time-card input[type=time]::-webkit-date-and-time-value { text-align: left; }
+@media (max-width: 420px) { .time-card input[type=time], .time-card select { font-size: 16px; padding-left: 8px; padding-right: 4px; } }
+.tf-row label { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+
+/* ===== Web-Dashboard für Techniker & KOM27 (nur breite Bildschirme, Handy bleibt unverändert) ===== */
+.dash-kpis { display: none; }
+@media (min-width: 1100px) {
+  main.mine.is-dash { max-width: 1280px; padding: 26px 32px 48px; }
+  .is-dash .viewtabs { max-width: 420px; margin: 0 0 22px; }
+  .is-dash .dash { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(340px, 1fr); gap: 28px; align-items: start; }
+  .is-dash .hello.hi-line { display: grid; grid-template-columns: auto 1fr; align-items: end; column-gap: 24px; padding: 0 0 18px; }
+  .is-dash .hello.hi-line h1 { font-size: 30px; grid-column: 1; }
+  .is-dash .hello.hi-line p { grid-column: 1; }
+  .is-dash .hello.hi-line #pushBox { grid-column: 1 / -1; }
+  .is-dash .dash-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; grid-column: 2; grid-row: 1 / span 2; }
+  .kpi { display: grid; gap: 2px; padding: 12px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+  .kpi b { font-family: var(--f-num); font-stretch: 110%; font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .kpi span { font-size: 12.5px; color: var(--muted); line-height: 1.3; }
+  .kpi.ok b { color: var(--st-zugesagt); } .kpi.warn b { color: var(--st-leer); }
+  a.kpi:hover { border-color: var(--accent); }
+  .is-dash .dash-side { position: sticky; top: 84px; display: grid; gap: 18px; }
+  .is-dash .dpanel { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 6px 18px 16px; }
+  .is-dash .dpanel:empty, .is-dash .dp-next:not(:has(*)) { display: none; }
+  .is-dash .dpanel h2.sec { margin-top: 12px; font-size: 17px; }
+  .is-dash .dpanel .mini-list { max-height: 420px; overflow: auto; }
+  .is-dash .dash-main h2.sec { margin-top: 26px; }
+  .is-dash .tcard .td-time { font-size: 52px; }
+}
+
+/* ===== KOM27 (Jens/Felix): Wochenraster ===== */
+.only-d { display: none; }
+.kv-seg { margin: 4px 0 12px; }
+.kv-seg button { padding: 8px 18px; font-size: 14px; }
+.kr { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 12px 12px 10px; margin-bottom: 18px; }
+.kr-nav { display: flex; align-items: center; gap: 10px; padding: 2px 4px 10px; }
+.kr-nav b { font-family: var(--f-num); font-stretch: 110%; font-size: 18px; }
+.kr-nav .muted { font-size: 13px; flex: 1; }
+.kr-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -12px; padding: 0 12px; }
+.kr-grid { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 640px; font-size: 13px; }
+.kr-grid th, .kr-grid td { border-bottom: 1px solid var(--line); padding: 7px 5px; vertical-align: top; text-align: center; }
+.kr-grid tbody th { text-align: left; font-weight: 650; white-space: nowrap; position: sticky; left: 0; background: var(--panel); z-index: 1; padding-right: 10px; min-width: 92px; }
+.kr-grid thead th { font-weight: 500; color: var(--muted); padding-bottom: 8px; }
+.kr-grid thead th span { display: block; font-size: 11.5px; }
+.kr-grid thead th b { display: block; color: var(--ink); font-family: var(--f-num); font-size: 15px; font-variant-numeric: tabular-nums; }
+.kr-grid thead th.we, .kr-grid td.we { opacity: .7; }
+.kr-grid .is-today { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.kr-grid thead th.is-today b { color: var(--accent); }
+.kr-need { display: inline-block; margin-top: 3px; font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px; background: color-mix(in srgb, var(--st-zugesagt) 14%, transparent); color: var(--st-zugesagt); }
+.kr-need.open { background: color-mix(in srgb, var(--st-leer) 16%, transparent); color: var(--st-leer); }
+.kr-chip { display: block; width: 100%; margin: 0 0 4px; padding: 5px 2px; border-radius: 8px; border: 0; cursor: pointer; font: 700 12.5px/1.2 var(--f-num); font-variant-numeric: tabular-nums; color: #fff; white-space: nowrap; }
+.kr-chip.st-zugesagt { background: var(--st-zugesagt); }
+.kr-chip.st-angefragt { background: var(--st-angefragt); }
+.kr-chip.st-leer { background: transparent; border: 1.5px dashed var(--st-leer); color: var(--st-leer); }
+.kr-kom-n { display: inline-block; font-size: 12px; font-weight: 650; padding: 2px 7px; border-radius: 8px; background: var(--panel-2); margin: 0 2px 3px; }
+.kr-grid tr.kr-open th { color: var(--st-leer); }
+.kr-grid tr.kr-rooms td, .kr-grid tr.kr-rooms th { font-size: 11px; color: var(--muted); border-bottom: 0; line-height: 1.35; }
+.kr-lgd { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); padding: 10px 4px 2px; }
+.kr-lgd .lg { margin: 0 5px 0 0; vertical-align: -1px; }
+.lg.leer { background: transparent; border: 1.5px dashed var(--st-leer); }
+.kn-row { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 10px 0; color: var(--ink); font: inherit; cursor: pointer; }
+.kn-row:last-child { border-bottom: 0; }
+.kn-row span { display: grid; gap: 2px; min-width: 0; } .kn-row small { color: var(--muted); font-size: 12.5px; }
+@media (min-width: 1100px) {
+  .only-m { display: none; } .only-d { display: grid; }
+  .is-dash .hello.hi-kom { display: grid; grid-template-columns: auto 1fr; align-items: end; column-gap: 24px; padding: 0 0 18px; }
+  .is-dash .hello.hi-kom h1, .is-dash .hello.hi-kom p { grid-column: 1; }
+  .is-dash .hello.hi-kom .sumrow { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  .is-dash .kom-dash { grid-template-columns: minmax(0, 1fr) 340px; }
+  .kr { padding: 16px 18px 12px; }
+  .kr-grid { font-size: 14px; } .kr-chip { font-size: 13.5px; padding: 7px 4px; }
+}
+.kr-grid { table-layout: fixed; }
+.kr-grid thead tr > th:first-child, .kr-grid tbody th { width: 110px; }
+.td-tag { white-space: nowrap; }
+@media (min-width: 1100px) { .is-dash .hello.hi-line p { display: none; } .is-dash .dash-side .tcard .td-time { font-size: 34px; } }

@@ -597,28 +597,72 @@ const FILTERS = [['alle', 'Alle'], ['leer', 'Unbesetzt'], ['geplant', 'Nicht ang
 
 function gridHtml(days, today) {
   const techs = S.techs.filter((t) => t.active !== false);
-  const map = {}; const need = {}; const filled = {}; const sum = {};
+  const map = {}; const need = {}; const cntD = {}; const sum = {}; const tot = { n: 0, z: 0 };
   days.forEach((d) => { if (d.cancelled) return; d.slots.forEach((s) => {
-    need[d.date] = (need[d.date] || 0) + 1;
-    const a = S.asg[s.key];
-    if (a && a.tech_id && a.status !== 'abgesagt') { filled[d.date] = (filled[d.date] || 0) + 1; ((map[a.tech_id] = map[a.tech_id] || {})[d.date] = map[a.tech_id][d.date] || []).push({ s, a }); sum[a.tech_id] = (sum[a.tech_id] || 0) + 1; }
+    need[d.date] = (need[d.date] || 0) + 1; tot.n++;
+    const a = S.asg[s.key]; const c = (cntD[d.date] = cntD[d.date] || { zugesagt: 0, angefragt: 0, geplant: 0 });
+    if (a && a.tech_id && a.status !== 'abgesagt') {
+      c[a.status] = (c[a.status] || 0) + 1; if (a.status === 'zugesagt') tot.z++;
+      ((map[a.tech_id] = map[a.tech_id] || {})[d.date] = map[a.tech_id][d.date] || []).push({ s, a });
+      const su = (sum[a.tech_id] = sum[a.tech_id] || { z: 0, p: 0 }); if (a.status === 'zugesagt') su.z++; else su.p++;
+    }
   }); });
   const th = days.map((d) => { const f = fmtDate(d.date); return `<th class="${d.free ? 'we' : ''} ${d.date === today ? 'today' : ''}"><span>${f.slice(0, 2)}</span>${d.date.slice(8, 10)}</th>`; }).join('');
   const needRow = days.map((d) => {
-    const n = need[d.date] || 0; const f = filled[d.date] || 0;
+    const n = need[d.date] || 0; const c = cntD[d.date] || { zugesagt: 0, angefragt: 0, geplant: 0 };
     if (!n) return `<td class="${d.free ? 'we' : ''}"></td>`;
-    return `<td class="${d.free ? 'we' : ''}"><button class="need ${f >= n ? 'full' : 'miss'}" data-jump="${d.date}" title="${f} von ${n} Plätzen besetzt">${f}/${n}</button></td>`;
+    const z = c.zugesagt; const f = z + c.angefragt + c.geplant; const open = Math.max(0, n - f);
+    const cls = z >= n ? 'full' : f >= n ? 'pend' : 'miss';
+    const tip = `${n} ${n === 1 ? 'Platz' : 'Plätze'}: ${z} zugesagt` + (c.angefragt ? `, ${c.angefragt} angefragt` : '') + (c.geplant ? `, ${c.geplant} geplant (noch nicht angefragt)` : '') + (open ? `, ${open} offen` : '');
+    return `<td class="${d.free ? 'we' : ''}"><button class="need ${cls}" data-jump="${d.date}" title="${esc(tip)}">${z}/${n}</button></td>`;
   }).join('');
+  const slotDay = {}; days.forEach((d) => { if (!d.cancelled && d.slots.length) slotDay[d.date] = true; });
   const rowsH = techs.map((t) => `<tr><th class="name">${esc(t.name)}</th>${days.map((d) => {
-    const e = (map[t.id] || {})[d.date]; const u = unavOf(t.id, d.date);
-    if (!e) return `<td class="${d.free ? 'we' : ''}">${u ? `<span class="gblock" title="${esc('Kann nicht' + (u.note ? ': ' + u.note : ''))}">✗</span>` : ''}</td>`;
+    const e = (map[t.id] || {})[d.date]; const u = unavOf(t.id, d.date); const gc = `data-gc="${t.id}|${d.date}"`;
+    if (!e) {
+      if (!slotDay[d.date]) return `<td class="${d.free ? 'we' : ''}">${u ? `<span class="gblock" title="${esc('Kann nicht' + (u.note ? ': ' + u.note : ''))}">✗</span>` : ''}</td>`;
+      return `<td class="${d.free ? 'we' : ''}"><button class="gadd ${u ? 'blocked' : ''}" ${gc} title="${esc(u ? 'Kann nicht' + (u.note ? ': ' + u.note : '') + ' – trotzdem eintragen?' : t.name + ' an diesem Tag eintragen')}">${u ? '✗' : '+'}</button></td>`;
+    }
     const worst = ['abgesagt', 'geplant', 'angefragt', 'zugesagt'].find((st) => e.some((x) => x.a.status === st));
     const tip = e.map((x) => `${x.s.zeit || ''} ${x.s.va || ''} – ${ST_LABEL[x.a.status]}`).join('\n');
-    return `<td class="${d.free ? 'we' : ''}"><button class="gcell ${worst} ${e.length > 1 || u ? 'dbl' : ''}" data-jump="${d.date}" title="${esc(tip + (u ? '\n⛔ hat sich für diesen Tag abgemeldet' : ''))}">${esc((e[0].s.zeit || '•').slice(0, 2))}${e.length > 1 ? '²' : ''}</button></td>`;
-  }).join('')}<td class="sum">${sum[t.id] || 0}</td></tr>`).join('');
-  return `<div class="legend"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant <span class="lg miss"></span>Platz offen <span class="lg blocked"></span>kann nicht (vom Techniker eingetragen) · Zahl = Arbeitsbeginn · Klick = zum Tag springen</div>
-    <div class="card gridwrap"><table class="grid"><thead><tr><th class="name">Techniker</th>${th}<th class="sum">Σ</th></tr></thead>
-    <tbody><tr class="needrow"><th class="name">Besetzt / Bedarf</th>${needRow}<td class="sum"></td></tr>${rowsH || `<tr><td colspan="${days.length + 2}" class="empty-msg">Noch keine Techniker angelegt.</td></tr>`}</tbody></table></div>`;
+    return `<td class="${d.free ? 'we' : ''}"><button class="gcell ${worst} ${e.length > 1 || u ? 'dbl' : ''}" ${gc} title="${esc(tip + (u ? '\n⛔ hat sich für diesen Tag abgemeldet' : ''))}">${esc((e[0].s.zeit || '•').slice(0, 2))}${e.length > 1 ? '²' : ''}</button></td>`;
+  }).join('')}<td class="sum" title="${sum[t.id] ? esc(sum[t.id].z + ' zugesagt' + (sum[t.id].p ? ', ' + sum[t.id].p + ' geplant/angefragt' : '')) : 'keine Einsätze'}">${sum[t.id] ? `${sum[t.id].z}${sum[t.id].p ? `<small>+${sum[t.id].p}</small>` : ''}` : '–'}</td></tr>`).join('');
+  return `<div class="legend"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant <span class="lg miss"></span>Platz offen <span class="lg blocked"></span>kann nicht · Zahl = Arbeitsbeginn · <b>Feld antippen = eintragen / ändern</b> · Besetzt = zugesagt / Bedarf</div>
+    <div class="card gridwrap"><table class="grid"><thead><tr><th class="name">Techniker</th>${th}<th class="sum" title="Einsätze im Monat: zugesagt (+ geplant/angefragt)">Σ</th></tr></thead>
+    <tbody><tr class="needrow"><th class="name">Besetzt / Bedarf</th>${needRow}<td class="sum" title="Im Monat: ${tot.z} von ${tot.n} Plätzen zugesagt">${tot.z}/${tot.n}</td></tr>${rowsH || `<tr><td colspan="${days.length + 2}" class="empty-msg">Noch keine Techniker angelegt.</td></tr>`}</tbody></table></div>`;
+}
+
+// Menü im Raster: Techniker an einem Tag eintragen, Status ändern oder austragen
+function gridMenu(btn, techId, date, act) {
+  closeMenu();
+  const t = techById(techId); const day = allDays().find((d) => d.date === date); if (!t || !day) return;
+  const TL = timelines(); const u = unavOf(techId, date);
+  const rows = day.slots.map((s) => {
+    const a = S.asg[s.key]; const mine = a && a.tech_id === techId && a.status !== 'abgesagt';
+    const other = a && a.tech_id && a.tech_id !== techId && a.status !== 'abgesagt' ? techById(a.tech_id) : null;
+    const dec = ((a || {}).declined || []).includes(techId);
+    const cf = mine ? [] : conflictsFor(techId, s, TL).filter((c) => c.kind !== 'day');
+    const head = `<div class="gm-slot"><b>${esc(niceTime(s.zeit))}</b><small>${esc(s.va || 'Einsatz')}${other ? ' · jetzt: ' + esc(other.name.split(' ')[0]) + ' (' + ST_LABEL[a.status] + ')' : mine ? '' : ' · unbesetzt'}</small></div>`;
+    if (mine) return head + `<div class="gm-st">${STATUS.map((st) => `<button data-gst="${st}" data-k="${esc(s.key)}" class="${a.status === st ? 'on' : ''}"><span class="lg ${st}"></span>${ST_LABEL[st]}</button>`).join('')}</div><button class="gm-act danger" data-grm="${esc(s.key)}">✕ ${esc(t.name.split(' ')[0])} austragen</button>`;
+    return head + (dec ? `<div class="gm-warn">✗ hat für diesen Einsatz abgesagt</div>` : '') + cf.map((c) => `<div class="gm-warn">⚠ ${esc(c.txt)}</div>`).join('')
+      + `<button class="gm-act" data-gset="${esc(s.key)}">＋ ${esc(t.name.split(' ')[0])} eintragen${other ? ' (ersetzt ' + esc(other.name.split(' ')[0]) + ')' : ''}</button>`;
+  }).join('<hr>');
+  const m = document.createElement('div'); m.className = 'stmenu gmenu'; m.setAttribute('role', 'menu');
+  m.innerHTML = `<div class="gm-h"><b>${esc(t.name)}</b><small>${esc(longDate(date))}</small></div>${u ? `<div class="gm-warn">⛔ hat sich abgemeldet${u.note ? ': ' + esc(u.note) : ''}</div>` : ''}${rows}<hr><button class="gm-act ghost" data-gjump="${date}">Tag in der Liste öffnen ›</button>`;
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect(); const w = m.offsetWidth; const h = m.offsetHeight;
+  let top = r.bottom + 4; if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4);
+  m.style.left = Math.max(8, Math.min(r.left - 8, window.innerWidth - w - 8)) + 'px'; m.style.top = top + 'px';
+  m.onclick = (e) => e.stopPropagation();
+  m.querySelectorAll('[data-gset]').forEach((b) => (b.onclick = () => { closeMenu(); act('set', b.dataset.gset, techId); }));
+  m.querySelectorAll('[data-grm]').forEach((b) => (b.onclick = () => { closeMenu(); act('rm', b.dataset.grm, techId); }));
+  m.querySelectorAll('[data-gst]').forEach((b) => (b.onclick = () => { closeMenu(); act('st', b.dataset.k, b.dataset.gst); }));
+  m.querySelectorAll('[data-gjump]').forEach((b) => (b.onclick = () => { closeMenu(); act('jump', b.dataset.gjump); }));
+  setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+  document.addEventListener('keydown', menuKey);
+  const y0 = window.scrollY; const onScroll = () => { if (!document.querySelector('.stmenu')) return window.removeEventListener('scroll', onScroll); if (Math.abs(window.scrollY - y0) > 60) { closeMenu(); window.removeEventListener('scroll', onScroll); } };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  const f = m.querySelector('.gm-act, button'); if (f) f.focus();
 }
 
 /* ---------------- Ruhezeit & Konflikte ---------------- */
@@ -800,6 +844,21 @@ function renderPlan() {
   document.querySelectorAll('[data-ovtab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.ovtab; renderMaster(); window.scrollTo(0, 0); }));
   if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
   document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; renderMaster(); }));
+  document.querySelectorAll('[data-gc]').forEach((c) => (c.onclick = (ev) => { ev.stopPropagation(); const [tid, dt] = c.dataset.gc.split('|');
+    gridMenu(c, tid, dt, (kind, x, y) => {
+      if (kind === 'jump') { S.view = 'liste'; S.filter = 'alle'; if (x < today) S.showPast = true; renderMaster(); const el = document.getElementById('d-' + x); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } return; }
+      const key = x; const prev = S.asg[key];
+      if (kind === 'rm') return optimistic(() => delete S.asg[key], () => store.deleteAssignments([key]), null, () => (S.asg[key] = prev));
+      if (kind === 'st') { if (!prev || prev.status === y) return; const a = Object.assign({}, prev, { status: y, updated_at: nowISO() }, y === 'angefragt' && !prev.requested_at ? { requested_at: nowISO() } : {}); return optimistic(() => (S.asg[key] = a), () => store.saveAssignments([a]), null, () => (S.asg[key] = prev)); }
+      if (kind === 'set') {
+        if (prev && prev.tech_id && prev.tech_id !== y && ['angefragt', 'zugesagt'].includes(prev.status) && !confirm(`${(techById(prev.tech_id) || {}).name || 'Jemand'} ist hier schon ${prev.status}. Trotzdem ersetzen?`)) return;
+        const a = { slot_key: key, tech_id: y, status: 'geplant', note: '', declined: (prev || {}).declined || [], requested_at: null, updated_at: nowISO() };
+        const hadOffer = offerOf(key); const prevOffers = S.offers;
+        optimistic(() => { S.asg[key] = a; if (hadOffer) S.offers = S.offers.filter((o) => o.slot_key !== key); },
+          async () => { await store.saveAssignments([a]); if (hadOffer) await store.deleteOffers([key]); toast(`${firstName(techById(y))} eingetragen (geplant) – Anfrage über „Anfragen“`); }, null, () => { if (prev) S.asg[key] = prev; else delete S.asg[key]; S.offers = prevOffers; });
+      }
+    });
+  }));
   document.querySelectorAll('[data-jump]').forEach((c) => (c.onclick = () => {
     S.view = 'liste'; S.filter = 'alle'; if (c.dataset.jump < today) S.showPast = true; renderMaster();
     const el = document.getElementById('d-' + c.dataset.jump); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
@@ -1703,7 +1762,7 @@ function renderKom() {
     m.querySelectorAll('[data-kw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.kw; S.komWeek = n ? addDays(S.komWeek || mondayOf(today), n) : mondayOf(today); paint(); }));
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
-  if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml(); wire(); wireKb(m); return; }
+  if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
   const from = S.komPast ? addDays(today, -60) : today;
   const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
   const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));
@@ -1805,7 +1864,7 @@ function renderTech() {
 
   const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${S.techTab !== 'kb' ? 'on' : ''}">📋 Meine Einsätze</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 KOM27-Infos <small>${(S.kb || []).length}</small></button></div>`;
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
-  if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wireVt(); wireKb(m); return; }
+  if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml() + legalFoot(); wireVt(); wireKb(m); return; }
   m.innerHTML = vt + `
     <section class="hello hi-line">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>

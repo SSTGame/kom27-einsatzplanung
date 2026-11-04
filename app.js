@@ -501,7 +501,7 @@ const clockHtml = () => { const d = new Date(); return `<b>${pad(d.getHours())}:
 setInterval(() => { const c = document.getElementById('clock'); if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; } }, 5000);
 function header(extra) {
   return `<header class="top"><div class="top-inner">
-    <a class="brand" href="./" data-home title="Zur Startseite">KOM27<span class="b-x"> Einsatzplanung</span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
+    <a class="brand" href="./" data-home title="Zur Startseite"><span class="b-t">KOM27<span class="b-x"> Einsatzplanung</span></span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
     <span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
@@ -1745,12 +1745,34 @@ function kbEdit(id) {
 
 /* ---------------- KOM27-Ansicht (Jens, Felix): alle Termine ansehen, nichts zusagen ---------------- */
 const komOf = (key) => (S.komAsg || {})[key] || null;
+// Alle Veranstaltungen eines Tages – auch die ohne PAM-Techniker
+function vaListOf(d) {
+  if (!d) return [];
+  const ids = [...new Set([...(d.vas || []), ...(d.slots || []).map((s) => s.va).filter(Boolean)])];
+  const parts = String(d.vazeit || '').split(' / ');
+  return ids.map((va, i) => {
+    const s = (d.slots || []).find((x) => x.va === va);
+    const zeit = (s && s.det && s.det.vazeit) || (parts.length === ids.length ? parts[i] : parts.length === 1 ? parts[0] : '') || '';
+    return { va, zeit, pam: !!s, key: s ? s.key : null };
+  });
+}
 function komTodayCard() {
   const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
   const daySl = (d) => allSlots().filter((s) => s.date === d && !s.day.cancelled);
   let which = 'heute'; let list = daySl(today);
   if (!list.length && now.getHours() >= 14) { list = daySl(tom); which = 'morgen'; }
-  if (!list.length) return '';
+  if (!list.length) {
+    const dv = allDays().find((d) => d.date === today && !d.cancelled && (d.vas || []).length) || (now.getHours() >= 14 ? allDays().find((d) => d.date === tom && !d.cancelled && (d.vas || []).length) : null);
+    if (!dv) return '';
+    const w = dv.date === today ? 'heute' : 'morgen';
+    return `<section class="tcard tc-${w}">
+    <div class="td-top"><span class="td-tag">${w === 'heute' ? 'HEUTE IM HAUS' : 'MORGEN IM HAUS'}</span><span class="td-state">${esc(longDate(dv.date))}</span></div>
+    <div class="td-where" style="margin-top:8px">📍 ${esc(roomsOf(dv.info) || 'KOM27')}</div>
+    <div class="tk-list">${vaListOf(dv).map((x) => `<div class="tk-row"><b>${esc(x.va)}</b><span>${x.zeit ? esc(niceTime(x.zeit)) : ''}</span></div>`).join('')}</div>
+    <p class="td-note">Kein PAM-Techniker angefordert.</p>
+    <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
+  </section>`;
+  }
   const d0 = list[0].day;
   const ppl = list.map((s) => { const k = komOf(s.key); return `<div class="tk-row"><b>${k ? esc(k.name.split(' ')[0]) : '❗ noch offen'}</b><span>${esc(niceTime(s.zeit))}${k && k.status === 'angefragt' ? ' · angefragt' : ''}</span></div>`; }).join('');
   return `<section class="tcard tc-${which} ${which === 'heute' ? '' : ''}">
@@ -1776,15 +1798,17 @@ function komWeekGrid(today, seg) {
   const head = dates.map((dt) => { const d = byDate[dt]; const n = sl(dt).length; const ok = sl(dt).filter((s) => komOf(s.key)).length; const wd = new Date(dt + 'T12:00:00').getDay();
     return `<th class="${dt === today ? 'is-today' : ''} ${wd === 0 || wd === 6 ? 'we' : ''}"><span>${WD[wd]}</span><b>${dt.slice(8, 10)}.${dt.slice(5, 7)}.</b>${n ? `<i class="kr-need ${ok < n ? 'open' : ''}">${ok}/${n}</i>` : d && d.cancelled ? '<i class="kr-need">abgesagt</i>' : ''}</th>`; }).join('');
   const row = (label, cls, cell) => `<tr class="${cls}"><th>${label}</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${cell(dt)}</td>`).join('')}</tr>`;
+  const hasVa = dates.some((dt) => byDate[dt] && !byDate[dt].cancelled && vaListOf(byDate[dt]).length);
   let rows = '';
+  if (hasVa) rows += row('Veranstaltung', 'kr-vas', (dt) => (byDate[dt] && !byDate[dt].cancelled ? vaListOf(byDate[dt]) : []).map((x) => `<${x.key ? `button data-open="${esc(x.key)}"` : 'span'} class="kr-va ${x.pam ? '' : 'nopam'}" title="${esc(x.va + (x.zeit ? ' · ' + x.zeit : '') + (x.pam ? '' : ' · ohne PAM-Techniker'))}"><b>${esc(x.va.replace(/^VA/, ''))}</b><small>${x.zeit ? esc(short(x.zeit)) : ''}${x.pam ? '' : ' · ohne PAM'}</small></${x.key ? 'button' : 'span'}>`).join(''));
   if (hasKom) rows += row('🏢 KOM27', 'kr-kom', (dt) => ((byDate[dt] || {}).kom || []).map((n) => `<span class="kr-kom-n">${esc(n.split(' ')[0])}</span>`).join(''));
   names.forEach((n) => (rows += row(esc(n), '', (dt) => sl(dt).filter((s) => komOf(s.key) && komOf(s.key).name === n).map((s) => chip(s, komOf(s.key).status)).join(''))));
   if (hasOpen) rows += row('❗ noch offen', 'kr-open', (dt) => sl(dt).filter((s) => !komOf(s.key)).map((s) => chip(s, 'leer')).join(''));
   const rooms = `<tr class="kr-rooms"><th>Räume</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${esc(roomsOf((byDate[dt] || {}).info || '') || '')}</td>`).join('')}</tr>`;
   return `<section class="kr">
     <div class="kr-nav"><button class="btn small" data-kw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><button class="btn small" data-kw="7" aria-label="Woche vor">›</button><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-kw="0">diese Woche</button>' : ''}<span class="kr-sp"></span>${seg || ''}</div>
-    ${names.length || hasOpen || hasKom ? `<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
-    <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine PAM-Techniker eingeplant.</div>'}
+    ${names.length || hasOpen || hasKom || hasVa ? `<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
+    <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span><i class="lg nopam"></i>ohne PAM-Techniker</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine Veranstaltungen eingetragen.</div>'}
   </section>`;
 }
 const pvBar = () => (S.preview ? `<div class="pv-bar"><span>👁 <b>Vorschau:</b> So sehen Jens & Felix die App</span><button class="btn small" id="pvEnd">Zurück zum Master</button></div>` : '');
@@ -1818,10 +1842,12 @@ function renderKom() {
     const mon = d.date.slice(0, 7); const head = mon !== lastMon ? `<h2 class="sec">${MON[+mon.slice(5, 7) - 1]} ${mon.slice(0, 4)}</h2>` : ''; lastMon = mon;
     const rows = d.slots.length ? d.slots.map((s) => { const k = komOf(s.key);
       return `<button class="kom-slot ${k ? 'st-' + k.status : 'st-leer'}" data-open="${esc(s.key)}"><span class="ks-who">${k ? esc(k.name) : 'noch nicht besetzt'}</span><span class="ks-st">${k ? (k.status === 'zugesagt' ? '✓ zugesagt' : '⏳ angefragt') : '❗ offen'}</span><span class="ks-time">${esc(niceTime(s.zeit))}${s.va ? ' · ' + esc(s.va) : ''}</span><span class="jc-more">Details ›</span></button>`; }).join('')
-      : `<p class="muted small">Kein PAM-Techniker angefordert${(d.vas || []).length ? ' · ' + esc([...new Set(d.vas)].join(', ')) : ''}</p>`;
+      : '';
+    const noPam = vaListOf(d).filter((x) => !x.pam);
+    const extra = noPam.length ? `<div class="kd-nopam"><span>${d.slots.length ? 'Außerdem ohne PAM-Techniker' : 'Ohne PAM-Techniker'}</span>${noPam.map((x) => `<b>${esc(x.va)}${x.zeit ? ' <small>' + esc(niceTime(x.zeit)) + '</small>' : ''}</b>`).join('')}</div>` : (d.slots.length ? '' : '<p class="muted small">Kein PAM-Techniker angefordert</p>');
     return `${head}<article class="job-card kom-day ${d.date === today ? 'is-today' : ''} ${d.date < today ? 'past' : ''} ${d.cancelled ? 'cancel' : ''}">
       <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
-      ${rows}</article>`;
+      ${rows}${extra}</article>`;
   };
   const tc = komTodayCard();
   const raster = (S.komView || 'raster') === 'raster';
@@ -1840,7 +1866,7 @@ function renderKom() {
     ${raster ? komWeekGrid(today, seg) : `<div class="kl-head">${seg}<label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
     </div><aside class="dash-side only-d">${tc}
-      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" data-open="${esc((d.slots[0] || {}).key || '')}">${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '–'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
+      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-komday="${d.date}"`}>${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '<span class="muted">ohne PAM-Techniker</span>'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
     </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
   wire();

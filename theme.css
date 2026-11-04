@@ -521,3 +521,19 @@ table.grid td.sum, table.grid th.sum { min-width: 46px; padding: 0 4px; }
 @media (max-width: 1099px) { .top-inner .live { font-size: 0; gap: 0; } }
 @media (max-width: 440px) { .brand .b-x { display: none; } .brand { font-size: 17px; } }
 @media (min-width: 360px) and (max-width: 1099px) { .clock small { display: inline; font-size: 11.5px; } }
+
+/* KOM27: alle Veranstaltungen, auch ohne PAM-Techniker */
+.kr-va { display: grid; width: 100%; margin: 0 0 4px; padding: 4px 3px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); font: inherit; text-align: center; cursor: default; line-height: 1.2; }
+button.kr-va { cursor: pointer; } button.kr-va:hover { border-color: var(--accent); }
+.kr-va b { font-family: var(--f-num); font-size: 12px; font-variant-numeric: tabular-nums; }
+.kr-va small { font-size: 10.5px; color: var(--muted); }
+.kr-va.nopam { background: transparent; border-style: dashed; color: var(--muted); }
+.kr-grid tr.kr-vas th { color: var(--muted); font-weight: 600; }
+.lg.nopam { background: transparent; border: 1.5px dashed var(--muted); }
+.kd-nopam { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 10px; padding: 9px 12px; border-radius: 12px; border: 1px dashed var(--line); font-size: 13px; color: var(--muted); }
+.kd-nopam span { width: 100%; font-size: 12px; font-weight: 600; }
+.kd-nopam b { color: var(--ink); font-weight: 650; } .kd-nopam b small { color: var(--muted); font-weight: 500; }
+.td-note { margin: 10px 0 4px; font-size: 14px; opacity: .85; }
+.kn-row[data-komday] { cursor: default; }
+.kr-grid thead tr > th:first-child, .kr-grid tbody th { width: 118px; white-space: normal; }
+.kr-va b, .kr-va small { white-space: nowrap; } @media (max-width: 700px) { .kr-va b { font-size: 11px; } .kr-va small { font-size: 10px; } }

@@ -404,7 +404,7 @@ function autoAssign() {
 
 /* ---------------- Render: Login ---------------- */
 // Datenschutz / Impressum / Konto löschen – unten auf jeder Seite
-const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a><span>·</span><a href="impressum.html">Impressum</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
+const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
 function privacyNote() {
   if (ls.get('kom27-info-ok') || document.querySelector('.privbar')) return;
   const d = document.createElement('div'); d.className = 'privbar'; d.setAttribute('role', 'note');

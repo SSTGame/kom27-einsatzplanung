@@ -7,13 +7,10 @@ window.KOM27_CONFIG = {
   senderName: 'Basti',      // Name unter den Anfrage-Mails
   sharepointUrl: 'https://kom27-my.sharepoint.com/:x:/r/personal/jens_neumann-cornelius_kom27_de/_layouts/15/doc2.aspx?sourcedoc=%7BDC377344-F0DA-4CEA-ADBD-EE8F1B8943A1%7D&file=Medientechnik_KOM27_VA-Kalender%202026.xlsx&action=default&mobileredirect=true',
   demoAdmin: 'master@demo.de',
-  // Angaben für Impressum & Datenschutz (Verantwortlicher). Leere Felder werden als „noch einzutragen“ angezeigt.
+  // Angaben für die Datenschutzerklärung (Verantwortlicher). Leere Felder werden als „noch einzutragen“ angezeigt.
   legal: {
     name: 'Sebastian Hellfritz', // Name der verantwortlichen Person bzw. Firma
     zusatz: 'Privater Betrieb für interne Zwecke (Einsatzplanung KOM27)\n', // optional, z. B. Firmenzusatz, Vertreten durch …, Handelsregister
-    strasse: '',
-    ort: '',         // PLZ und Ort
-    email: 'basti.hellfritz@gmail.com',
-    telefon: ''
+    email: 'basti.hellfritz@gmail.com'
   }
 };

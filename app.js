@@ -202,23 +202,34 @@ async function offerSlots(keys, anchorSel) {
 /* ---------------- Tage / Plätze von Hand entfernen ---------------- */
 // Entfernte Einträge stehen in plan.removed und werden bei jedem neuen Einlesen wieder herausgenommen.
 const rmCount = (p) => (p && p.removed ? p.removed.days.length + p.removed.slots.length : 0);
+// Fingerabdruck eines Platzes/Tages: ändert sich die Excel dort, gilt das Entfernen nicht mehr
+const slotSig = (s) => [s.zeit || '', s.va || '', s.excelName || ''].join('|');
+const daySig = (d) => d.slots.map(slotSig).sort().join('¦');
 function applyRemovals(plan, rem) {
-  const rd = new Set(((rem && rem.days) || []).map((x) => x.date)); const rs = new Set(((rem && rem.slots) || []).map((x) => x.key));
-  const out = { days: [], slots: [] };
-  plan.days = plan.days.filter((d) => { if (rd.has(d.date)) { out.days.push({ date: d.date, day: d }); return false; } return true; });
-  plan.days.forEach((d) => { d.slots = d.slots.filter((s) => { if (rs.has(s.key)) { out.slots.push({ key: s.key, date: d.date, slot: s }); return false; } return true; }); });
-  plan.removed = out; return plan;
+  const rd = {}; ((rem && rem.days) || []).forEach((x) => (rd[x.date] = x)); const rs = {}; ((rem && rem.slots) || []).forEach((x) => (rs[x.key] = x));
+  const out = { days: [], slots: [] }; const back = [];
+  plan.days = plan.days.filter((d) => {
+    const r = rd[d.date]; if (!r) return true;
+    if (r.sig && r.sig !== daySig(d)) { back.push(`${fmtDate(d.date)}: Tag war entfernt, hat sich in der Excel geändert – wieder eingeblendet`); return true; }
+    out.days.push({ date: d.date, day: d, sig: daySig(d) }); return false;
+  });
+  plan.days.forEach((d) => { d.slots = d.slots.filter((s) => {
+    const r = rs[s.key]; if (!r) return true;
+    if (r.sig && r.sig !== slotSig(s)) { back.push(`${fmtDate(d.date)}: entfernter Platz hat sich in der Excel geändert (jetzt ${s.excelName ? s.excelName + ', ' : ''}${s.zeit || 'Zeit offen'}) – wieder eingeblendet`); return true; }
+    out.slots.push({ key: s.key, date: d.date, slot: s, sig: slotSig(s) }); return false;
+  }); });
+  plan.removed = out; return back;
 }
 async function removeFromPlan(kind, id) {
   const p = JSON.parse(JSON.stringify(S.plan)); const rem = p.removed || { days: [], slots: [] };
   let keys = []; let what = '';
   if (kind === 'day') {
     const d = p.days.find((x) => x.date === id); if (!d) return;
-    keys = d.slots.map((s) => s.key); what = fmtDate(id); rem.days.push({ date: id, day: d }); p.days = p.days.filter((x) => x !== d);
+    keys = d.slots.map((s) => s.key); what = fmtDate(id); rem.days.push({ date: id, day: d, sig: daySig(d) }); p.days = p.days.filter((x) => x !== d);
   } else {
     const d = p.days.find((x) => x.slots.some((s) => s.key === id)); if (!d) return;
     const sl = d.slots.find((s) => s.key === id); keys = [id]; what = `${fmtDate(d.date)} ${sl.zeit || ''}`.trim();
-    rem.slots.push({ key: id, date: d.date, slot: sl }); d.slots = d.slots.filter((s) => s.key !== id);
+    rem.slots.push({ key: id, date: d.date, slot: sl, sig: slotSig(sl) }); d.slots = d.slots.filter((s) => s.key !== id);
   }
   const asg = keys.map((k) => S.asg[k]).filter(Boolean);
   const active = asg.filter((a) => a.tech_id && a.status !== 'abgesagt');
@@ -486,8 +497,9 @@ async function importFile(file, srcHash) {
     plan.fileName = file.name;
     try { plan.sourceHash = srcHash || await sha256hex(buf); } catch (e) {}
     plan.pv = window.KOM27Parser.VERSION || 0;
-    const old = S.plan; applyRemovals(plan, old && old.removed);
+    const old = S.plan; const back = applyRemovals(plan, old && old.removed);
     const ch = old && old.days ? diffPlans(old, plan) : null;
+    if (ch && back.length) ch.items.unshift(...back.map((text) => ({ type: 'new', text })));
     if (ch) plan.changes = { at: plan.importedAt, items: ch.items };
     await store.savePlan(plan);
     S.plan = plan;

@@ -455,6 +455,7 @@ function renderLogin(msg) {
   const deMsg = (m) => {
     m = String(m || '');
     if (/rate limit|over_email_send|429|security purposes/i.test(m)) return '⏳ Gerade wurden zu viele E-Mails verschickt. Bitte ca. 30–60 Minuten warten und dann nur EINMAL tippen. Wenn du schon eine Bestätigungs-Mail bekommen hast: die gilt weiterhin, einfach dort tippen.';
+    if (/error sending (recovery|confirmation|magic link|invite)? ?e?mail|smtp|535/i.test(m)) return '📭 Der E-Mail-Versand ist gerade gestört. Bitte kurz ' + CFG.senderName + ' Bescheid geben – der kümmert sich darum.';
     if (/invalid login credentials/i.test(m)) return 'E-Mail oder Passwort stimmt nicht. Noch kein Konto? Dann „Erstes Mal? Konto anlegen“.';
     if (/email not confirmed/i.test(m)) return 'Bitte zuerst den Link in der Bestätigungs-Mail antippen (auch im Spam-Ordner schauen).';
     if (/already registered|already been registered/i.test(m)) return 'Für diese E-Mail gibt es schon ein Konto – bitte einfach anmelden oder „Passwort vergessen“ antippen.';

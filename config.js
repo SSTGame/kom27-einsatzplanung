@@ -9,11 +9,11 @@ window.KOM27_CONFIG = {
   demoAdmin: 'master@demo.de',
   // Angaben für Impressum & Datenschutz (Verantwortlicher). Leere Felder werden als „noch einzutragen“ angezeigt.
   legal: {
-    name: '',        // Name der verantwortlichen Person bzw. Firma
-    zusatz: '',      // optional, z. B. Firmenzusatz, Vertreten durch …, Handelsregister
+    name: 'Sebastian Hellfritz', // Name der verantwortlichen Person bzw. Firma
+    zusatz: 'Privater Betrieb für interne Zwecke (Einsatzplanung KOM27)\n', // optional, z. B. Firmenzusatz, Vertreten durch …, Handelsregister
     strasse: '',
     ort: '',         // PLZ und Ort
-    email: '',
+    email: 'basti.hellfritz@gmail.com',
     telefon: ''
   }
 };

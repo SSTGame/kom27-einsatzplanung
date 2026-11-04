@@ -1665,6 +1665,36 @@ function printHours(month) {
 }
 
 /* ---------------- Projektleiter (Techniker mit eigenem Chef) ---------------- */
+// Projektleiter: Monatskalender mit den Einsatzzeiten des eigenen Teams
+function mgrCalHtml(team, today) {
+  const ids = new Set(team.map((x) => x.id));
+  const mon = S.mgrMonth || today.slice(0, 7);
+  const first = mon + '-01'; const start = mondayOf(first);
+  const dim = new Date(+mon.slice(0, 4), +mon.slice(5, 7), 0).getDate();
+  const last = mon + '-' + pad(dim); const end = addDays(mondayOf(last), 6);
+  const short = (z) => { const p = parseSpan(z); if (!p) return ''; const f = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + (m % 60 ? ':' + pad(m % 60) : ''); }; return f(p[0]) + '–' + f(p[1]); };
+  const byDay = {}; allSlots().forEach((s) => { const a = S.asg[s.key]; if (!a || !ids.has(a.tech_id) || a.status === 'abgesagt' || s.day.cancelled || s.date < start || s.date > end) return; (byDay[s.date] = byDay[s.date] || []).push({ s, a, t: techById(a.tech_id) }); });
+  const multi = team.length > 1; const cells = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) {
+    const wd = new Date(d + 'T12:00:00').getDay(); const out = d.slice(0, 7) !== mon;
+    const list = (byDay[d] || []).sort((x, y) => (x.s.zeit || '').localeCompare(y.s.zeit || ''));
+    const away = team.filter((t) => unavOf(t.id, d));
+    cells.push(`<div class="mc-d ${out ? 'out' : ''} ${d === today ? 'today' : ''} ${wd === 0 || wd === 6 ? 'we' : ''}"><span class="mc-n">${+d.slice(8, 10)}</span>
+      ${list.map((x) => `<button class="mc-e st-${x.a.status} ${x.a.tech_reply === 'absage_wunsch' ? 'wish' : ''}" data-open="${esc(x.s.key)}" title="${esc((x.t ? x.t.name : '') + ' · ' + (x.s.zeit || '') + ' · ' + (x.s.va || '') + ' · ' + ST_LABEL[x.a.status])}">${multi ? `<b>${esc(x.t ? x.t.name.split(' ')[0] : '?')}</b>` : ''}<span>${esc(short(x.s.zeit) || 'Zeit folgt')}</span></button>`).join('')}
+      ${away.map((t) => `<span class="mc-away" title="${esc(t.name + ' kann nicht' + ((unavOf(t.id, d) || {}).note ? ': ' + unavOf(t.id, d).note : ''))}">⛔ ${multi ? esc(t.name.split(' ')[0]) : 'kann nicht'}</span>`).join('')}</div>`);
+  }
+  const months = [...new Set(allDays().map((d) => d.date.slice(0, 7)))].filter((m) => m >= today.slice(0, 7)).slice(0, 12);
+  const sum = Object.values(byDay).flat().filter((x) => x.s.date.startsWith(mon));
+  const hours = sum.filter((x) => x.a.status === 'zugesagt').reduce((h, x) => h + (planHours(x.s) || 0), 0);
+  return `<section class="dpanel mcal" id="mgrCal">
+    <div class="mc-head"><h2 class="sec">📅 Einsatzkalender deines Teams</h2>
+      <div class="mc-nav"><button class="btn small" data-mcm="-1" aria-label="Vormonat">‹</button><b>${MON[+mon.slice(5, 7) - 1]} ${mon.slice(0, 4)}</b><button class="btn small" data-mcm="1" aria-label="Nächster Monat">›</button></div></div>
+    <p class="sec-help">${sum.length} ${sum.length === 1 ? 'Einsatz' : 'Einsätze'} im ${MON[+mon.slice(5, 7) - 1]} · ${String(Math.round(hours * 10) / 10).replace('.', ',')} Std. zugesagt. Antippen = Details.</p>
+    <div class="mc-grid"><div class="mc-wd">Mo</div><div class="mc-wd">Di</div><div class="mc-wd">Mi</div><div class="mc-wd">Do</div><div class="mc-wd">Fr</div><div class="mc-wd">Sa</div><div class="mc-wd">So</div>${cells.join('')}</div>
+    <div class="legend"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant · ⛔ kann nicht</div>
+  </section>`;
+}
+
 function renderManager(team, me) {
   document.body.classList.remove('is-master');
   S.mgrMode = true;
@@ -1705,6 +1735,7 @@ function renderManager(team, me) {
     ${me ? `<button class="big ghost" id="toMe">🙋 Zu meinen eigenen Einsätzen</button>` : ''}
     <div class="dash"><div class="dash-main">
     ${groups.length ? `<h2 class="sec" id="openSec">Bitte freigeben <span class="sec-n">${groups.reduce((n, g) => n + g.slots.length, 0)}</span></h2><p class="sec-help">Deine Techniker sehen die Anfragen auch und melden, ob sie könnten. Die verbindliche Zusage gibst du.</p>${groups.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Keine offenen Anfragen<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
+    ${mgrCalHtml(team, today)}
     </div><aside class="dash-side">
     <section class="dpanel abs" id="absSec">
       <h2 class="sec">⛔ Abwesenheiten im Team</h2>
@@ -1736,6 +1767,7 @@ function renderManager(team, me) {
   };
   window.__answer = (keys, status, note) => decide(keys, status, note);
   m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
+  m.querySelectorAll('[data-mcm]').forEach((b) => (b.onclick = () => { const cur = S.mgrMonth || today.slice(0, 7); const d = new Date(+cur.slice(0, 4), +cur.slice(5, 7) - 1 + +b.dataset.mcm, 1); S.mgrMonth = d.getFullYear() + '-' + pad(d.getMonth() + 1); paint('#mgrCal'); }));
   m.querySelectorAll('[data-mok]').forEach((b) => (b.onclick = () => decide(b.dataset.mok.split(','), 'zugesagt')));
   m.querySelectorAll('[data-mno]').forEach((b) => (b.onclick = () => { const r = prompt('Kurzer Grund (optional):', ''); if (r === null) return; decide(b.dataset.mno.split(','), 'abgesagt', r.trim()); }));
   if ($('#toMe')) $('#toMe').onclick = () => { S.view2 = 'me'; S.mgrMode = false; paint(); window.scrollTo(0, 0); };

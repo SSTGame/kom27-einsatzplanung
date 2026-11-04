@@ -697,3 +697,21 @@ body.scroll-lock { position: fixed; left: 0; right: 0; width: 100%; overflow: hi
 .bl-act { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .bl-empty { text-align: center; padding: 20px; }
 .un-pend { font-style: normal; font-size: 11.5px; font-weight: 650; color: var(--st-leer); } .un-ok { font-style: normal; font-size: 11.5px; color: var(--st-zugesagt); }
+
+/* Projektleiter: Einsatzkalender */
+.mcal { margin-top: 22px; }
+@media (max-width: 1099px) { .mcal { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 6px 12px 12px; } }
+.mc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mc-head h2.sec { margin: 12px 0 4px; }
+.mc-nav { display: flex; align-items: center; gap: 8px; } .mc-nav b { font-family: var(--f-num); font-size: 15px; min-width: 120px; text-align: center; }
+.mc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 8px 0 10px; }
+.mc-wd { font-size: 11.5px; font-weight: 650; color: var(--muted); text-align: center; padding: 2px 0; }
+.mc-d { min-height: 74px; border: 1px solid var(--line); border-radius: 10px; padding: 4px; display: flex; flex-direction: column; gap: 3px; background: var(--panel); min-width: 0; }
+.mc-d.we { background: var(--panel-2); } .mc-d.out { opacity: .4; } .mc-d.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mc-n { font-family: var(--f-num); font-size: 12px; font-weight: 700; color: var(--muted); } .mc-d.today .mc-n { color: var(--accent); }
+.mc-e { display: grid; text-align: left; border: 0; border-radius: 6px; padding: 3px 5px; color: #fff; cursor: pointer; font: inherit; line-height: 1.15; min-width: 0; }
+.mc-e b { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mc-e span { font-size: 11px; font-family: var(--f-num); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-e.st-zugesagt { background: var(--st-zugesagt); } .mc-e.st-angefragt { background: var(--st-angefragt); } .mc-e.st-geplant { background: var(--st-geplant); }
+.mc-e.wish { outline: 2px solid var(--st-abgesagt); outline-offset: 1px; }
+.mc-away { font-size: 10.5px; color: var(--st-abgesagt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 600px) { .mc-grid { gap: 2px; } .mc-d { min-height: 58px; padding: 3px 2px; border-radius: 7px; } .mc-e { padding: 2px 3px; } .mc-e b { font-size: 10px; } .mc-e span { font-size: 9.5px; } .mc-away { font-size: 9.5px; } }

@@ -31,11 +31,17 @@ const DemoStore = {
   async reset() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
   async signOut() { ls.del(this.U); },
   async isAdmin(email) { return email === CFG.demoAdmin; },
+  async isViewer(email) { return (this.d().viewers || []).some((v) => v.email === email); },
+  async getViewers() { return this.d().viewers || []; },
+  async saveViewer(v) { const d = this.d(); d.viewers = (d.viewers || []).filter((x) => x.email !== v.email).concat([v]); this.w(d); },
+  async deleteViewer(email) { const d = this.d(); d.viewers = (d.viewers || []).filter((x) => x.email !== email); this.w(d); },
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
     const coll = Object.values(d.asg || {}).filter((a) => me && a.tech_id && a.tech_id !== me.id && ['angefragt', 'zugesagt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '', status: a.status }));
     if (!d.kb) { d.kb = KB_DEMO(); this.w(d); }
-    return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [], coll, offers: d.offers || [], kb: d.kb,
+    const kom = Object.values(d.asg || {}).filter((a) => a.tech_id && ['zugesagt', 'angefragt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, status: a.status, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '?' }));
+    const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom,
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -89,6 +95,10 @@ function makeSupabaseStore() {
     async setPassword(pw) { chk(await sb.auth.updateUser({ password: pw })); },
     async signOut() { await sb.auth.signOut(); },
     async isAdmin() { return !!chk(await sb.rpc('is_admin')); },
+    async isViewer() { const r = await sb.rpc('is_viewer'); return !r.error && !!r.data; },
+    async getViewers() { const r = await sb.from('kom_viewers').select('*').order('name'); return r.error ? [] : r.data; },
+    async saveViewer(v) { chk(await sb.from('kom_viewers').upsert(v)); },
+    async deleteViewer(email) { chk(await sb.from('kom_viewers').delete().eq('email', email)); },
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
@@ -97,7 +107,8 @@ function makeSupabaseStore() {
       const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
       const co = await sb.rpc('my_colleagues'); // wer am selben Tag mit im Einsatz ist (fehlt die Funktion: leer)
       const kb = await sb.from('kb_entries').select('*'); // KOM27-Infos (fehlt die Tabelle: leer)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data };
+      const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [] };
     },
     async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
@@ -132,7 +143,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -142,7 +153,8 @@ function dataSig() {
   const a = Object.values(S.asg || {}).map((x) => [x.slot_key, x.tech_id, x.status, x.note || '', (x.declined || []).join(','), x.actual_start || '', x.actual_end || '', x.break_min ?? '', x.tech_reply || '']).sort().join('|');
   const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '')).sort().join('|');
   const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases, x.manager_email, x.company].join(',')).join('|');
-  const kbs = (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
+  const kms = Object.values(S.komAsg || {}).map((x) => x.slot_key + x.status + x.name).sort().join('|');
+  const kbs = kms + (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
   return [a, u, t, o, kbs, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
 }
@@ -150,7 +162,7 @@ function dataSig() {
 function paint(anchorSel) {
   const anc = anchorSel ? document.querySelector(anchorSel) : null;
   const top = anc ? anc.getBoundingClientRect().top : null; const y = window.scrollY;
-  S.admin ? renderMaster() : renderTech();
+  S.admin ? renderMaster() : S.viewer ? renderKom() : renderTech();
   const n = anchorSel ? document.querySelector(anchorSel) : null;
   if (n && top !== null) window.scrollBy(0, n.getBoundingClientRect().top - top); else window.scrollTo(0, y);
   S.sig = dataSig();
@@ -412,6 +424,7 @@ function renderLogin(msg) {
     ${DEMO ? `<div class="demo"><b>Demo-Modus</b> – noch keine Datenbank verbunden, alles bleibt in diesem Browser.<div class="row">
       <button class="btn small" data-demo="${esc(CFG.demoAdmin)}">Als Master testen</button>
       ${demoTechs.map((t) => `<button class="btn small" data-demo="${esc(t.email)}">Als ${esc(t.name)}</button>`).join('')}
+      ${(DEMO ? DemoStore.d().viewers || [] : []).map((v) => `<button class="btn small" data-demo="${esc(v.email)}">Als ${esc(v.name)} (KOM27)</button>`).join('')}
     </div></div>` : ''}
   </div>`;
   const err = (e) => ($('#err').textContent = e.message || e);
@@ -919,6 +932,12 @@ function renderTechs() {
       <tr class="tr-add"><td colspan="8"><button class="btn" id="addTech">+ Techniker hinzufügen</button></td></tr>
     </tbody></table></div>
   <p class="note"><b>Techniker mit eigenem Chef:</b> Bei „Freigabe durch“ die E-Mail des Projektleiters eintragen. Der Techniker sieht seine Anfragen und meldet „könnte / kann nicht“, die verbindliche Zusage gibt der Projektleiter – er meldet sich mit dieser E-Mail selbst an und sieht nur sein Team.</p>
+  <h2 class="sec">🏢 KOM27-Zugänge (nur ansehen)</h2>
+  <p class="note">Für die Medientechnik des KOM27 (z. B. Jens, Felix): sieht alle Termine, wer eingeteilt ist, Aufbaulisten und die KOM27-Infos – kann aber nichts zusagen oder einteilen. Anmelden wie die Techniker: mit dieser E-Mail auf „Konto anlegen“.</p>
+  <div class="card"><table class="list viewers"><thead><tr><th>Name</th><th>E-Mail (= Login)</th><th></th></tr></thead><tbody>
+    ${(S.viewers || []).map((v) => `<tr><td data-l="Name">${esc(v.name)}</td><td data-l="E-Mail">${esc(v.email)}</td><td class="td-del"><button class="btn small" data-vdel="${esc(v.email)}">Entfernen</button></td></tr>`).join('')}
+    <tr class="tr-add"><td><input type="text" id="vName" placeholder="Name, z. B. Jens"></td><td><input type="email" id="vMail" placeholder="E-Mail"></td><td><button class="btn" id="vAdd">+ Zugang anlegen</button></td></tr>
+  </tbody></table></div>
   <p class="note">Jeder Techniker meldet sich mit genau dieser E-Mail an. Beim ersten Mal klickt er auf „Konto anlegen“ und wählt sein Passwort selbst. Er sieht nur seine eigenen Einsätze.</p>`;
   const save = async (t) => { try { const r = await store.saveTech(t); const i = S.techs.findIndex((x) => x.id === r.id); if (i >= 0) S.techs[i] = r; else S.techs.push(r); } catch (e) { toast(e.message); } };
   m.querySelectorAll('tr[data-id] input').forEach((inp) => (inp.onchange = async () => {
@@ -934,6 +953,13 @@ function renderTechs() {
   }));
   const add = async (name) => { await save({ id: uid(), name, email: '', aliases: '', active: true, company: '', manager_email: null }); renderMaster(); };
   $('#addTech').onclick = () => add('Neuer Techniker');
+  $('#vAdd').onclick = async () => {
+    const name = $('#vName').value.trim(); const email = $('#vMail').value.trim().toLowerCase();
+    if (!name || !/^\S+@\S+\.\S+$/.test(email)) return toast('Bitte Name und gültige E-Mail eintragen');
+    if (S.techs.some((t) => (t.email || '').toLowerCase() === email)) return toast('Diese E-Mail gehört schon einem Techniker');
+    try { await store.saveViewer({ email, name }); S.viewers = await store.getViewers(); renderMaster(); toast(`${name} kann sich jetzt mit ${email} anmelden („Konto anlegen“)`); } catch (e) { toast(e.message); }
+  };
+  m.querySelectorAll('[data-vdel]').forEach((b) => (b.onclick = async () => { if (!confirm(`Zugang ${b.dataset.vdel} entfernen?`)) return; try { await store.deleteViewer(b.dataset.vdel); S.viewers = await store.getViewers(); renderMaster(); } catch (e) { toast(e.message); } }));
   m.querySelectorAll('[data-addname]').forEach((b) => (b.onclick = () => add(b.dataset.addname)));
 }
 
@@ -1057,6 +1083,7 @@ const doneGet = () => ls.get(DONE_K) || {};
 const isImportant = (l) => /probe|!|achtung|wichtig|signal|umbau|nach va|vor va|ggf|klärung/i.test(l);
 
 function colleaguesOf(s) {
+  if (S.viewer) return Object.values(S.komAsg || {}).filter((k) => k.slot_key.startsWith(s.date + '#') && k.slot_key !== s.key).map((k) => { const x = allSlots().find((y) => y.key === k.slot_key) || {}; return { name: k.name, status: k.status, zeit: x.zeit, same: x.va === s.va }; });
   const mine = S.asg[s.key]; const myId = mine && mine.tech_id;
   if (S.admin || S.mgrMode) return allSlots().filter((x) => x.date === s.date && x.key !== s.key && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].tech_id !== myId && ['angefragt', 'zugesagt'].includes(S.asg[x.key].status))
     .map((x) => ({ name: (techById(S.asg[x.key].tech_id) || {}).name || '?', status: S.asg[x.key].status, zeit: x.zeit, same: x.va === s.va }));
@@ -1068,7 +1095,7 @@ function colleaguesOf(s) {
 
 function timeline(s) {
   const det = s.det || {};
-  const rows = [['Dein Einsatz', s.zeit, 'tl-me'], ['Raum gebucht', det.buch, 'tl-b'], ['Veranstaltung', det.vazeit || s.day.vazeit, 'tl-va']].map(([l, z, c]) => [l, z, c, parseSpan(z)]).filter((r) => r[3]);
+  const rows = [[S.viewer ? 'Techniker' : 'Dein Einsatz', s.zeit, 'tl-me'], ['Raum gebucht', det.buch, 'tl-b'], ['Veranstaltung', det.vazeit || s.day.vazeit, 'tl-va']].map(([l, z, c]) => [l, z, c, parseSpan(z)]).filter((r) => r[3]);
   if (rows.length < 2) return '';
   const lo = Math.floor(Math.min(...rows.map((r) => r[3][0]))); const hi = Math.ceil(Math.max(...rows.map((r) => r[3][1]))); const span = Math.max(hi - lo, 1);
   const ticks = []; for (let h = lo; h <= hi; h += span > 10 ? 2 : 1) ticks.push(`<i style="left:${((h - lo) / span) * 100}%">${hm(h).slice(0, 2)}</i>`);
@@ -1113,10 +1140,12 @@ function openJob(key, list) {
   const grp = s.group ? allSlots().filter((x) => x.group === s.group && S.asg[x.key] && S.asg[x.key].tech_id === a.tech_id) : [s];
   const gi = grp.findIndex((x) => x.key === s.key);
   const coll = colleaguesOf(s);
-  const isOffer = !S.admin && !a.tech_id && !!offerOf(s.key);
+  const isOffer = !S.admin && !S.viewer && !a.tech_id && !!offerOf(s.key);
   const meIn = isOffer && (S.interest || []).some((i) => i.slot_key === s.key);
-  const status = isOffer ? 'offen' : a.status || 'geplant';
-  const stTxt = { angefragt: 'Wartet auf deine Antwort', zugesagt: 'Zugesagt ✓', abgesagt: 'Abgesagt', geplant: 'Geplant', offen: meIn ? 'Du hast dich gemeldet ✓' : 'Offener Einsatz' }[status];
+  const ko = S.viewer ? komOf(s.key) : null;
+  const status = S.viewer ? (ko ? ko.status : 'leer') : isOffer ? 'offen' : a.status || 'geplant';
+  const stTxt = S.viewer ? (ko ? `${ko.name} · ${ko.status === 'zugesagt' ? 'zugesagt ✓' : 'angefragt'}` : 'Noch nicht besetzt')
+    : { angefragt: 'Wartet auf deine Antwort', zugesagt: 'Zugesagt ✓', abgesagt: 'Abgesagt', geplant: 'Geplant', offen: meIn ? 'Du hast dich gemeldet ✓' : 'Offener Einsatz' }[status];
   const fact = (lbl, val, big) => val ? `<div class="fact ${big ? 'big' : ''}"><small>${lbl}</small><b>${esc(niceTime(val))}</b></div>` : '';
   const old = !s.det;
   const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Einsatz-Details">
@@ -1126,23 +1155,23 @@ function openJob(key, list) {
       <div class="sh-va">${esc(s.va || 'Einsatz')}${s.label && s.label.replace(/\s/g, '') !== (s.va || '') ? ' · ' + esc(s.label) : ''}</div>
       ${grp.length > 1 ? `<div class="sh-days"><span>Tag ${gi + 1} von ${grp.length}</span>${grp.map((x) => `<button class="chip ${x.key === s.key ? 'on' : ''}" data-jump="${esc(x.key)}">${shortDate(x.date)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="facts">${fact(isOffer ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
+    <div class="facts">${fact(isOffer || S.viewer ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
-    <h3>🛠 Das baust du auf</h3>
+    <h3>🛠 ${S.viewer ? 'Aufbau' : 'Das baust du auf'}</h3>
     ${equipHtml(s)}
     ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
     ${(det.extras || []).length ? `<h3>ℹ️ Weitere Infos</h3><dl class="extras">${det.extras.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>` : ''}
     ${a.actual_start ? `<div class="hint ok">⏱ Bestätigte Arbeitszeit: ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''} = ${fmtH(actualHours(a))}</div>` : ''}
-    ${isOffer ? '' : `<h3>👥 Mit dir im Haus</h3>`}
-    ${isOffer ? '' : coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">Nach aktuellem Stand bist du allein eingeteilt.</p>`}
+    ${isOffer ? '' : `<h3>👥 ${S.viewer ? 'Weitere Techniker an dem Tag' : 'Mit dir im Haus'}</h3>`}
+    ${isOffer ? '' : coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">${S.viewer ? 'Sonst ist niemand eingeteilt.' : 'Nach aktuellem Stand bist du allein eingeteilt.'}</p>`}
     <h3>🏢 Medientechnik KOM27 vor Ort</h3>
     ${!s.day.kom ? `<p class="muted small">Erscheint nach dem nächsten Einlesen der Excel.</p>` : s.day.kom.length ? `<div class="coll">${s.day.kom.map((n) => `<span class="cchip kom">${esc(n)}</span>`).join('')}</div>` : `<p class="muted">Laut Excel ist an dem Tag niemand von der KOM27-Medientechnik eingetragen.</p>`}
     <h3>📍 Ort</h3>
     <p>KOM27, Mauerstraße, Berlin · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('KOM27 Mauerstraße Berlin')}" target="_blank" rel="noopener">Route öffnen</a></p>
     <div class="sh-actions">
-      ${status === 'angefragt' && !S.admin && !(hasMgr(myTech()) && !S.mgrMode && a.tech_reply) ? (S.mgrMode ? `<button class="big yes" data-ans="zugesagt">✓ Zusagen für ${esc(((techById(a.tech_id) || {}).name || '').split(' ')[0])}</button><button class="big no" data-ans="abgesagt">✗ Absagen</button>` : `<button class="big yes" data-ans="zugesagt">${hasMgr(myTech()) ? '👍 Ich könnte' : '✓ Ich kann'}</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>`) : ''}
-      ${status === 'zugesagt' ? `<button class="big ghost" data-ics>📅 In meinen Kalender</button>` : ''}
+      ${status === 'angefragt' && !S.admin && !S.viewer && !(hasMgr(myTech()) && !S.mgrMode && a.tech_reply) ? (S.mgrMode ? `<button class="big yes" data-ans="zugesagt">✓ Zusagen für ${esc(((techById(a.tech_id) || {}).name || '').split(' ')[0])}</button><button class="big no" data-ans="abgesagt">✗ Absagen</button>` : `<button class="big yes" data-ans="zugesagt">${hasMgr(myTech()) ? '👍 Ich könnte' : '✓ Ich kann'}</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>`) : ''}
+      ${status === 'zugesagt' && !S.viewer ? `<button class="big ghost" data-ics>📅 In meinen Kalender</button>` : ''}
       ${isOffer ? (meIn ? `<button class="big ghost" data-oint="off">Meldung zurückziehen</button>` : `<button class="big yes" data-oint="on">🙋 Ich hätte Zeit</button>`) : ''}
     </div>
   </div></div>`;
@@ -1475,6 +1504,71 @@ function kbEdit(id) {
   };
 }
 
+/* ---------------- KOM27-Ansicht (Jens, Felix): alle Termine ansehen, nichts zusagen ---------------- */
+const komOf = (key) => (S.komAsg || {})[key] || null;
+function komTodayCard() {
+  const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
+  const daySl = (d) => allSlots().filter((s) => s.date === d && !s.day.cancelled);
+  let which = 'heute'; let list = daySl(today);
+  if (!list.length && now.getHours() >= 14) { list = daySl(tom); which = 'morgen'; }
+  if (!list.length) return '';
+  const d0 = list[0].day;
+  const ppl = list.map((s) => { const k = komOf(s.key); return `<div class="tk-row"><b>${k ? esc(k.name.split(' ')[0]) : '❗ noch offen'}</b><span>${esc(niceTime(s.zeit))}${k && k.status === 'angefragt' ? ' · angefragt' : ''}</span></div>`; }).join('');
+  return `<section class="tcard tc-${which} ${which === 'heute' ? '' : ''}">
+    <div class="td-top"><span class="td-tag">${which === 'heute' ? 'HEUTE IM HAUS' : 'MORGEN IM HAUS'}</span><span class="td-state">${esc(longDate(d0.date))}</span></div>
+    <div class="td-where" style="margin-top:8px">📍 ${esc(roomsOf(d0.info) || 'KOM27')}${d0.vazeit ? ' · VA ' + esc(d0.vazeit) : ''}</div>
+    <div class="tk-list">${ppl}</div>
+    <button class="big td-go" data-open="${esc(list[0].key)}">🛠 Aufbau & Details ansehen</button>
+    <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
+  </section>`;
+}
+function renderKom() {
+  document.body.classList.remove('is-master');
+  const today = todayISO();
+  $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
+  $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
+  const m = $('#main');
+  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${S.techTab !== 'kb' ? 'on' : ''}">📅 Alle Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 KOM27-Infos <small>${(S.kb || []).length}</small></button></div>`;
+  const wire = () => {
+    m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
+    m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
+    m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
+    const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
+  };
+  if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wire(); wireKb(m); return; }
+  const from = S.komPast ? addDays(today, -60) : today;
+  const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
+  const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));
+  const wSl = week.flatMap((d) => d.slots);
+  const wOk = wSl.filter((s) => komOf(s.key) && komOf(s.key).status === 'zugesagt').length;
+  const wOpen = wSl.filter((s) => !komOf(s.key)).length;
+  const me = (S.user.email || '').split('@')[0]; const v = (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
+  let lastMon = '';
+  const dayCard = (d) => {
+    const mon = d.date.slice(0, 7); const head = mon !== lastMon ? `<h2 class="sec">${MON[+mon.slice(5, 7) - 1]} ${mon.slice(0, 4)}</h2>` : ''; lastMon = mon;
+    const rows = d.slots.length ? d.slots.map((s) => { const k = komOf(s.key);
+      return `<button class="kom-slot ${k ? 'st-' + k.status : 'st-leer'}" data-open="${esc(s.key)}"><span class="ks-who">${k ? esc(k.name) : 'noch nicht besetzt'}</span><span class="ks-st">${k ? (k.status === 'zugesagt' ? '✓ zugesagt' : '⏳ angefragt') : '❗ offen'}</span><span class="ks-time">${esc(niceTime(s.zeit))}${s.va ? ' · ' + esc(s.va) : ''}</span><span class="jc-more">Details ›</span></button>`; }).join('')
+      : `<p class="muted small">Kein PAM-Techniker angefordert${(d.vas || []).length ? ' · ' + esc([...new Set(d.vas)].join(', ')) : ''}</p>`;
+    return `${head}<article class="job-card kom-day ${d.date === today ? 'is-today' : ''} ${d.date < today ? 'past' : ''} ${d.cancelled ? 'cancel' : ''}">
+      <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
+      ${rows}</article>`;
+  };
+  m.innerHTML = vt + komTodayCard() + `
+    <section class="hello">
+      <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
+      <p>Medientechnik KOM27 · hier siehst du alle Einsätze der PAM-Techniker</p>
+      <div class="sumrow">
+        <div class="sumbox"><b>${wSl.length}</b><span>Einsätze in den nächsten 7 Tagen</span></div>
+        <div class="sumbox ok"><b>${wOk}</b><span>davon zugesagt</span></div>
+        <div class="sumbox ${wOpen ? 'warn' : ''}"><b>${wOpen}</b><span>noch offen</span></div>
+      </div>
+    </section>
+    <label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label>
+    ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}
+    <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>`;
+  wire();
+}
+
 function renderTech() {
   document.body.classList.remove('is-master');
   const t = myTech();
@@ -1731,6 +1825,7 @@ async function boot() {
     if (!S.user) S.user = await store.session();
     if (!S.user || S.recovery) return renderLogin();
     S.admin = await store.isAdmin(S.user.email);
+    S.viewer = !S.admin && store.isViewer ? await store.isViewer(S.user.email) : false;
     await reload();
     paint();
     startLive();

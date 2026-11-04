@@ -336,3 +336,35 @@ drop policy if exists kb_delete on public.kb_entries;
 create policy kb_delete on public.kb_entries for delete to authenticated using (is_admin() or lower(created_by) = lower(auth.jwt() ->> 'email'));
 revoke execute on function public.kb_stamp() from public, anon, authenticated;
 do $$ begin alter publication supabase_realtime add table public.kb_entries; exception when others then null; end $$;
+
+-- ===== v9: KOM27-Zugänge (Jens, Felix) – alle Termine ansehen, nichts zusagen =====
+create table if not exists public.kom_viewers (
+  email text primary key check (email = lower(email)),
+  name text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.kom_viewers enable row level security;
+drop policy if exists kv_admin on public.kom_viewers;
+create policy kv_admin on public.kom_viewers for all to authenticated using (is_admin()) with check (is_admin());
+drop policy if exists kv_self on public.kom_viewers;
+create policy kv_self on public.kom_viewers for select to authenticated using (email = lower(auth.jwt() ->> 'email'));
+create or replace function public.is_viewer() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from kom_viewers where email = lower(coalesce(auth.jwt() ->> 'email', '')));
+$$;
+revoke execute on function public.is_viewer() from public, anon;
+grant execute on function public.is_viewer() to authenticated;
+-- Nur Name + Status je Platz – keine E-Mails, Kalender-Schlüssel oder Abwesenheiten der Techniker
+create or replace function public.kom_overview() returns table (slot_key text, status text, name text)
+language sql stable security definer set search_path = public as $$
+  select a.slot_key, a.status, t.name from assignments a join technicians t on t.id = a.tech_id
+  where (is_viewer() or is_admin()) and a.status in ('zugesagt', 'angefragt');
+$$;
+revoke execute on function public.kom_overview() from public, anon;
+grant execute on function public.kom_overview() to authenticated;
+drop policy if exists kb_read on public.kb_entries;
+create policy kb_read on public.kb_entries for select to authenticated using (is_admin() or my_tech_id() is not null or is_viewer());
+drop policy if exists kb_insert on public.kb_entries;
+create policy kb_insert on public.kb_entries for insert to authenticated with check (is_admin() or my_tech_id() is not null or is_viewer());
+drop policy if exists kb_update on public.kb_entries;
+create policy kb_update on public.kb_entries for update to authenticated using (is_admin() or my_tech_id() is not null or is_viewer()) with check (is_admin() or my_tech_id() is not null or is_viewer());

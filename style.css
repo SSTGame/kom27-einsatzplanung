@@ -592,3 +592,18 @@ ul.check li.done .sub{text-decoration:none}
 .kb-login small{width:62px;flex:none}
 .kb-login code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kb-login .btn.ic{flex:none;padding:6px 10px;font-size:15px}
+
+/* v9 KOM27-Ansicht */
+.tk-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.tk-row{display:flex;justify-content:space-between;gap:10px;background:rgba(255,255,255,.14);border-radius:10px;padding:8px 10px;font-size:15px}
+.kom-day .kd-head{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+.kom-day .kd-head small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.kom-day.is-today{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
+.kom-day.past{opacity:.65}
+.kom-slot{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);border-left:4px solid var(--st-leer);border-radius:10px;padding:9px 12px;margin-top:6px;cursor:pointer;color:var(--ink);font:inherit}
+.kom-slot.st-zugesagt{border-left-color:var(--st-zugesagt)}.kom-slot.st-angefragt{border-left-color:var(--st-angefragt)}
+.ks-who{font-weight:700;font-size:16px}.ks-st{font-size:13px;color:var(--muted);text-align:right}
+.st-zugesagt .ks-st{color:var(--st-zugesagt);font-weight:600}.st-leer .ks-st{color:var(--st-leer);font-weight:600}.st-leer .ks-who{color:var(--muted);font-weight:600}
+.ks-time{font-size:13px;color:var(--muted)}.kom-slot .jc-more{text-align:right;font-size:13px}
+.kom-slot{position:relative}
+.kom-slot .jc-more{position:static;grid-column:2;align-self:end;color:var(--accent);font-weight:600}

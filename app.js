@@ -462,6 +462,14 @@ function renderLogin(msg) {
     return m;
   };
   const err = (e) => ($('#err').textContent = deMsg(e.message || e));
+  // Vor jeder Mail: Adresse prüfen (Tippfehler kosten sonst eine der wenigen Mails pro Stunde)
+  const TYPO = [[/@gmial\.|@gmal\.|@gamil\.|@gmai\.|@gnail\./i, '@gmail.'], [/@gmail\.(de|co|con|cm)$/i, '@gmail.com'], [/@(web|gmx|t-online)\.(dee|d|ed)$/i, '@$1.de'], [/@kom27\.(com|d|dee)$/i, '@kom27.de'], [/@kom-27\./i, '@kom27.'], [/\.con$/i, '.com']];
+  const mailCheck = (e) => {
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e)) { err('Bitte eine gültige E-Mail-Adresse eintragen.'); return false; }
+    const fix = TYPO.reduce((x, [re, to]) => x.replace(re, to), e);
+    if (fix !== e && confirm(`Meinst du vielleicht ${fix}?\n\n„OK“ = ${fix} verwenden\n„Abbrechen“ = so lassen wie eingegeben`)) { $('#em').value = fix; e = fix; ls.set('kom27-last-email', fix); }
+    return confirm(`Die E-Mail geht an:\n\n${e}\n\nIst die Adresse richtig geschrieben? Pro Stunde können nur sehr wenige E-Mails verschickt werden – ein Tippfehler sperrt den Versand für alle.`) ? e : false;
+  };
   // Schutz gegen Mehrfach-Tippen: während einer Anfrage alles sperren, nach einer Mail 2 Minuten warten
   const MAIL_WAIT = 120000;
   const mailLeft = () => Math.max(0, (+ls.get('kom27-mail-at') || 0) + MAIL_WAIT - Date.now());
@@ -480,9 +488,9 @@ function renderLogin(msg) {
   lockMail();
   $('#pw').onkeydown = (ev) => { if (ev.key === 'Enter') $('#in').click(); };
   $('#up').onclick = busy(async () => {
-    try { const [e, p] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); if (p.length < 8) throw new Error('Passwort bitte mit mindestens 8 Zeichen.'); const u = await store.signUp(e, p); ls.set('kom27-mail-at', String(Date.now())); if (u) { S.user = u; boot(); } else err('Fast fertig! Wir haben dir eine E-Mail mit dem Betreff „KOM27 Einsatzplanung – E-Mail bestätigen“ geschickt. Tippe dort auf „E-Mail bestätigen“ – danach bist du drin. (Nichts gekommen? Bitte im Spam-Ordner schauen.)'); } catch (e) { err(e); }
+    try { const [e, p] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); if (p.length < 8) throw new Error('Passwort bitte mit mindestens 8 Zeichen.'); const e2 = mailCheck(e); if (!e2) return; const u = await store.signUp(e2, p); ls.set('kom27-mail-at', String(Date.now())); if (u) { S.user = u; boot(); } else err('Fast fertig! Wir haben dir eine E-Mail mit dem Betreff „KOM27 Einsatzplanung – E-Mail bestätigen“ geschickt. Tippe dort auf „E-Mail bestätigen“ – danach bist du drin. (Nichts gekommen? Bitte im Spam-Ordner schauen.)'); } catch (e) { err(e); }
   }, true);
-  $('#forgot').onclick = busy(async () => { try { const [e] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); await store.reset(e); ls.set('kom27-mail-at', String(Date.now())); err('Link zum Zurücksetzen wurde per E-Mail geschickt. Bitte auch im Spam-Ordner schauen.'); } catch (e) { err(e); } }, true);
+  $('#forgot').onclick = busy(async () => { try { const [e] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); const e2 = mailCheck(e); if (!e2) return; await store.reset(e2); ls.set('kom27-mail-at', String(Date.now())); err('Link zum Zurücksetzen wurde per E-Mail geschickt. Bitte auch im Spam-Ordner schauen.'); } catch (e) { err(e); } }, true);
   document.querySelectorAll('[data-demo]').forEach((b) => (b.onclick = async () => { S.user = await store.signIn(b.dataset.demo); boot(); }));
 }
 

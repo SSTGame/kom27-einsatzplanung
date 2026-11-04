@@ -498,6 +498,18 @@ function renderLogin(msg) {
 }
 
 /* ---------------- Render: Master ---------------- */
+// Hintergrund hinter Detailfenstern wirklich festhalten (iPhone scrollt sonst mit)
+(() => {
+  let y = 0, locked = false;
+  const sync = () => {
+    const want = document.body.classList.contains('noscroll');
+    if (want && !locked) { y = window.scrollY; locked = true; document.body.style.top = -y + 'px'; document.body.classList.add('scroll-lock'); }
+    else if (!want && locked) { locked = false; document.body.classList.remove('scroll-lock'); document.body.style.top = ''; window.scrollTo(0, y); }
+  };
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  // Detailfenster ohne Schließen entfernt (z. B. Logo-Klick) → Sperre trotzdem lösen
+  new MutationObserver(() => { if (locked && !document.getElementById('sheet')) document.body.classList.remove('noscroll'); }).observe(document.body, { childList: true });
+})();
 // Live-Uhr oben im Kopf
 const clockHtml = () => { const d = new Date(); return `<b>${pad(d.getHours())}:${pad(d.getMinutes())}</b><small>${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.</small>`; };
 setInterval(() => { const c = document.getElementById('clock'); if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; } }, 5000);
@@ -1818,10 +1830,23 @@ function komWeekGrid(today, seg) {
   if (hasKom) rows += row('🏢 KOM27', 'kr-kom', (dt) => ((byDate[dt] || {}).kom || []).map((n) => `<span class="kr-kom-n">${esc(n.split(' ')[0])}</span>`).join(''));
   names.forEach((n) => (rows += row(esc(n), '', (dt) => sl(dt).filter((s) => komOf(s.key) && komOf(s.key).name === n).map((s) => chip(s, komOf(s.key).status)).join(''))));
   if (hasOpen) rows += row('❗ noch offen', 'kr-open', (dt) => sl(dt).filter((s) => !komOf(s.key)).map((s) => chip(s, 'leer')).join(''));
+  // Handy: dieselbe Woche als senkrechte Tagesliste
+  const agenda = `<div class="kw-days">${dates.map((dt) => {
+    const d = byDate[dt]; const wd = new Date(dt + 'T12:00:00').getDay(); const sls = sl(dt); const vl = d && !d.cancelled ? vaListOf(d) : [];
+    const n = sls.length; const ok = sls.filter((s) => komOf(s.key)).length;
+    const ppl = sls.map((s) => { const k = komOf(s.key); return `<button class="kw-p st-${k ? k.status : 'leer'}" data-open="${esc(s.key)}"><b>${k ? esc(k.name.split(' ')[0]) : 'offen'}</b><small>${esc(short(s.zeit))}</small></button>`; }).join('');
+    const vas = vl.filter((x) => !x.pam).map((x) => `<button class="kw-va" data-va="${dt}|${esc(x.va)}"><b>${esc(x.va.replace(/^VA/, ''))}</b><small>${x.zeit ? esc(short(x.zeit)) : ''} · ohne PAM</small></button>`).join('');
+    const empty = !ppl && !vas;
+    return `<div class="kw-day ${dt === today ? 'is-today' : ''} ${empty ? 'empty' : ''} ${wd === 0 || wd === 6 ? 'we' : ''}">
+      <div class="kw-d"><span>${WD[wd]}</span><b>${dt.slice(8, 10)}</b></div>
+      <div class="kw-b">${empty ? `<small class="muted">${d && d.cancelled ? 'abgesagt' : 'nichts geplant'}</small>` : `${ppl}${vas}`}
+        ${!empty && d && roomsOf(d.info) ? `<small class="kw-r">📍 ${esc(roomsOf(d.info))}${(d.kom || []).length ? ' · 🏢 ' + esc(d.kom.join(', ')) : ''}</small>` : ''}</div>
+      ${n ? `<i class="kr-need ${ok < n ? 'open' : ''}">${ok}/${n}</i>` : ''}
+    </div>`; }).join('')}</div>`;
   const rooms = `<tr class="kr-rooms"><th>Räume</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${esc(roomsOf((byDate[dt] || {}).info || '') || '')}</td>`).join('')}</tr>`;
   return `<section class="kr">
     <div class="kr-nav"><button class="btn small" data-kw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><button class="btn small" data-kw="7" aria-label="Woche vor">›</button><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-kw="0">diese Woche</button>' : ''}<span class="kr-sp"></span>${seg || ''}</div>
-    ${names.length || hasOpen || hasKom || hasVa ? `<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
+    ${names.length || hasOpen || hasKom || hasVa ? `${agenda}<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
     <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span><i class="lg nopam"></i>ohne PAM-Techniker</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine Veranstaltungen eingetragen.</div>'}
   </section>`;
 }
@@ -1870,7 +1895,8 @@ function renderKom() {
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
     <section class="hello hi-kom">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
-      <p>Medientechnik KOM27 · hier siehst du alle Einsätze der PAM-Techniker</p>
+      <p class="hk-long">Medientechnik KOM27 · hier siehst du alle Einsätze der PAM-Techniker</p>
+      <p class="hk-short">Nächste 7 Tage: <b>${wSl.length}</b> Einsätze · <b class="t-zugesagt">${wOk}</b> zugesagt${wOpen ? ` · <b class="t-leer">${wOpen}</b> offen` : ''}</p>
       <div class="sumrow">
         <div class="sumbox"><b>${wSl.length}</b><span>Einsätze in den nächsten 7 Tagen</span></div>
         <div class="sumbox ok"><b>${wOk}</b><span>davon zugesagt</span></div>

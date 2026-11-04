@@ -1511,6 +1511,16 @@ function equipModel(s) {
   (ed.added || []).forEach((x) => { let g = groups.find((y) => y.room === (x.room || '')); if (!g) { g = { room: x.room || '', items: [] }; groups.push(g); } g.items.push({ t: x.t, sub: null, id: '+' + x.id, src: 'add', by: x.by }); });
   return { groups, rm, ed, fromExcel: !!rooms };
 }
+// Alle Räume, die in der Excel vorkommen (Spaltenköpfe), in sinnvoller Reihenfolge
+function allRoomNames() {
+  const set = new Set();
+  allDays().forEach((d) => { (d.slots || []).forEach((x) => ((x.det && x.det.rooms) || []).forEach(([r]) => r && set.add(r))); String(d.info || '').split(' · ').forEach((x) => { const i = x.indexOf(': '); if (i > 0) set.add(x.slice(0, i)); });
+    Object.values(d.vaDet || {}).forEach((v) => (v.rooms || []).forEach(([r]) => r && set.add(r))); });
+  const rank = (r) => (/^saal/i.test(r) ? 0 : /^seminar/i.test(r) ? 1 : /foyer/i.test(r) ? 2 : 3);
+  const isRoom = (r) => /^(saal|seminar|foyer|raum|konferenz|studio|lounge|halle|besprech|terrasse|bühne|atrium|plenar|sitzung)/i.test(r.trim());
+  const list = [...set].filter(isRoom);
+  return (list.length ? list : [...set]).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'de', { numeric: true }));
+}
 const equipList = (s) => { const m = equipModel(s); return m.groups.flatMap((g) => g.items.filter((it) => !m.rm.has(it.id))); };
 const canEditEquip = (s) => !S.mgrMode && !S.preview && (S.admin || S.viewer || (!s.nopam && (myTech() && S.asg[s.key] && S.asg[s.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[s.key].status))));
 function equipHtml(s) {
@@ -1530,7 +1540,9 @@ function equipHtml(s) {
     return `<div class="room">${head}<ul class="check">${vis.map((it) => { const on = done.includes(it.id);
       return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${esc(it.id)}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</span></label></li>`; }).join('')}</ul></div>`;
   }).join('');
-  const extraRoom = edit ? `<div class="room eq-edit eq-newroom"><div class="room-h">＋ Neuer Bereich</div><div class="eq-new"><input type="text" maxlength="40" placeholder="Raum, z. B. Foyer" data-eroom><input type="text" maxlength="160" placeholder="Punkt" data-enew="__new"><button class="btn small" data-eadd="__new">＋</button></div></div>` : '';
+  const have = new Set(m.groups.map((g) => g.room));
+  const rlist = allRoomNames().filter((r) => !have.has(r));
+  const extraRoom = edit ? `<div class="room eq-edit eq-newroom"><div class="room-h">＋ Weiterer Raum</div><div class="eq-new eq-new2"><select data-eroom aria-label="Raum wählen">${rlist.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}<option value="Allgemein">Allgemein / ohne Raum</option></select><input type="text" maxlength="160" placeholder="Punkt" data-enew="__new"><button class="btn small" data-eadd="__new">＋</button></div></div>` : '';
   const changed = (m.ed.removed || []).length || (m.ed.added || []).length;
   const info = changed && !edit ? `<p class="muted small eq-info">✏️ Von Hand angepasst${m.ed.updated_by ? ' · zuletzt ' + esc(m.ed.updated_by.split('@')[0]) : ''}${(m.ed.removed || []).length ? ' · ' + m.ed.removed.length + ' entfernt' : ''}${(m.ed.added || []).length ? ' · ' + m.ed.added.length + ' ergänzt' : ''}</p>` : '';
   return html + extraRoom + info;
@@ -1605,7 +1617,7 @@ function openJob(key, list) {
   box.querySelectorAll('[data-eun]').forEach((b) => (b.onclick = () => { const id = b.dataset.eun; saveEd((nx) => (nx.removed = nx.removed.filter((x) => x !== id))); }));
   box.querySelectorAll('[data-eadd]').forEach((b) => {
     const room0 = b.dataset.eadd; const inp = b.parentElement.querySelector('[data-enew]');
-    const add = () => { const t = (inp.value || '').trim(); if (!t) return inp.focus(); const room = room0 === '__new' ? ((b.parentElement.querySelector('[data-eroom]') || {}).value || '').trim() : room0;
+    const add = () => { const t = (inp.value || '').trim(); if (!t) return inp.focus(); let room = room0 === '__new' ? ((b.parentElement.querySelector('[data-eroom]') || {}).value || '').trim() : room0; if (room === 'Allgemein') room = '';
       saveEd((nx) => nx.added.push({ id: uid().replace(/-/g, '').slice(0, 10), room, t, by: (myTech() || {}).name || (S.admin ? CFG.senderName : '') })); };
     b.onclick = add; inp.onkeydown = (e) => { if (e.key === 'Enter') add(); };
   });

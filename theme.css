@@ -465,3 +465,38 @@ table.grid td.sum, table.grid th.sum { min-width: 46px; padding: 0 4px; }
 .gm-un { padding: 4px 8px; font-size: 13px; } .gm-un.on { color: var(--st-abgesagt); }
 .gm-un input { width: 100%; box-sizing: border-box; font-size: 14px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--ink); }
 .stmenu { z-index: 100; }
+
+/* ===== Projektleiter: Abwesenheiten im Team ===== */
+.abs .sec-help { margin-top: -4px; }
+.ab-list { display: grid; gap: 4px; margin: 6px 0 4px; }
+.ab-t { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.ab-t:last-child { border-bottom: 0; }
+.ab-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ab-h span { font-size: 12.5px; color: var(--muted); }
+.ab-r { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; padding: 8px 10px; border-radius: 12px;
+  background: color-mix(in srgb, var(--st-abgesagt) 7%, var(--panel)); border-left: 3px solid var(--st-abgesagt); }
+.ab-r > div { display: grid; gap: 1px; min-width: 0; }
+.ab-r b { font-family: var(--f-num); font-size: 14px; font-variant-numeric: tabular-nums; }
+.ab-r small { font-size: 12.5px; color: var(--muted); }
+.ab-r .ab-warn { color: var(--st-leer); font-weight: 600; }
+.ab-del { flex: none; width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; font-size: 13px; }
+.ab-del:hover { color: var(--st-abgesagt); border-color: var(--st-abgesagt); }
+.ab-add { margin-top: 10px; border: 1px dashed var(--line); border-radius: 14px; padding: 0 12px; }
+.ab-add[open] { border-style: solid; padding-bottom: 12px; }
+.ab-add summary { list-style: none; cursor: pointer; padding: 11px 0; font-weight: 650; color: var(--accent); font-size: 14.5px; }
+.ab-add summary::-webkit-details-marker { display: none; }
+.ab-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ab-form .f2 { grid-column: 1 / -1; }
+.ab-form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; min-width: 0; }
+.ab-form input, .ab-form select { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 16px; font-weight: 500; color: var(--ink); padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); -webkit-appearance: none; appearance: none; min-height: 44px; }
+.ab-form select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 30px; }
+.ab-form input:focus, .ab-form select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); border-color: var(--accent); }
+.ab-form .big { margin: 2px 0 0; }
+.hi-mgr .sumrow a.sumbox { color: inherit; text-decoration: none; }
+@media (min-width: 1100px) {
+  .is-dash .hello.hi-mgr { display: grid; grid-template-columns: auto 1fr; align-items: end; column-gap: 24px; padding: 0 0 18px; }
+  .is-dash .hello.hi-mgr h1, .is-dash .hello.hi-mgr p { grid-column: 1; } .is-dash .hello.hi-mgr p { display: block; }
+  .is-dash .hello.hi-mgr #pushBox { grid-column: 1 / -1; }
+  .is-dash .hello.hi-mgr .sumrow { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  .is-dash #toMe { max-width: 420px; margin-bottom: 14px; }
+}

@@ -1495,7 +1495,7 @@ function renderManager(team, me) {
   document.body.classList.remove('is-master');
   S.mgrMode = true;
   const today = todayISO(); const ids = new Set(team.map((x) => x.id));
-  $('#app').innerHTML = header() + `<main class="mine" id="main"></main>`;
+  $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
   const sl = allSlots().filter((x) => x.date >= today && S.asg[x.key] && ids.has(S.asg[x.key].tech_id) && !x.day.cancelled).sort((a, b) => a.date.localeCompare(b.date));
@@ -1511,28 +1511,45 @@ function renderManager(team, me) {
       <div class="jc-days">${g.slots.map((x) => `<div class="jc-day" data-k="${esc(x.key)}">${dateBox(x.date)}<button class="jc-time jc-open" data-open="${esc(x.key)}"><b>${esc(niceTime(x.zeit))}</b><small>${sig(S.asg[x.key])}${S.asg[x.key].tech_reply_note ? ' „' + esc(S.asg[x.key].tech_reply_note) + '“' : ''}${unavOf(g.t.id, x.date) ? ' · ⛔ als „kann nicht“ eingetragen' : ''}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>
       <div class="jc-actions"><button class="big yes" data-mok="${esc(g.slots.map((x) => x.key).join(','))}">✓ Zusagen${g.slots.length > 1 ? ' – alle Tage' : ''}</button><button class="big no" data-mno="${esc(g.slots.map((x) => x.key).join(','))}">✗ Absagen</button></div>
     </article>`;
-  const ranges = team.map((x) => ({ t: x, r: unavRanges(x.id, today) })).filter((x) => x.r.length);
+  const ranges = team.map((x) => ({ t: x, r: unavRanges(x.id, today) }));
+  const nAbs = ranges.reduce((n, x) => n + x.r.length, 0);
+  const clash = (tid, days) => allSlots().filter((x) => days.includes(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === tid && ['angefragt', 'zugesagt'].includes(S.asg[x.key].status));
+  const span = (x) => (x.from === x.to ? fmtDate(x.from) : `${fmtDate(x.from)} – ${fmtDate(x.to)}`);
+  const absList = ranges.map(({ t, r }) => `<div class="ab-t"><div class="ab-h"><b>${esc(t.name)}</b><span>${r.length ? r.reduce((n, x) => n + x.days.length, 0) + ' Tag' + (r.reduce((n, x) => n + x.days.length, 0) > 1 ? 'e' : '') + ' abwesend' : 'keine Abwesenheit'}</span></div>
+      ${r.map((x) => { const c = clash(t.id, x.days); return `<div class="ab-r"><div><b>${esc(span(x))}</b><small>${x.days.length} Tag${x.days.length > 1 ? 'e' : ''}${x.note ? ' · ' + esc(x.note) : ''}</small>${c.length ? `<small class="ab-warn">⚠ eingeteilt am ${esc(c.map((y) => fmtDate(y.date)).join(', '))}</small>` : ''}</div><button class="ab-del" data-mdel="${t.id}|${x.days.join(',')}" aria-label="Abwesenheit löschen" title="löschen">✕</button></div>`; }).join('')}</div>`).join('');
   m.innerHTML = `
-    <section class="hello">
+    <section class="hello hi-line hi-mgr">
       <h1>Freigaben für dein Team</h1>
       <p>KOM27 Mauerstraße · Medientechnik${company ? ' · ' + esc(company) : ''}</p>
       <div id="pushBox"></div>
       <div class="sumrow">
-        <div class="sumbox ${groups.length ? 'warn' : ''}"><b>${sl.filter((x) => st(x) === 'angefragt').length}</b><span>Anfragen warten auf Freigabe</span></div>
+        <a href="#openSec" class="sumbox ${groups.length ? 'warn' : ''}"><b>${sl.filter((x) => st(x) === 'angefragt').length}</b><span>Anfragen warten auf Freigabe</span></a>
         <div class="sumbox ok"><b>${yes.length}</b><span>zugesagte Einsätze</span></div>
-        <div class="sumbox"><b>${team.length}</b><span>${team.length === 1 ? 'Techniker' : 'Techniker'} im Team</span></div>
+        <a href="#absSec" class="sumbox"><b>${nAbs}</b><span>${nAbs === 1 ? 'Abwesenheit' : 'Abwesenheiten'} eingetragen</span></a>
       </div>
     </section>
     ${me ? `<button class="big ghost" id="toMe">🙋 Zu meinen eigenen Einsätzen</button>` : ''}
-    ${groups.length ? `<h2 class="sec" id="openSec">Bitte freigeben</h2><p class="sec-help">Deine Techniker sehen die Anfragen auch und melden, ob sie könnten. Die verbindliche Zusage gibst du.</p>${groups.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Keine offenen Anfragen<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
-    <h2 class="sec">⛔ Abwesenheiten im Team</h2>
-    <div class="calcard"><div class="range-row"><label>Techniker<select id="mT">${team.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label></div>
-      <div class="range-row"><label>Von<input type="date" id="mFrom" min="${today}"></label><label>Bis<input type="date" id="mTo" min="${today}"></label></div>
-      <input type="text" id="mNote" placeholder="Grund, z. B. anderes Projekt">
-      <button class="big no solid" id="mAdd">Als „kann nicht“ eintragen</button>
-      <div class="cal-sum">${ranges.length ? ranges.map(({ t, r }) => r.map((x) => `<div class="rline"><span><b>${esc(t.name)}</b> ${x.from === x.to ? shortDate(x.from) : shortDate(x.from) + ' – ' + shortDate(x.to)} <small>${x.note ? esc(x.note) : ''}</small></span><button class="linkbtn danger" data-mdel="${t.id}|${x.days.join(',')}">löschen</button></div>`).join('')).join('') : 'Keine Abwesenheiten eingetragen.'}</div></div>
-    ${yes.length ? `<h2 class="sec">Kommende Einsätze deines Teams</h2><div class="mini-list">${yes.map((x) => `<div class="mini-line">${dateBox(x.date)}<button class="ml-txt jc-open" data-open="${esc(x.key)}"><b>${esc((techById(S.asg[x.key].tech_id) || {}).name || '')} · ${esc(niceTime(x.zeit))}</b><small>${esc(x.va || '')} · ${untilTxt(x.date)}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>` : ''}
+    <div class="dash"><div class="dash-main">
+    ${groups.length ? `<h2 class="sec" id="openSec">Bitte freigeben <span class="sec-n">${groups.reduce((n, g) => n + g.slots.length, 0)}</span></h2><p class="sec-help">Deine Techniker sehen die Anfragen auch und melden, ob sie könnten. Die verbindliche Zusage gibst du.</p>${groups.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Keine offenen Anfragen<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
+    </div><aside class="dash-side">
+    <section class="dpanel abs" id="absSec">
+      <h2 class="sec">⛔ Abwesenheiten im Team</h2>
+      <p class="sec-help">An diesen Tagen wird niemand aus deinem Team eingeplant.</p>
+      <div class="ab-list">${absList}</div>
+      <details class="ab-add" ${S.absOpen ? 'open' : ''}><summary>＋ Abwesenheit eintragen</summary>
+        <div class="ab-form">
+          <label class="f2">Techniker<select id="mT">${team.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>
+          <label>Von<input type="date" id="mFrom" min="${today}"></label>
+          <label>Bis<input type="date" id="mTo" min="${today}"></label>
+          <label class="f2">Grund (optional)<input type="text" id="mNote" placeholder="z. B. anderes Projekt, Urlaub" maxlength="80"></label>
+          <button class="big no solid f2" id="mAdd">⛔ Als „kann nicht“ eintragen</button>
+        </div>
+      </details>
+    </section>
+    ${yes.length ? `<section class="dpanel"><h2 class="sec">Kommende Einsätze deines Teams</h2><div class="mini-list">${yes.map((x) => `<div class="mini-line">${dateBox(x.date)}<button class="ml-txt jc-open" data-open="${esc(x.key)}"><b>${esc((techById(S.asg[x.key].tech_id) || {}).name || '')} · ${esc(niceTime(x.zeit))}</b><small>${esc(x.va || '')} · ${untilTxt(x.date)}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div></section>` : ''}
+    </aside></div>
     <p class="note center">Fragen? ${esc(CFG.senderName)} erreichst du über die Anfrage-Mail.</p>${legalFoot()}`;
+  const ad = m.querySelector('.ab-add'); if (ad) ad.ontoggle = () => (S.absOpen = ad.open);
   const decide = async (keys, status, note) => {
     const prev = keys.map((k) => S.asg[k]); const t = techById(S.asg[keys[0]].tech_id);
     const ok = await optimistic(() => keys.forEach((k) => (S.asg[k] = Object.assign({}, S.asg[k], { status, note: note || '', updated_at: nowISO() }))),
@@ -1553,7 +1570,7 @@ function renderManager(team, me) {
     const tid = $('#mT').value; const from = $('#mFrom').value; const to = $('#mTo').value || from; const note = $('#mNote').value.trim();
     if (!from) return toast('Bitte ein Startdatum wählen.'); if (to < from) return toast('„Bis“ liegt vor „Von“.');
     const days = daysBetween(from, to); if (days.length > 120) return toast('Bitte höchstens 120 Tage auf einmal.');
-    const prev = S.unav;
+    const prev = S.unav; S.absOpen = false;
     const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO() }))); },
       () => store.setUnavMany(tid, days, note), null, () => (S.unav = prev));
     if (ok) { notify('admins', [], `${(techById(tid) || {}).name || 'Techniker'} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''} · eingetragen vom Projektleiter`, 'unav-' + tid); toast('Eingetragen'); }

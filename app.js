@@ -1826,7 +1826,7 @@ function komWeekGrid(today, seg) {
   const row = (label, cls, cell) => `<tr class="${cls}"><th>${label}</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${cell(dt)}</td>`).join('')}</tr>`;
   const hasVa = dates.some((dt) => byDate[dt] && !byDate[dt].cancelled && vaListOf(byDate[dt]).length);
   let rows = '';
-  if (hasVa) rows += row('Veranstaltung', 'kr-vas', (dt) => (byDate[dt] && !byDate[dt].cancelled ? vaListOf(byDate[dt]) : []).map((x) => `<${x.key ? `button data-open="${esc(x.key)}"` : `button data-va="${dt}|${esc(x.va)}"`} class="kr-va ${x.pam ? '' : 'nopam'}" title="${esc(x.va + (x.zeit ? ' · ' + x.zeit : '') + (x.pam ? '' : ' · ohne PAM-Techniker'))}"><b>${esc(x.va.replace(/^VA/, ''))}</b><small>${x.zeit ? esc(short(x.zeit)) : x.pam ? '' : 'ohne PAM'}</small></button>`).join(''));
+  if (hasVa) rows += row('<span class="l-long">Veranstaltung</span><span class="l-short">VA</span>', 'kr-vas', (dt) => (byDate[dt] && !byDate[dt].cancelled ? vaListOf(byDate[dt]) : []).map((x) => `<${x.key ? `button data-open="${esc(x.key)}"` : `button data-va="${dt}|${esc(x.va)}"`} class="kr-va ${x.pam ? '' : 'nopam'}" title="${esc(x.va + (x.zeit ? ' · ' + x.zeit : '') + (x.pam ? '' : ' · ohne PAM-Techniker'))}"><b>${esc(x.va.replace(/^VA/, ''))}</b><small>${x.zeit ? esc(short(x.zeit)) : x.pam ? '' : 'ohne PAM'}</small></button>`).join(''));
   if (hasKom) rows += row('🏢 KOM27', 'kr-kom', (dt) => ((byDate[dt] || {}).kom || []).map((n) => `<span class="kr-kom-n">${esc(n.split(' ')[0])}</span>`).join(''));
   names.forEach((n) => (rows += row(esc(n), '', (dt) => sl(dt).filter((s) => komOf(s.key) && komOf(s.key).name === n).map((s) => chip(s, komOf(s.key).status)).join(''))));
   if (hasOpen) rows += row('❗ noch offen', 'kr-open', (dt) => sl(dt).filter((s) => !komOf(s.key)).map((s) => chip(s, 'leer')).join(''));
@@ -1866,6 +1866,8 @@ function renderKom() {
     const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
     m.querySelectorAll('[data-kv]').forEach((b) => (b.onclick = () => { S.komView = b.dataset.kv; paint(); }));
     m.querySelectorAll('[data-kw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.kw; S.komWeek = n ? addDays(S.komWeek || mondayOf(today), n) : mondayOf(today); paint(); }));
+    const ks = m.querySelector('.kr-scroll'); const tdc = ks && ks.querySelector('thead th.is-today');
+    if (ks && tdc && ks.scrollWidth > ks.clientWidth) ks.scrollLeft = Math.max(0, tdc.offsetLeft - ((ks.querySelector('tbody th') || {}).offsetWidth || 0));
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
   if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
@@ -1904,7 +1906,7 @@ function renderKom() {
       </div>
     </section>
     <div class="dash kom-dash"><div class="dash-main">
-    ${raster ? komWeekGrid(today, seg) : `<div class="kl-head">${seg}<label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label></div>
+    ${raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
     </div><aside class="dash-side only-d">${tc}
       <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '<span class="muted">ohne PAM-Techniker</span>'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>

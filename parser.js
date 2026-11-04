@@ -169,6 +169,12 @@
           det: { buch: s.buch || '', einlass: s.einlass || '', vazeit: s.vazeit || '', rooms: s.rooms || [], extras: s.extras || [] } });
       });
       day.vaIds = [...new Set(d.rows.map((r) => r._va).filter(Boolean))];
+      // Details auch für Veranstaltungen ohne PAM-Techniker (Einsatzzeit, VA-Zeit, Einlass, Aufbau …)
+      day.vaDet = {};
+      d.rows.forEach((r) => {
+        if (!r.va || day.vaDet[r.va] || day.slots.some((x) => x.va && (x.va === r._va || x.va === r.va))) return;
+        day.vaDet[r.va] = { zeit: r.zeit || '', label: r.va, buch: r.buch || '', einlass: r.einlass || '', vazeit: r.vazeit || '', rooms: r.rooms || [], extras: r.extras || [] };
+      });
       prev = day;
       out.push(day);
     }
@@ -187,6 +193,7 @@
       const part = { vas: d.vas || [], info: d.info || '', vazeit: d.vazeit || '' };
       if (!m) { const c = Object.assign({}, d, { slots: (d.slots || []).slice(), parts: d.parts || [part] }); by.set(d.date, c); out.push(c); return; }
       m.parts = (m.parts || []).concat(d.parts || [part]);
+      m.vaDet = Object.assign({}, m.vaDet || {}, d.vaDet || {});
       const uni = (a, b) => [...new Set([...(a || []), ...(b || [])])];
       m.slots = m.slots.concat(d.slots || []);
       m.vas = uni(m.vas, d.vas); m.vaIds = uni(m.vaIds, d.vaIds); m.kom = (m.kom || d.kom) ? uni(m.kom, d.kom) : m.kom;
@@ -207,6 +214,6 @@
     return { importedAt: new Date().toISOString(), days };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 3 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 4 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

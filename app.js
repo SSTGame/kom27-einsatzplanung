@@ -1347,7 +1347,7 @@ function equipHtml(s) {
 }
 
 function openJob(key, list) {
-  const s = allSlots().find((x) => x.key === key); if (!s) return;
+  const s = typeof key === 'object' ? key : allSlots().find((x) => x.key === key); if (!s) return;
   const a = S.asg[s.key] || {}; const det = s.det || {};
   const grp = s.group ? allSlots().filter((x) => x.group === s.group && S.asg[x.key] && S.asg[x.key].tech_id === a.tech_id) : [s];
   const gi = grp.findIndex((x) => x.key === s.key);
@@ -1355,8 +1355,8 @@ function openJob(key, list) {
   const isOffer = !S.admin && !S.viewer && !a.tech_id && !!offerOf(s.key);
   const meIn = isOffer && (S.interest || []).some((i) => i.slot_key === s.key);
   const ko = S.viewer ? komOf(s.key) : null;
-  const status = S.viewer ? (ko ? ko.status : 'leer') : isOffer ? 'offen' : a.status || 'geplant';
-  const stTxt = S.viewer ? (ko ? `${ko.name} · ${ko.status === 'zugesagt' ? 'zugesagt ✓' : 'angefragt'}` : 'Noch nicht besetzt')
+  const status = s.nopam ? 'nopam' : S.viewer ? (ko ? ko.status : 'leer') : isOffer ? 'offen' : a.status || 'geplant';
+  const stTxt = s.nopam ? 'Ohne PAM-Techniker' : S.viewer ? (ko ? `${ko.name} · ${ko.status === 'zugesagt' ? 'zugesagt ✓' : 'angefragt'}` : 'Noch nicht besetzt')
     : { angefragt: 'Wartet auf deine Antwort', zugesagt: 'Zugesagt ✓', abgesagt: 'Abgesagt', geplant: 'Geplant', offen: meIn ? 'Du hast dich gemeldet ✓' : 'Offener Einsatz' }[status];
   const fact = (lbl, val, big) => val ? `<div class="fact ${big ? 'big' : ''}"><small>${lbl}</small><b>${esc(niceTime(val))}</b></div>` : '';
   const old = !s.det;
@@ -1367,7 +1367,7 @@ function openJob(key, list) {
       <div class="sh-va">${esc(s.va || 'Einsatz')}${s.label && s.label.replace(/\s/g, '') !== (s.va || '') ? ' · ' + esc(s.label) : ''}</div>
       ${grp.length > 1 ? `<div class="sh-days"><span>Tag ${gi + 1} von ${grp.length}</span>${grp.map((x) => `<button class="chip ${x.key === s.key ? 'on' : ''}" data-jump="${esc(x.key)}">${shortDate(x.date)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="facts">${fact(isOffer || S.viewer ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
+    <div class="facts">${fact(isOffer || S.viewer ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.nopam ? s.zeit : s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit, s.nopam && !s.zeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
     <h3>🛠 ${S.viewer ? 'Aufbau' : 'Das baust du auf'}</h3>
@@ -1764,29 +1764,11 @@ function vaListOf(d) {
 function openVa(date, va) {
   const d = allDays().find((x) => x.date === date); if (!d) return;
   const x = vaListOf(d).find((y) => y.va === va) || { va, zeit: d.vazeit, info: d.info };
-  const rooms = String(x.info || '').split(' · ').filter(Boolean).map((r) => { const i = r.indexOf(': '); return i > 0 ? [r.slice(0, i), r.slice(i + 2)] : ['', r]; });
-  const pam = (d.slots || []).map((s) => ({ s, k: komOf(s.key) }));
-  const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Veranstaltung">
-    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><span class="pill st-nopam">Ohne PAM-Techniker</span></div>
-    <div class="sh-head"><div class="sh-date">${dateBox(d.date)}<div><h2>${esc(longDate(d.date))}</h2><span class="until">${untilTxt(d.date)}</span></div></div>
-      <div class="sh-va">${esc(va)}</div></div>
-    <div class="facts">${x.zeit ? `<div class="fact big"><small>Veranstaltung (VA-Zeit)</small><b>${esc(niceTime(x.zeit))}</b></div>` : ''}</div>
-    <div class="hint">Für diese Veranstaltung ist laut VA-Kalender kein PAM-Techniker angefordert.</div>
-    <h3>🛠 Aufbau laut Excel</h3>
-    ${rooms.length ? rooms.map(([room, text]) => `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="plain">${equipItems(text).map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</li>`).join('')}</ul></div>`).join('') : '<p class="muted">In der Excel steht dazu nichts.</p>'}
-    <h3>🏢 Medientechnik KOM27 vor Ort</h3>
-    ${(d.kom || []).length ? `<div class="coll">${d.kom.map((n) => `<span class="cchip kom">${esc(n)}</span>`).join('')}</div>` : '<p class="muted">Laut Excel niemand eingetragen.</p>'}
-    <h3>👥 PAM-Techniker an dem Tag</h3>
-    ${pam.length ? `<div class="coll">${pam.map(({ s, k }) => `<button class="cchip ${k ? k.status : ''}" data-open="${esc(s.key)}">${k ? esc(k.name) : '❗ noch offen'} <small>${esc(s.zeit || '')}${s.va ? ' · ' + esc(s.va) : ''}</small></button>`).join('')}</div>` : '<p class="muted">An diesem Tag ist kein PAM-Techniker im Haus.</p>'}
-  </div></div>`;
-  const old = $('#sheet'); if (old) old.remove();
-  document.body.insertAdjacentHTML('beforeend', html); document.body.classList.add('noscroll');
-  const box = $('#sheet');
-  const close = () => { box.remove(); document.body.classList.remove('noscroll'); document.removeEventListener('keydown', k_); };
-  const k_ = (e) => { if (e.key === 'Escape') close(); }; document.addEventListener('keydown', k_);
-  box.onclick = (e) => { if (e.target === box) close(); };
-  box.querySelector('[data-close]').onclick = close;
-  box.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => { close(); openJob(b.dataset.open); }));
+  const vd = (d.vaDet || {})[va];
+  const rooms = vd && vd.rooms && vd.rooms.length ? vd.rooms : String(x.info || '').split(' · ').filter(Boolean).map((r) => { const i = r.indexOf(': '); return i > 0 ? [r.slice(0, i), r.slice(i + 2)] : ['', r]; });
+  openJob({ key: 'va#' + date + '#' + va, date, day: Object.assign({}, d, { info: x.info || d.info }), va, label: (vd && vd.label) || va, zeit: (vd && vd.zeit) || '', nopam: true,
+    note: 'Für diese Veranstaltung ist laut VA-Kalender kein PAM-Techniker angefordert.',
+    det: { vazeit: (vd && vd.vazeit) || x.zeit || '', einlass: (vd && vd.einlass) || '', buch: (vd && vd.buch) || '', rooms, extras: (vd && vd.extras) || [] } });
 }
 function komTodayCard() {
   const today = todayISO(); const tom = addDays(today, 1); const now = new Date();

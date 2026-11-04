@@ -610,3 +610,20 @@ ul.check li.done .sub{text-decoration:none}
 .pv-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#7c3aed;color:#fff;border-radius:12px;padding:10px 12px;margin:4px 0 12px;font-size:14px;box-shadow:0 4px 14px rgba(124,58,237,.3)}
 .pv-bar .btn{background:#fff;color:#5b21b6;border-color:#fff;font-weight:600}
 h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:600}
+
+/* v10 Nachricht an Techniker */
+.msgbox{padding:14px 16px;margin-bottom:16px}
+.msgbox h3{margin:0 0 10px}
+.msgbox .chips{margin-bottom:10px}
+.msgbox input,.msgbox textarea{width:100%;box-sizing:border-box;font:inherit;font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);margin-bottom:8px}
+.msgbox textarea{resize:vertical}
+.msg-pick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.msg-pick .pick{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:20px;padding:5px 10px;font-size:14px;cursor:pointer}
+.msg-pick .pick.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--panel))}
+.msg-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.msg-pick .pick{flex-direction:row;white-space:nowrap;margin:0}
+.msg-pick .pick input{margin:0}
+@media (max-width:700px){
+  .is-master nav.tabs{display:grid !important;grid-template-columns:repeat(5,1fr)}
+  .is-master nav.tabs button span{white-space:nowrap}
+}

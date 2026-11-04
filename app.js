@@ -861,6 +861,44 @@ function renderHours() {
   };
 }
 
+/* ---------------- Eigene Push-Nachricht an Techniker ---------------- */
+function msgGroups() {
+  const today = todayISO(); const tom = addDays(today, 1);
+  const act = S.techs.filter((t) => t.active !== false && t.email);
+  const on = (d) => act.filter((t) => allSlots().some((s) => s.date === d && !s.day.cancelled && S.asg[s.key] && S.asg[s.key].tech_id === t.id && ['zugesagt', 'angefragt'].includes(S.asg[s.key].status)));
+  return { alle: act, heute: on(today), morgen: on(tom), wahl: act.filter((t) => (S.msgPick || new Set()).has(t.id)) };
+}
+function msgBoxHtml() {
+  const g = msgGroups(); const to = S.msgTo || 'alle'; const list = g[to];
+  const push = (t) => S.pushEmails && S.pushEmails.has((t.email || '').toLowerCase());
+  const nPush = list.filter(push).length;
+  const opt = (k, l) => `<button class="chip ${to === k ? 'on' : ''}" data-msgto="${k}">${l}${k !== 'wahl' ? ` <b>${g[k].length}</b>` : ''}</button>`;
+  return `<div class="card msgbox" id="msgBox"><h3>📲 Nachricht an Techniker</h3>
+    <div class="chips">${opt('alle', 'Alle')}${opt('heute', 'Heute im Einsatz')}${opt('morgen', 'Morgen im Einsatz')}${opt('wahl', 'Auswählen …')}</div>
+    ${to === 'wahl' ? `<div class="msg-pick">${g.alle.map((t) => `<label class="pick ${(S.msgPick || new Set()).has(t.id) ? 'on' : ''}"><input type="checkbox" data-mpick="${t.id}" ${(S.msgPick || new Set()).has(t.id) ? 'checked' : ''}> <span>${esc(t.name)}</span><span title="${push(t) ? 'Mitteilungen an' : 'Mitteilungen nicht eingeschaltet'}">${push(t) ? '🔔' : '🔕'}</span></label>`).join('')}</div>` : ''}
+    <input type="text" id="msgTitle" maxlength="60" placeholder="Betreff (optional) – sonst „Nachricht von ${esc(CFG.senderName)}“" value="${esc((S.msgDraft || {}).title || '')}">
+    <textarea id="msgBody" rows="3" maxlength="300" placeholder="Deine Nachricht, z. B. „Morgen bitte schon um 7:30 da sein – Umbau Saal 2“">${esc((S.msgDraft || {}).body || '')}</textarea>
+    <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : 'Keine Empfänger ausgewählt'}</span>
+      <button class="btn primary" id="msgSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
+  </div>`;
+}
+function wireMsgBox(m) {
+  const keep = () => { S.msgDraft = { title: $('#msgTitle').value, body: $('#msgBody').value }; };
+  m.querySelectorAll('[data-msgto]').forEach((b) => (b.onclick = () => { keep(); S.msgTo = b.dataset.msgto; paint('#msgBox'); }));
+  m.querySelectorAll('[data-mpick]').forEach((c) => (c.onchange = () => { keep(); const p = S.msgPick || (S.msgPick = new Set()); c.checked ? p.add(c.dataset.mpick) : p.delete(c.dataset.mpick); paint('#msgBox'); }));
+  const sendBtn = m.querySelector('#msgSend'); if (!sendBtn) return;
+  sendBtn.onclick = async () => {
+    const title = $('#msgTitle').value.trim() || `Nachricht von ${CFG.senderName}`; const body = $('#msgBody').value.trim();
+    if (!body) { $('#msgBody').focus(); return toast('Bitte eine Nachricht eingeben'); }
+    const list = msgGroups()[S.msgTo || 'alle'];
+    if (!confirm(`An ${list.length} Techniker senden?\n\n${title}\n${body}`)) return;
+    sendBtn.disabled = true; sendBtn.textContent = 'Sende …';
+    const r = await notify('techs', list.map((t) => t.id), title, body, 'msg-' + Date.now());
+    S.msgDraft = null; paint('#msgBox');
+    toast(DEMO ? 'Demo: würde jetzt gesendet' : r && typeof r.sent === 'number' ? `Gesendet ✓ – auf ${r.sent} ${r.sent === 1 ? 'Gerät' : 'Geräten'} angekommen` : 'Senden hat nicht geklappt – bitte nochmal versuchen');
+  };
+}
+
 function renderReq() {
   const m = $('#main'); const today = todayISO();
   const rows = S.techs.map((t) => {
@@ -868,7 +906,7 @@ function renderReq() {
     return { t, neu: sl.filter((s) => S.asg[s.key].status === 'geplant'), wait: sl.filter((s) => S.asg[s.key].status === 'angefragt'), no: sl.filter((s) => S.asg[s.key].status === 'abgesagt') };
   }).filter((r) => r.neu.length || r.wait.length || r.no.length);
   const hasPush = (t) => t.email && S.pushEmails && S.pushEmails.has(t.email.toLowerCase());
-  m.innerHTML = `<div id="pushBox"></div>${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+  m.innerHTML = `<div id="pushBox"></div>${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}
@@ -901,6 +939,7 @@ function renderReq() {
     location.href = mailFor(r.t, r.wait, true);
   }));
   fillPushBox(true);
+  wireMsgBox(m);
   if ($('#remindNow')) $('#remindNow').onclick = async () => {
     try { const { data, error } = await store.sb.functions.invoke('notify', { body: { action: 'remind' } }); if (error) throw error; toast(data && data.sent ? `Erinnerung an ${data.techs} Techniker gesendet (${data.sent} Geräte)` : 'Morgen hat niemand mit aktivierten Mitteilungen einen zugesagten Einsatz.'); }
     catch (e) { toast('Erinnerung fehlgeschlagen: ' + (e.message || e)); }
@@ -1794,7 +1833,7 @@ async function disablePush() {
 }
 async function notify(target, tech_ids, title, body, tag) {
   if (DEMO) return;
-  try { await store.sb.functions.invoke('notify', { body: { target, tech_ids, title, body, tag } }); } catch (e) { console.warn('Push fehlgeschlagen', e); }
+  try { const r = await store.sb.functions.invoke('notify', { body: { target, tech_ids, title, body, tag } }); return r.data || null; } catch (e) { console.warn('Push fehlgeschlagen', e); return null; }
 }
 async function fillPushBox(forMaster) {
   const box = $('#pushBox'); if (!box) return;

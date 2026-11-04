@@ -94,6 +94,7 @@ function makeSupabaseStore() {
     async reset(email) { chk(await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL() })); },
     async setPassword(pw) { chk(await sb.auth.updateUser({ password: pw })); },
     async signOut() { await sb.auth.signOut(); },
+    async deleteMe() { chk(await sb.rpc('delete_my_account')); await sb.auth.signOut(); },
     async isAdmin() { return !!chk(await sb.rpc('is_admin')); },
     async isViewer() { const r = await sb.rpc('is_viewer'); return !r.error && !!r.data; },
     async getViewers() { const r = await sb.from('kom_viewers').select('*').order('name'); return r.error ? [] : r.data; },
@@ -402,6 +403,20 @@ function autoAssign() {
 }
 
 /* ---------------- Render: Login ---------------- */
+// Datenschutz / Impressum / Konto löschen – unten auf jeder Seite
+const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a><span>·</span><a href="impressum.html">Impressum</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
+function privacyNote() {
+  if (ls.get('kom27-info-ok') || document.querySelector('.privbar')) return;
+  const d = document.createElement('div'); d.className = 'privbar'; d.setAttribute('role', 'note');
+  d.innerHTML = '<span>🔒 Keine Cookies, kein Tracking. Die App speichert nur, was technisch nötig ist – z. B. damit du angemeldet bleibst. <a href="datenschutz.html">Datenschutz</a></span><button type="button" class="btn small">Verstanden</button>';
+  d.querySelector('button').onclick = () => { ls.set('kom27-info-ok', 1); d.remove(); };
+  document.body.appendChild(d);
+}
+document.addEventListener('click', async (ev) => {
+  if (!ev.target.closest('[data-delacc]')) return;
+  if (!confirm('Konto wirklich löschen?\n\nDeine Anmeldung und Push-Benachrichtigungen werden sofort gelöscht. Deine Einsätze und Arbeitszeiten bleiben bei der Planung, soweit sie für die Abrechnung nötig sind.\n\nDu kannst später jederzeit ein neues Konto anlegen.')) return;
+  try { await store.deleteMe(); S.user = null; ls.del('kom27-last-email'); renderLogin('Dein Konto wurde gelöscht.'); } catch (e) { toast('Löschen hat nicht geklappt: ' + (e.message || e)); }
+});
 function renderLogin(msg) {
   document.body.classList.remove('is-master');
   const demoTechs = DEMO ? (DemoStore.d().techs || []).filter((t) => t.email) : [];
@@ -426,7 +441,8 @@ function renderLogin(msg) {
       ${demoTechs.map((t) => `<button class="btn small" data-demo="${esc(t.email)}">Als ${esc(t.name)}</button>`).join('')}
       ${(DEMO ? DemoStore.d().viewers || [] : []).map((v) => `<button class="btn small" data-demo="${esc(v.email)}">Als ${esc(v.name)} (KOM27)</button>`).join('')}
     </div></div>` : ''}
-  </div>`;
+  </div>${legalFoot()}`;
+  privacyNote();
   // Fehlermeldungen von Supabase verständlich machen
   const deMsg = (m) => {
     m = String(m || '');
@@ -481,6 +497,8 @@ function renderMaster() {
   document.body.classList.add('is-master');
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   ({ plan: renderPlan, req: renderReq, hours: renderHours, techs: renderTechs, kb: () => { $('#main').innerHTML = kbHtml(); wireKb($('#main')); } })[S.tab]();
+  $('#main').insertAdjacentHTML('beforeend', legalFoot());
+  privacyNote();
 }
 
 function importBar() {
@@ -516,7 +534,7 @@ async function applySync() {
 let excelLib;
 async function loadExcelJS() {
   if (window.ExcelJS) return;
-  if (!excelLib) excelLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'; s.onload = res; s.onerror = () => rej(new Error('ExcelJS konnte nicht geladen werden')); document.head.appendChild(s); });
+  if (!excelLib) excelLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'vendor/exceljs.min.js'; s.onload = res; s.onerror = () => rej(new Error('ExcelJS konnte nicht geladen werden')); document.head.appendChild(s); });
   await excelLib;
 }
 async function importFile(file, srcHash) {
@@ -1435,7 +1453,7 @@ function renderManager(team, me) {
       <button class="big no solid" id="mAdd">Als „kann nicht“ eintragen</button>
       <div class="cal-sum">${ranges.length ? ranges.map(({ t, r }) => r.map((x) => `<div class="rline"><span><b>${esc(t.name)}</b> ${x.from === x.to ? shortDate(x.from) : shortDate(x.from) + ' – ' + shortDate(x.to)} <small>${x.note ? esc(x.note) : ''}</small></span><button class="linkbtn danger" data-mdel="${t.id}|${x.days.join(',')}">löschen</button></div>`).join('')).join('') : 'Keine Abwesenheiten eingetragen.'}</div></div>
     ${yes.length ? `<h2 class="sec">Kommende Einsätze deines Teams</h2><div class="mini-list">${yes.map((x) => `<div class="mini-line">${dateBox(x.date)}<button class="ml-txt jc-open" data-open="${esc(x.key)}"><b>${esc((techById(S.asg[x.key].tech_id) || {}).name || '')} · ${esc(niceTime(x.zeit))}</b><small>${esc(x.va || '')} · ${untilTxt(x.date)}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>` : ''}
-    <p class="note center">Fragen? ${esc(CFG.senderName)} erreichst du über die Anfrage-Mail.</p>`;
+    <p class="note center">Fragen? ${esc(CFG.senderName)} erreichst du über die Anfrage-Mail.</p>${legalFoot()}`;
   const decide = async (keys, status, note) => {
     const prev = keys.map((k) => S.asg[k]); const t = techById(S.asg[keys[0]].tech_id);
     const ok = await optimistic(() => keys.forEach((k) => (S.asg[k] = Object.assign({}, S.asg[k], { status, note: note || '', updated_at: nowISO() }))),
@@ -1662,7 +1680,7 @@ function komWeekGrid(today, seg) {
 }
 const pvBar = () => (S.preview ? `<div class="pv-bar"><span>👁 <b>Vorschau:</b> So sehen Jens & Felix die App</span><button class="btn small" id="pvEnd">Zurück zum Master</button></div>` : '');
 function renderKom() {
-  document.body.classList.remove('is-master');
+  document.body.classList.remove('is-master'); privacyNote();
   const today = todayISO();
   $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
@@ -1715,12 +1733,12 @@ function renderKom() {
     </div><aside class="dash-side only-d">${tc}
       <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" data-open="${esc((d.slots[0] || {}).key || '')}">${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '–'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
     </aside></div>
-    <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>`;
+    <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
   wire();
 }
 
 function renderTech() {
-  document.body.classList.remove('is-master');
+  document.body.classList.remove('is-master'); privacyNote();
   const t = myTech();
   const today = todayISO();
   $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
@@ -1818,7 +1836,7 @@ function renderTech() {
     ${no.length ? `<details class="nolist"><summary>Abgesagt (${no.length})</summary><div class="mini-list">${no.map((s) => line(s, 'no')).join('')}</div></details>` : ''}
     ${logged.length ? `<details class="nolist"><summary>Bestätigte Arbeitszeiten (${logged.length})</summary><div class="mini-list">${logged.map((x) => { const a = S.asg[x.key]; return `<div class="mini-line">${dateBox(x.date)}<div class="ml-txt"><b>${esc(a.actual_start)}–${esc(a.actual_end)} · ${fmtH(actualHours(a))}</b><small>${esc(x.va || '')}${a.break_min ? ' · ' + a.break_min + ' min Pause' : ''}${a.time_note ? ' · „' + esc(a.time_note) + '“' : ''}</small></div><button class="linkbtn" data-tedit="${esc(x.key)}">ändern</button></div>`; }).join('')}</div></details>` : ''}
     </section></aside></div>
-    <p class="note center">Fragen? Einfach ${esc(CFG.senderName)} anrufen oder auf die Anfrage-Mail antworten.</p>`;
+    <p class="note center">Fragen? Einfach ${esc(CFG.senderName)} anrufen oder auf die Anfrage-Mail antworten.</p>${legalFoot()}`;
 
   const collapse = (el) => new Promise((res) => {
     if (!el) return res();

@@ -368,3 +368,16 @@ drop policy if exists kb_insert on public.kb_entries;
 create policy kb_insert on public.kb_entries for insert to authenticated with check (is_admin() or my_tech_id() is not null or is_viewer());
 drop policy if exists kb_update on public.kb_entries;
 create policy kb_update on public.kb_entries for update to authenticated using (is_admin() or my_tech_id() is not null or is_viewer()) with check (is_admin() or my_tech_id() is not null or is_viewer());
+
+-- ===================== v10: Konto selbst löschen (Art. 17 DSGVO) =====================
+create or replace function public.delete_my_account()
+returns void language plpgsql security definer set search_path = public, auth as $$
+declare uid uuid := auth.uid(); mail text;
+begin
+  if uid is null then raise exception 'nicht angemeldet'; end if;
+  select lower(email) into mail from auth.users where id = uid;
+  delete from public.push_subscriptions where lower(email) = mail;
+  delete from auth.users where id = uid;
+end; $$;
+revoke all on function public.delete_my_account() from public, anon;
+grant execute on function public.delete_my_account() to authenticated;

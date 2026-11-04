@@ -615,6 +615,40 @@ function conflictsFor(techId, slot, tl) {
   return out;
 }
 
+// Übersicht oben in der Master-Planung: Heute, nächste 7 Tage, Handlungsbedarf, fehlende Zeiten
+function masterOverview(today) {
+  const sl = allSlots().filter((s) => !s.day.cancelled);
+  const tn = (s) => { const a = S.asg[s.key]; return a && a.tech_id ? ((techById(a.tech_id) || {}).name || '?').split(' ')[0] : null; };
+  const short = (z) => { const sp = parseSpan(z); if (!sp) return ''; const f = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + (m % 60 ? ':' + pad(m % 60) : ''); }; return f(sp[0]) + '–' + f(sp[1]); };
+  // 1) Heute
+  const tod = sl.filter((s) => s.date === today);
+  const nextD = sl.filter((s) => s.date > today).map((s) => s.date).sort()[0];
+  const c1 = tod.length
+    ? `<button class="ov ov-today" data-jump="${today}"><span class="ov-l">Heute im Haus</span>
+        <div class="ov-ppl">${tod.map((s) => { const n = tn(s); const st = slotState(s); return `<span class="ov-p st-${st}"><b>${n ? esc(n) : 'unbesetzt'}</b><small>${esc(short(s.zeit))}</small></span>`; }).join('')}</div>
+        <small class="ov-sub">${esc(roomsOf(tod[0].day.info) || 'KOM27')}</small></button>`
+    : `<button class="ov ov-today" ${nextD ? `data-jump="${nextD}"` : ''}><span class="ov-l">Heute im Haus</span><b class="ov-n ov-quiet">Kein Einsatz</b><small class="ov-sub">${nextD ? 'Nächster: ' + esc(fmtDate(nextD)) + ' · ' + untilTxt(nextD) : 'Keine weiteren Termine'}</small></button>`;
+  // 2) Nächste 7 Tage
+  const wk = sl.filter((s) => s.date >= today && s.date <= addDays(today, 6));
+  const k = { zugesagt: 0, angefragt: 0, geplant: 0, leer: 0 }; wk.forEach((s) => { const st = slotState(s); k[st === 'abgesagt' ? 'leer' : st]++; });
+  const pc = (n) => (wk.length ? (n / wk.length) * 100 : 0);
+  const c2 = `<div class="ov"><span class="ov-l">Nächste 7 Tage</span><b class="ov-n">${k.zugesagt}<small>/${wk.length} zugesagt</small></b>
+    <div class="ov-bar">${['zugesagt', 'angefragt', 'geplant', 'leer'].map((x) => k[x] ? `<i class="b-${x}" style="width:${pc(k[x])}%" title="${k[x]} ${ST_LABEL[x] || 'offen'}"></i>` : '').join('')}</div>
+    <small class="ov-sub">${[k.angefragt ? k.angefragt + ' angefragt' : '', k.geplant ? k.geplant + ' nicht angefragt' : '', k.leer ? k.leer + ' unbesetzt' : ''].filter(Boolean).join(' · ') || 'Alles besetzt 👍'}</small></div>`;
+  // 3) Zu erledigen (ab heute, alle Monate)
+  const fut = sl.filter((s) => s.date >= today);
+  const of = (st) => fut.filter((s) => (st === 'leer' ? ['leer', 'abgesagt'].includes(slotState(s)) : slotState(s) === st));
+  const todo = [['leer', 'unbesetzt', of('leer')], ['geplant', 'nicht angefragt', of('geplant')], ['angefragt', 'warten auf Antwort', of('angefragt')]];
+  const old = of('angefragt').filter((s) => { const r = S.asg[s.key].requested_at; return r && Date.now() - new Date(r) > 2 * 864e5; }).length;
+  const c3 = `<div class="ov ov-todo"><span class="ov-l">Zu erledigen</span>
+    ${todo.map(([st, l, list]) => `<button class="ov-row ${list.length ? 'has' : ''}" data-ovf="${st}" data-ovm="${list.length ? list[0].date.slice(0, 7) : ''}" ${list.length ? '' : 'disabled'}><b class="t-${st}">${list.length}</b><span>${l}</span>${list.length ? `<small>ab ${esc(fmtDate(list[0].date))}</small>` : ''}</button>`).join('')}
+    ${old ? `<small class="ov-sub warn">⏰ ${old} ${old === 1 ? 'Anfrage wartet' : 'Anfragen warten'} schon über 2 Tage</small>` : ''}</div>`;
+  // 4) Arbeitszeiten
+  const past = sl.filter((s) => s.date <= today && s.date >= addDays(today, -45) && S.asg[s.key] && S.asg[s.key].status === 'zugesagt');
+  const miss = past.filter((s) => !S.asg[s.key].actual_start && s.date < today);
+  const c4 = `<button class="ov" data-ovtab="hours"><span class="ov-l">Arbeitszeiten</span><b class="ov-n ${miss.length ? 't-leer' : 't-zugesagt'}">${miss.length || '✓'}</b><small class="ov-sub">${miss.length ? (miss.length === 1 ? 'Zeit fehlt noch' : 'Zeiten fehlen noch') + ' · ' + esc([...new Set(miss.map(tn).filter(Boolean))].join(', ')) : 'Alle Zeiten eingetragen'}</small></button>`;
+  return `<section class="ovw">${c1}${c2}${c3}${c4}</section>`;
+}
 function renderPlan() {
   const m = $('#main');
   const today = todayISO();
@@ -708,6 +742,7 @@ function renderPlan() {
   m.innerHTML = importBar() + (S.plan ? `
     ${removedBar()}
     ${changesBanner()}
+    ${S.techs.length ? masterOverview(today) : ''}
     ${S.techs.length ? '' : `<div class="banner">Lege zuerst unter <b>Techniker</b> dein Stamm-Team an (Namen aus der Excel lassen sich mit einem Klick übernehmen).</div>`}
     <div class="toolbar">
       <div class="monthnav">
@@ -735,6 +770,8 @@ function renderPlan() {
   $('#mPrev').onclick = () => go(mi - 1);
   $('#mNext').onclick = () => go(mi + 1);
   document.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.filter; S.keep = new Set(); renderMaster(); }));
+  document.querySelectorAll('[data-ovf]').forEach((b) => (b.onclick = () => { S.view = 'liste'; S.filter = b.dataset.ovf; if (b.dataset.ovm) S.month = b.dataset.ovm; S.keep = new Set(); renderMaster(); const c = document.querySelector('.card.plan'); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
+  document.querySelectorAll('[data-ovtab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.ovtab; renderMaster(); window.scrollTo(0, 0); }));
   if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
   document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; renderMaster(); }));
   document.querySelectorAll('[data-jump]').forEach((c) => (c.onclick = () => {
@@ -1599,7 +1636,7 @@ function komTodayCard() {
 }
 // Wochenraster für KOM27: Spalten = Tage, Zeilen = wer da ist
 const mondayOf = (iso) => { const d = new Date(iso + 'T12:00:00'); return addDays(iso, -((d.getDay() + 6) % 7)); };
-function komWeekGrid(today) {
+function komWeekGrid(today, seg) {
   const mon = S.komWeek || mondayOf(today);
   const dates = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
   const byDate = {}; allDays().forEach((d) => (byDate[d.date] = d));
@@ -1618,7 +1655,7 @@ function komWeekGrid(today) {
   if (hasOpen) rows += row('❗ noch offen', 'kr-open', (dt) => sl(dt).filter((s) => !komOf(s.key)).map((s) => chip(s, 'leer')).join(''));
   const rooms = `<tr class="kr-rooms"><th>Räume</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${esc(roomsOf((byDate[dt] || {}).info || '') || '')}</td>`).join('')}</tr>`;
   return `<section class="kr">
-    <div class="kr-nav"><button class="btn small" data-kw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-kw="0">diese Woche</button>' : ''}<button class="btn small" data-kw="7" aria-label="Woche vor">›</button></div>
+    <div class="kr-nav"><button class="btn small" data-kw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><button class="btn small" data-kw="7" aria-label="Woche vor">›</button><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-kw="0">diese Woche</button>' : ''}<span class="kr-sp"></span>${seg || ''}</div>
     ${names.length || hasOpen || hasKom ? `<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
     <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine PAM-Techniker eingeplant.</div>'}
   </section>`;
@@ -1661,6 +1698,7 @@ function renderKom() {
   };
   const tc = komTodayCard();
   const raster = (S.komView || 'raster') === 'raster';
+  const seg = `<div class="seg kv-seg"><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${raster ? '' : 'on'}">Liste</button></div>`;
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
     <section class="hello hi-kom">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
@@ -1672,8 +1710,7 @@ function renderKom() {
       </div>
     </section>
     <div class="dash kom-dash"><div class="dash-main">
-    <div class="seg kv-seg"><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${raster ? '' : 'on'}">Liste</button></div>
-    ${raster ? komWeekGrid(today) : `<label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label>
+    ${raster ? komWeekGrid(today, seg) : `<div class="kl-head">${seg}<label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
     </div><aside class="dash-side only-d">${tc}
       <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" data-open="${esc((d.slots[0] || {}).key || '')}">${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '–'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
@@ -1744,7 +1781,6 @@ function renderTech() {
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
   if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wireVt(); wireKb(m); return; }
   m.innerHTML = vt + `
-    <div class="dash"><div class="dash-main">
     <section class="hello hi-line">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
       <p>${yes.length} ${yes.length === 1 ? 'Einsatz' : 'Einsätze'} zugesagt · ${String(Math.round(monH * 10) / 10).replace('.', ',')} Std. im ${MON[+mon.slice(5, 7) - 1]}</p>
@@ -1756,6 +1792,7 @@ function renderTech() {
         ${toLog.length ? `<a href="#timeSec" class="kpi warn"><b>${toLog.length}</b><span>Arbeitszeit eintragen</span></a>` : `<div class="kpi"><b>✓</b><span>Zeiten vollständig</span></div>`}
       </div>
     </section>
+    <div class="dash"><div class="dash-main">
     ${todayCard(t) || nextCard(t)}
     ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid <span class="sec-n">${nOpen}</span></h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
     ${team.length ? `<button class="big ghost" id="toTeam">👥 Zu den Freigaben für dein Team</button>` : ''}

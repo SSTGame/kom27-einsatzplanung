@@ -8,6 +8,7 @@ window.KOM27_CONFIG = {
   sharepointUrl: 'https://kom27-my.sharepoint.com/:x:/r/personal/jens_neumann-cornelius_kom27_de/_layouts/15/doc2.aspx?sourcedoc=%7BDC377344-F0DA-4CEA-ADBD-EE8F1B8943A1%7D&file=Medientechnik_KOM27_VA-Kalender%202026.xlsx&action=default&mobileredirect=true',
   demoAdmin: 'master@demo.de',
   // Anmeldung mit Benutzername statt E-Mail (z. B. „admin“ fürs iPad): wird zu dieser Adresse umgewandelt
+  userLogins: { admin: 'basti.hellfritz@gmail.com' }, // feste Benutzernamen → Konto (iPad: „admin“ = Master-Konto)
   userAlias: 'basti.hellfritz+{name}@gmail.com',
   // Angaben für die Datenschutzerklärung (Verantwortlicher). Leere Felder werden als „noch einzutragen“ angezeigt.
   legal: {

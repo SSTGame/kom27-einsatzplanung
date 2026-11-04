@@ -501,7 +501,7 @@ function renderLogin(msg) {
     try { await fn(); } finally { bs.forEach((x) => (x.disabled = false)); lockMail(); }
   };
   // Benutzername (z. B. „admin“ fürs iPad) → hinterlegte Login-Adresse
-  const loginMail = (x) => { x = x.trim(); if (x.includes('@')) return x.toLowerCase(); const n = x.toLowerCase().replace(/[^a-z0-9._-]/g, ''); return n && CFG.userAlias ? CFG.userAlias.replace('{name}', n) : x; };
+  const loginMail = (x) => { x = x.trim(); if (x.includes('@')) return x.toLowerCase(); const n = x.toLowerCase().replace(/[^a-z0-9._-]/g, ''); if (n && CFG.userLogins && CFG.userLogins[n]) return CFG.userLogins[n].toLowerCase(); return n && CFG.userAlias ? CFG.userAlias.replace('{name}', n) : x; };
   const creds = () => { const em = $('#em').value.trim(); ls.set('kom27-last-email', em); return [loginMail(em), $('#pw').value]; };
   if (S.recovery) {
     $('#setpw').onclick = async () => { try { await store.setPassword($('#pw1').value); S.recovery = false; toast('Passwort geändert'); boot(); } catch (e) { err(e); } };

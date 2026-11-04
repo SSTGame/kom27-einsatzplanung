@@ -381,3 +381,27 @@ begin
 end; $$;
 revoke all on function public.delete_my_account() from public, anon;
 grant execute on function public.delete_my_account() to authenticated;
+
+-- ===================== v12: Zugesagte Einsätze nur mit Freigabe absagen =====================
+create or replace function public.respond(p_slot text, p_status text, p_note text)
+returns void language plpgsql security definer set search_path to 'public' as $function$
+begin
+  if p_status not in ('zugesagt','abgesagt') then raise exception 'Ungültiger Status'; end if;
+  update assignments a
+     set status = p_status, note = coalesce(p_note, ''), updated_at = now(),
+         declined = case when p_status = 'abgesagt' then array_append(a.declined, a.tech_id) else a.declined end
+   where a.slot_key = p_slot
+     and ((a.tech_id = my_tech_id() and a.status <> 'zugesagt'
+           and not exists (select 1 from technicians t where t.id = a.tech_id and coalesce(t.manager_email, '') <> ''))
+          or a.tech_id in (select my_managed_ids()));
+  if not found then raise exception 'Kein Einsatz gefunden oder keine Berechtigung (zugesagte Einsätze gibt die Planung frei)'; end if;
+end $function$;
+create or replace function public.request_cancel(p_slot text, p_note text)
+returns void language plpgsql security definer set search_path to 'public' as $function$
+begin
+  update assignments set tech_reply = 'absage_wunsch', tech_reply_note = coalesce(left(p_note, 300), ''), tech_reply_at = now()
+   where slot_key = p_slot and tech_id = my_tech_id() and status = 'zugesagt';
+  if not found then raise exception 'Kein zugesagter Einsatz gefunden'; end if;
+end $function$;
+revoke all on function public.request_cancel(text, text) from public, anon;
+grant execute on function public.request_cancel(text, text) to authenticated;

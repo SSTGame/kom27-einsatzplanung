@@ -667,3 +667,16 @@ body.scroll-lock { position: fixed; left: 0; right: 0; width: 100%; overflow: hi
 .abs-list .abs-tg::after { content: ' ▾'; } .abs-list[open] .abs-tg::after { content: ' ▴'; }
 .abs-list[open] summary { margin-bottom: 4px; }
 .abs-list .abs-tg::before { content: 'anzeigen'; } .abs-list[open] .abs-tg::before { content: 'zuklappen'; }
+
+/* Absage-Wünsche */
+.cw-pend { font-size: 13px; font-weight: 650; color: var(--st-leer); white-space: nowrap; }
+.big-pend { text-align: center; padding: 12px; border-radius: 14px; background: color-mix(in srgb, var(--st-leer) 10%, var(--panel)); margin: 6px 0; }
+.cw-card { border: 1.5px solid color-mix(in srgb, var(--st-abgesagt) 45%, var(--line)); margin-bottom: 14px; padding: 14px 16px; }
+.cw-card h3 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; }
+.cw-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.cw-row small { display: block; font-size: 13px; margin-top: 2px; }
+.cw-act { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.danger-solid { background: var(--st-abgesagt); border-color: var(--st-abgesagt); color: #fff; }
+.gcell.wish, .zs-bar.wish { outline: 2.5px solid var(--st-abgesagt); outline-offset: 1px; }
+.hint.cw { border-left: 3px solid var(--st-abgesagt); }
+.t-abgesagt { color: var(--st-abgesagt) !important; }

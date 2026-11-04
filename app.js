@@ -34,7 +34,8 @@ const DemoStore = {
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
     const coll = Object.values(d.asg || {}).filter((a) => me && a.tech_id && a.tech_id !== me.id && ['angefragt', 'zugesagt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '', status: a.status }));
-    return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [], coll, offers: d.offers || [],
+    if (!d.kb) { d.kb = KB_DEMO(); this.w(d); }
+    return { plan: d.plan, techs: d.techs || [], asg: d.asg || {}, unav: d.unav || [], coll, offers: d.offers || [], kb: d.kb,
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -51,6 +52,8 @@ const DemoStore = {
   async setUnavMany(tech_id, days, note) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); days.forEach((day) => d.unav.push({ tech_id, day, note: note || '' })); this.w(d); },
   async clearUnavMany(tech_id, days) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); this.w(d); },
   async savePlan(plan) { const d = this.d(); d.plan = plan; this.w(d); },
+  async saveKb(e) { const d = this.d(); d.kb = (d.kb || []).filter((x) => x.id !== e.id).concat([e]); this.w(d); return e; },
+  async deleteKb(id) { const d = this.d(); d.kb = (d.kb || []).filter((x) => x.id !== id); this.w(d); },
   async saveTech(t) { const d = this.d(); const i = d.techs.findIndex((x) => x.id === t.id); if (i >= 0) d.techs[i] = t; else d.techs.push(t); this.w(d); return t; },
   async deleteTech(id) { const d = this.d(); d.techs = d.techs.filter((t) => t.id !== id); Object.values(d.asg).forEach((a) => { if (a.tech_id === id) delete d.asg[a.slot_key]; }); this.w(d); },
   async saveAssignments(list) { const d = this.d(); list.forEach((a) => (d.asg[a.slot_key] = a)); this.w(d); },
@@ -93,7 +96,8 @@ function makeSupabaseStore() {
       const [of, oi] = await Promise.all([sb.from('offers').select('*'), sb.from('offer_interest').select('*')]);
       const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
       const co = await sb.rpc('my_colleagues'); // wer am selben Tag mit im Einsatz ist (fehlt die Funktion: leer)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data };
+      const kb = await sb.from('kb_entries').select('*'); // KOM27-Infos (fehlt die Tabelle: leer)
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data };
     },
     async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
@@ -117,6 +121,8 @@ function makeSupabaseStore() {
     async getSyncFile() { return chk(await sb.from('excel_file').select('hash, b64').eq('id', 1).maybeSingle()); },
     async syncNow() { const { data, error } = await sb.functions.invoke('excel-sync', { body: {} }); if (error) throw error; return data || {}; },
     async setShareUrl(u) { chk(await sb.from('excel_sync').upsert({ id: 1, share_url: u || null })); },
+    async saveKb(e) { return chk(await sb.from('kb_entries').upsert(e).select().single()); },
+    async deleteKb(id) { chk(await sb.from('kb_entries').delete().eq('id', id)); },
     async savePush(row) { chk(await sb.from('push_subscriptions').upsert(row)); },
     async deletePush(endpoint) { chk(await sb.from('push_subscriptions').delete().eq('endpoint', endpoint)); }
   };
@@ -126,7 +132,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -136,8 +142,9 @@ function dataSig() {
   const a = Object.values(S.asg || {}).map((x) => [x.slot_key, x.tech_id, x.status, x.note || '', (x.declined || []).join(','), x.actual_start || '', x.actual_end || '', x.break_min ?? '', x.tech_reply || '']).sort().join('|');
   const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '')).sort().join('|');
   const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases, x.manager_email, x.company].join(',')).join('|');
+  const kbs = (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
-  return [a, u, t, o, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
+  return [a, u, t, o, kbs, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
 }
 // neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
 function paint(anchorSel) {
@@ -422,14 +429,14 @@ function header(extra) {
 
 function renderMaster() {
   const nInt = (S.interest || []).filter((i) => offerOf(i.slot_key)).length;
-  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker']];
-  const IC = { plan: '📋', req: '📨', hours: '⏱', techs: '👥' };
+  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker'], ['kb', 'Infos']];
+  const IC = { plan: '📋', req: '📨', hours: '⏱', techs: '👥', kb: '📘' };
   const nav = `<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}"><i class="tic">${IC[k]}</i><span>${l}</span></button>`).join('')}</nav>`;
   $('#app').innerHTML = header(nav) + `<main id="main"></main>`;
   document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { const same = S.tab === b.dataset.tab; S.tab = b.dataset.tab; renderMaster(); if (!same) window.scrollTo(0, 0); }));
   document.body.classList.add('is-master');
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
-  ({ plan: renderPlan, req: renderReq, hours: renderHours, techs: renderTechs })[S.tab]();
+  ({ plan: renderPlan, req: renderReq, hours: renderHours, techs: renderTechs, kb: () => { $('#main').innerHTML = kbHtml(); wireKb($('#main')); } })[S.tab]();
 }
 
 function importBar() {
@@ -1321,6 +1328,141 @@ function renderManager(team, me) {
   fillPushBox(false);
 }
 
+/* ---------------- Heute-Karte für Techniker ---------------- */
+function roomsOfSlot(s) {
+  const det = s.det || {};
+  if (det.rooms && det.rooms.length) return det.rooms;
+  return s.day.info ? s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; }) : [];
+}
+function todayCard(t) {
+  const today = todayISO(); const tom = addDays(today, 1);
+  const on = (d) => slotsOfTech(t.id, d).filter((s) => s.date === d && S.asg[s.key].status === 'zugesagt' && !s.day.cancelled);
+  const now = new Date(); const h = now.getHours() + now.getMinutes() / 60;
+  let list = on(today); let which = 'heute';
+  const endToday = list.length ? (parseSpan(list[list.length - 1].zeit) || [0, 24])[1] : 0;
+  if ((!list.length && now.getHours() >= 14) || (list.length && h > endToday + 1)) { const l2 = on(tom); if (l2.length) { list = l2; which = 'morgen'; } else if (!list.length) return ''; }
+  if (!list.length) return '';
+  const s = list[0]; const det = s.det || {}; const span = parseSpan(s.zeit);
+  const hm2 = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
+  const dur = (x) => { const m = Math.max(0, Math.round(x * 60)); return m >= 60 ? Math.floor(m / 60) + ' Std.' + (m % 60 ? ' ' + (m % 60) + ' Min.' : '') : m + ' Min.'; };
+  let state = '', cls = '';
+  if (which === 'morgen') state = 'Morgen' + (span ? ' ab ' + hm2(span[0]) + ' Uhr' : '');
+  else if (!span) state = 'Heute';
+  else if (h < span[0]) { state = 'Beginnt in ' + dur(span[0] - h); cls = h > span[0] - 1.5 ? 'tc-soon' : ''; }
+  else if (h < span[1]) { state = 'Läuft · noch bis ' + hm2(span[1]) + ' Uhr'; cls = 'tc-live'; }
+  else { state = 'Geschafft 👍'; cls = 'tc-done'; }
+  const rooms = roomsOfSlot(s);
+  const items = rooms.flatMap(([, txt]) => equipItems(txt));
+  const nDone = (doneGet()[s.key] || []).length;
+  const hints = items.filter((i) => /probe|achtung|wichtig|signal|!/i.test(i.t) && i.t.length < 90).slice(0, 3);
+  const coll = colleaguesOf(s).filter((c) => c.status === 'zugesagt');
+  const kom = s.day.kom || [];
+  const needTime = which === 'heute' && cls === 'tc-done' && !S.asg[s.key].actual_start;
+  return `<section class="tcard ${cls} tc-${which}">
+    <div class="td-top"><span class="td-tag">${which === 'heute' ? 'HEUTE' : 'MORGEN'}</span><span class="td-state">${cls === 'tc-live' ? '<i class="pulse"></i>' : ''}${esc(state)}</span></div>
+    <div class="td-time">${esc(niceTime(s.zeit))}</div>
+    <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')} · ${esc(s.va || 'Einsatz')}${(det.vazeit || s.day.vazeit) ? ' · VA ' + esc(det.vazeit || s.day.vazeit) : ''}</div>
+    ${hints.map((i) => `<div class="td-hint">⚠️ ${esc(i.t)}</div>`).join('')}
+    <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
+    <button class="big td-go" data-open="${esc(s.key)}">🛠 Aufbauliste & Details${items.length ? ` <small>${nDone}/${items.length} erledigt</small>` : ''}</button>
+    <div class="td-more">
+      ${needTime ? `<button class="td-link" data-gotime>⏱ Arbeitszeit eintragen</button>` : ''}
+      <button class="td-link" data-gokb>📘 KOM27-Infos</button>
+      <a class="td-link" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('KOM27 Mauerstraße Berlin')}" target="_blank" rel="noopener">🗺 Route</a>
+      ${list.length > 1 ? `<button class="td-link" data-open="${esc(list[1].key)}">+ ${list.length - 1} weiterer Einsatz</button>` : ''}
+    </div>
+  </section>`;
+}
+
+/* ---------------- KOM27-Infos (gemeinsame Wissenssammlung) ---------------- */
+const KB_CATS = [['bedienung', '⚙️', 'Einschalten & Bedienung'], ['zugang', '🔑', 'Zugänge & Logins'], ['raum', '📍', 'Räume & Wege'], ['kontakt', '☎️', 'Kontakte & Notfall'], ['sonst', '💡', 'Tipps & Sonstiges']];
+const kbCat = (k) => KB_CATS.find((c) => c[0] === k) || KB_CATS[4];
+const KB_DEMO = () => { const n = new Date().toISOString(); const e = (cat, title, body, extra) => Object.assign({ id: 'kb' + Math.random().toString(36).slice(2, 9), cat, title, body, login_user: '', login_pass: '', pinned: false, created_by: 'master@demo.de', created_at: n, updated_by: 'master@demo.de', updated_at: n }, extra || {});
+  return [
+    e('bedienung', 'LED-Wand Saal 2 einschalten (Beispiel)', '1. Am Touchpanel neben der Bühne „System an“ drücken\n2. ca. 2 Minuten warten, bis die Wand hochgefahren ist\n3. Quelle „HDMI Rednerpult“ wählen\n\nAusschalten immer über das Panel, nie am Hauptschalter!', { pinned: true }),
+    e('bedienung', 'Mikrofone: Akkus laden (Beispiel)', 'Ladeschale steht im Technikraum, Regal links. Nach jeder VA alle Handsender zurück in die Schale – Akkus halten ca. 6 Std.'),
+    e('zugang', 'Präsentations-Laptop (Beispiel)', 'Laptops liegen im Schrank im Technikraum.', { login_user: 'praesentation', login_pass: 'beispiel123' }),
+    e('zugang', 'Gäste-WLAN (Beispiel)', 'Für Referentinnen und Referenten. Zugangsdaten stehen auch auf dem Aufsteller am Empfang.', { login_user: 'KOM27-Gast', login_pass: 'beispiel-wlan' }),
+    e('raum', 'Technikraum & Lager (Beispiel)', 'Technikraum: 1. OG, hinter Saal 2 (Schlüssel am Empfang).\nKabel & Adapter: Kisten mit Beschriftung im Lager.'),
+    e('kontakt', 'Haustechnik / Hausmeister (Beispiel)', 'Bei Strom, Licht, Klima: Haustechnik über den Empfang anrufen lassen.', { created_by: 'marcel@test.de', updated_by: 'basti@test.de', updated_at: new Date(Date.now() - 864e5).toISOString() }),
+  ]; };
+function linkify(t) { return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, '<br>'); }
+const whoName = (email) => { if (!email) return '?'; const em = String(email).toLowerCase(); const t = S.techs.find((x) => (x.email || '').toLowerCase() === em); if (t) return t.name.split(' ')[0]; if (em === CFG.demoAdmin) return CFG.senderName; return em.split('@')[0]; };
+function kbHtml() {
+  const q = (S.kbQ || '').trim().toLowerCase(); const cat = S.kbCat || '';
+  const all = (S.kb || []).slice();
+  const hit = (e) => !q || [e.title, e.body, e.login_user, kbCat(e.cat)[2]].join(' ').toLowerCase().includes(q);
+  const list = all.filter((e) => (!cat || e.cat === cat) && hit(e));
+  const byCat = KB_CATS.map((c) => [c, list.filter((e) => e.cat === c[0]).sort((a, b) => (b.pinned - a.pinned) || a.title.localeCompare(b.title))]).filter(([, l]) => l.length);
+  const when = (e) => fmtDate((e.updated_at || e.created_at || '').slice(0, 10));
+  const card = (e) => `<details class="kb-card ${e.pinned ? 'pin' : ''}" data-kb="${esc(e.id)}" ${q || S.kbOpen === e.id ? 'open' : ''}>
+      <summary><span class="kb-t">${e.pinned ? '📌 ' : ''}${esc(e.title)}</span>${e.login_user || e.login_pass ? '<span class="kb-key" title="mit Zugangsdaten">🔑</span>' : ''}</summary>
+      <div class="kb-body">${linkify(e.body || '')}</div>
+      ${e.login_user || e.login_pass ? `<div class="kb-login">
+        ${e.login_user ? `<div><small>Benutzer</small><code>${esc(e.login_user)}</code><button class="btn small ic" data-copy="${esc(e.login_user)}" title="kopieren" aria-label="Benutzer kopieren">📋</button></div>` : ''}
+        ${e.login_pass ? `<div><small>Passwort</small><code class="pw" data-pw="${esc(e.login_pass)}">••••••••</code><button class="btn small ic" data-reveal title="anzeigen" aria-label="Passwort anzeigen">👁</button><button class="btn small ic" data-copy="${esc(e.login_pass)}" title="kopieren" aria-label="Passwort kopieren">📋</button></div>` : ''}
+      </div>` : ''}
+      <div class="kb-foot"><span>${e.updated_by && e.updated_by !== e.created_by ? `von ${esc(whoName(e.created_by))} · zuletzt geändert ${esc(when(e))} von ${esc(whoName(e.updated_by))}` : `von ${esc(whoName(e.created_by))} · ${esc(when(e))}`}</span><button class="linkbtn" data-kbedit="${esc(e.id)}">✏️ bearbeiten</button></div>
+    </details>`;
+  return `<section class="kb">
+    <div class="kb-head"><div><h1>📘 KOM27-Infos</h1><p class="muted">Wie man was einschaltet, Logins, Räume, Tipps – alle sehen das und können es ergänzen.</p></div>
+      <button class="btn primary" id="kbNew">＋ Neuer Eintrag</button></div>
+    <input type="search" id="kbQ" class="kb-q" placeholder="Suchen … z. B. LED-Wand, WLAN, Mikro" value="${esc(S.kbQ || '')}">
+    <div class="chips kb-cats"><button class="chip ${!cat ? 'on' : ''}" data-kbcat="">Alle <b>${all.length}</b></button>${KB_CATS.map(([k, ic, l]) => { const n = all.filter((e) => e.cat === k).length; return n ? `<button class="chip ${cat === k ? 'on' : ''}" data-kbcat="${k}">${ic} ${esc(l)} <b>${n}</b></button>` : ''; }).join('')}</div>
+    ${byCat.length ? byCat.map(([[, ic, l], es]) => `<h2 class="sec">${ic} ${esc(l)}</h2><div class="kb-list">${es.map(card).join('')}</div>`).join('') : `<div class="empty-msg">${q ? 'Nichts gefunden zu „' + esc(S.kbQ) + '“. Magst du es eintragen?' : 'Noch keine Einträge – fang einfach an!'}</div>`}
+  </section>`;
+}
+function wireKb(m) {
+  const q = m.querySelector('#kbQ');
+  if (q) q.oninput = () => { S.kbQ = q.value; const pos = q.selectionStart; paint(); const n = document.querySelector('#kbQ'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } };
+  m.querySelectorAll('[data-kbcat]').forEach((b) => (b.onclick = () => { S.kbCat = b.dataset.kbcat; paint(); }));
+  const nb = m.querySelector('#kbNew'); if (nb) nb.onclick = () => kbEdit(null);
+  m.querySelectorAll('[data-kbedit]').forEach((b) => (b.onclick = (ev) => { ev.preventDefault(); kbEdit(b.dataset.kbedit); }));
+  m.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = async (ev) => { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.copy); toast('Kopiert ✓'); } catch (e) { toast('Kopieren nicht möglich – bitte von Hand markieren'); } }));
+  m.querySelectorAll('[data-reveal]').forEach((b) => (b.onclick = (ev) => { ev.preventDefault(); const c = b.parentElement.querySelector('.pw'); const shown = c.textContent !== '••••••••'; c.textContent = shown ? '••••••••' : c.dataset.pw; b.textContent = shown ? '👁' : '🙈'; }));
+  m.querySelectorAll('details.kb-card').forEach((d) => d.addEventListener('toggle', () => { if (d.open) S.kbOpen = d.dataset.kb; }));
+}
+function kbEdit(id) {
+  const e = id ? (S.kb || []).find((x) => x.id === id) : null;
+  const me = S.user.email; const t = myTech();
+  const canDel = e && (S.admin || (e.created_by || '').toLowerCase() === me);
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet kb-ed" role="dialog" aria-modal="true" aria-label="Eintrag bearbeiten">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><b>${e ? 'Eintrag bearbeiten' : 'Neuer Eintrag'}</b></div>
+    <label>Bereich</label><select id="kbC">${KB_CATS.map(([k, ic, l]) => `<option value="${k}" ${(e ? e.cat : S.kbCat || 'bedienung') === k ? 'selected' : ''}>${ic} ${esc(l)}</option>`).join('')}</select>
+    <label>Titel</label><input id="kbT" maxlength="120" placeholder="z. B. LED-Wand Saal 2 einschalten" value="${esc(e ? e.title : '')}">
+    <label>Beschreibung</label><textarea id="kbB" rows="8" placeholder="Schritt für Schritt – so, dass es auch jemand versteht, der zum ersten Mal da ist.">${esc(e ? e.body : '')}</textarea>
+    <details class="kb-logins" ${e && (e.login_user || e.login_pass) ? 'open' : ''}><summary>🔑 Zugangsdaten hinzufügen (optional)</summary>
+      <div class="kb-row"><div><label>Benutzername</label><input id="kbU" autocomplete="off" value="${esc(e ? e.login_user || '' : '')}"></div><div><label>Passwort</label><input id="kbP" autocomplete="off" value="${esc(e ? e.login_pass || '' : '')}"></div></div>
+      <p class="muted small">Sehen alle angemeldeten Techniker. Bitte nur dienstliche Zugänge fürs KOM27 eintragen – keine privaten Passwörter.</p></details>
+    ${S.admin ? `<label class="chk"><input type="checkbox" id="kbPin" ${e && e.pinned ? 'checked' : ''}> 📌 oben anheften (wichtig)</label>` : ''}
+    <label class="chk"><input type="checkbox" id="kbPush"> 📲 ${S.admin ? 'Alle Techniker' : CFG.senderName} per Push informieren</label>
+    <div class="sh-actions"><button class="big yes" id="kbSave">Speichern</button><button class="big ghost" data-close>Abbrechen</button></div>
+    ${canDel ? `<button class="linkbtn danger" id="kbDel">Eintrag löschen</button>` : ''}
+  </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  const sh = $('#sheet'); const close = () => sh.remove();
+  sh.querySelectorAll('[data-close]').forEach((b) => (b.onclick = close)); sh.onclick = (ev) => { if (ev.target === sh) close(); };
+  if (!e) setTimeout(() => $('#kbT') && $('#kbT').focus(), 50);
+  $('#kbSave').onclick = async () => {
+    const title = $('#kbT').value.trim(); if (!title) { $('#kbT').focus(); return toast('Bitte einen Titel eingeben'); }
+    const now = nowISO();
+    const row = Object.assign({}, e || { id: (crypto.randomUUID ? crypto.randomUUID() : 'kb' + Date.now()), created_by: me, created_at: now }, {
+      cat: $('#kbC').value, title, body: $('#kbB').value.trim(), login_user: ($('#kbU').value || '').trim(), login_pass: ($('#kbP').value || '').trim(),
+      pinned: S.admin ? $('#kbPin').checked : !!(e && e.pinned), updated_by: me, updated_at: now });
+    const push = $('#kbPush').checked; close();
+    const prev = S.kb;
+    const ok = await optimistic(() => { S.kb = (S.kb || []).filter((x) => x.id !== row.id).concat([row]); S.kbOpen = row.id; }, () => store.saveKb(row), null, () => (S.kb = prev));
+    if (!ok) return;
+    toast(e ? 'Gespeichert ✓ – alle sehen die Änderung' : 'Eintrag angelegt ✓ – alle sehen ihn sofort');
+    if (push) { const ids = S.techs.filter((x) => x.active !== false && x.email && (!t || x.id !== t.id)).map((x) => x.id); notify(S.admin ? 'techs' : 'admins', ids, '📘 KOM27-Infos: ' + title, (e ? 'Aktualisiert von ' : 'Neu von ') + whoName(me), 'kb-' + row.id); }
+  };
+  if ($('#kbDel')) $('#kbDel').onclick = async () => {
+    if (!confirm(`„${e.title}“ wirklich löschen? Das betrifft alle.`)) return;
+    close(); const prev = S.kb;
+    if (await optimistic(() => (S.kb = (S.kb || []).filter((x) => x.id !== e.id)), () => store.deleteKb(e.id), null, () => (S.kb = prev))) toast('Gelöscht');
+  };
+}
+
 function renderTech() {
   document.body.classList.remove('is-master');
   const t = myTech();
@@ -1379,7 +1521,11 @@ function renderTech() {
   const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} <span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
       ${kind === 'wait' ? `<button class="linkbtn" data-resig="${esc(s.key)}">ändern</button>` : boss ? '' : kind === 'yes' ? `<button class="linkbtn danger" data-change="abgesagt" data-k="${esc(s.key)}">doch absagen</button>` : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
-  m.innerHTML = `
+  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${S.techTab !== 'kb' ? 'on' : ''}">📋 Meine Einsätze</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 KOM27-Infos <small>${(S.kb || []).length}</small></button></div>`;
+  const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
+  if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wireVt(); wireKb(m); return; }
+  m.innerHTML = vt + `
+    ${todayCard(t)}
     <section class="hello">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
       <p>Medientechnik im KOM27, Mauerstraße</p>
@@ -1467,6 +1613,9 @@ function renderTech() {
     if (ok) toast('Arbeitszeit gespeichert ✓');
   };
   wireTimeForms(m, saveTime);
+  wireVt();
+  m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
+  m.querySelectorAll('[data-gotime]').forEach((b) => (b.onclick = () => { const f = document.querySelector('#timeSec'); if (f) f.scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
   if ($('#toTeam')) $('#toTeam').onclick = () => { S.view2 = 'team'; paint(); window.scrollTo(0, 0); };
   m.querySelectorAll('[data-resig]').forEach((b) => (b.onclick = () => { const k = b.dataset.resig; S.asg[k] = Object.assign({}, S.asg[k], { tech_reply: null }); calm(15000); paint('#openSec'); }));
   m.querySelectorAll('[data-tedit]').forEach((b) => (b.onclick = () => { S.editTime = b.dataset.tedit; paint(); const f = document.querySelector('#timeSec'); if (f) f.scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
@@ -1608,7 +1757,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

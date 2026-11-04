@@ -531,3 +531,64 @@ details.removed li{display:flex;align-items:center;gap:8px;justify-content:space
 @media (prefers-color-scheme:dark){.cchip.kom{background:#1e1b4b;color:#c7d2fe;border-color:#3730a3}}
 ul.check li .sub{display:block;font-size:13px;color:var(--muted);margin-top:2px;line-height:1.35}
 ul.check li.done .sub{text-decoration:none}
+/* v8 Heute-Karte */
+.tcard{position:relative;background:linear-gradient(160deg,#1f5eff,#1442b8);color:#fff;border-radius:18px;padding:16px 16px 12px;margin:6px 0 18px;box-shadow:0 8px 24px rgba(31,94,255,.25)}
+.tcard.tc-morgen{background:linear-gradient(160deg,#334155,#1e293b);box-shadow:0 6px 18px rgba(15,23,42,.25)}
+.tcard.tc-live{background:linear-gradient(160deg,#16884a,#0f6a39);box-shadow:0 8px 24px rgba(22,136,74,.28)}
+.tcard.tc-done{background:linear-gradient(160deg,#475569,#334155)}
+.td-top{display:flex;align-items:center;gap:10px;font-size:13px}
+.td-tag{font-weight:800;letter-spacing:.08em;background:rgba(255,255,255,.18);padding:3px 8px;border-radius:6px}
+.td-state{display:flex;align-items:center;gap:6px;opacity:.95}
+.tcard.tc-soon .td-state{font-weight:700}
+.pulse{width:8px;height:8px;border-radius:50%;background:#7dffb0;box-shadow:0 0 0 0 rgba(125,255,176,.7);animation:pulse 1.6s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 8px rgba(125,255,176,0)}100%{box-shadow:0 0 0 0 rgba(125,255,176,0)}}
+.td-time{font-size:32px;font-weight:800;letter-spacing:-.01em;margin:8px 0 2px}
+.td-where{font-size:14px;opacity:.92}
+.td-hint{margin-top:8px;background:rgba(255,255,255,.14);border-radius:10px;padding:7px 10px;font-size:14px;font-weight:600}
+.td-people{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:14px;opacity:.95}
+.td-people:empty{display:none}
+.td-go{display:block;width:100%;margin-top:12px;background:#fff;color:#1442b8;border:0;font-size:17px;padding:10px}
+.tcard.tc-live .td-go{color:#0f6a39}.tcard.tc-morgen .td-go,.tcard.tc-done .td-go{color:#1e293b}
+.td-go small{display:block;font-size:12px;font-weight:500;color:#5b6472;margin-top:1px}
+.td-more{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:10px}
+.td-link{background:none;border:0;color:#fff;opacity:.92;font-size:14px;padding:4px 0;cursor:pointer;text-decoration:none;font-weight:600}
+.td-link:hover{opacity:1;text-decoration:underline}
+/* Umschalter Techniker */
+.viewtabs{display:flex;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;margin:4px 0 14px}
+.viewtabs button{flex:1;border:0;background:none;padding:9px 6px;border-radius:9px;font-size:15px;font-weight:600;color:var(--muted);cursor:pointer}
+.viewtabs button.on{background:var(--ink);color:var(--bg)}
+.viewtabs small{font-weight:500;opacity:.7}
+/* KOM27-Infos */
+.kb-head{display:flex;align-items:flex-start;gap:12px;justify-content:space-between;flex-wrap:wrap}
+.kb-head h1{margin:4px 0 2px;font-size:24px}.kb-head p{margin:0 0 10px;font-size:14px}
+.kb-q{width:100%;font-size:16px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--ink);margin:6px 0 10px}
+.kb-cats{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px}
+.kb-cats .chip{white-space:nowrap}
+.kb-list{display:flex;flex-direction:column;gap:8px}
+.kb-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0}
+.kb-card.pin{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.kb-card summary{list-style:none;cursor:pointer;padding:13px 14px;display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+.kb-card summary::-webkit-details-marker{display:none}
+.kb-card summary::after{content:'›';margin-left:auto;color:var(--muted);font-size:20px;transition:transform .15s}
+.kb-card[open] summary::after{transform:rotate(90deg)}
+.kb-key{font-size:13px}
+.kb-body{padding:0 14px 10px;font-size:15px;line-height:1.5}
+.kb-login{margin:0 14px 10px;padding:10px;border-radius:10px;background:var(--bg);display:flex;flex-direction:column;gap:8px}
+.kb-login>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kb-login small{width:70px;color:var(--muted)}
+.kb-login code{font-size:15px;background:var(--panel);padding:4px 8px;border-radius:6px;border:1px solid var(--line);min-width:110px}
+.kb-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.kb-foot .linkbtn{margin:0;font-size:13px;white-space:nowrap}
+.kb-ed label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+.kb-ed input:not([type=checkbox]),.kb-ed select,.kb-ed textarea{width:100%;font-size:16px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-family:inherit;box-sizing:border-box}
+.kb-ed textarea{resize:vertical;line-height:1.45}
+.kb-ed label.chk{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:15px;margin-top:12px}
+.kb-logins{margin-top:12px;border:1px dashed var(--line);border-radius:10px;padding:8px 12px}
+.kb-logins summary{cursor:pointer;font-size:14px;font-weight:600}
+.kb-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kb-ed .sh-actions{margin-top:16px}
+.kb-ed #kbDel{display:block;margin:14px auto 0}
+.kb-login>div{flex-wrap:nowrap}
+.kb-login small{width:62px;flex:none}
+.kb-login code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-login .btn.ic{flex:none;padding:6px 10px;font-size:15px}

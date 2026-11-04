@@ -293,3 +293,46 @@ exception when others then null; end $$;
 do $$ begin perform cron.unschedule(jobid) from cron.job where jobname in ('kom27-erinnerung', 'kom27-excel'); end $$;
 select cron.schedule('kom27-erinnerung', '0 17 * * *', $cmd$ select net.http_post(url := 'https://jnwcmusamhijctwjyfbh.supabase.co/functions/v1/notify', headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer <ANON-KEY aus config.js>', 'apikey', '<ANON-KEY aus config.js>', 'x-kom27-cron', (select secret from public.cron_config where id = 1)), body := '{"action":"remind"}'::jsonb); $cmd$);
 select cron.schedule('kom27-excel', '7 5-21 * * *', $cmd$ select net.http_post(url := 'https://jnwcmusamhijctwjyfbh.supabase.co/functions/v1/excel-sync', headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer <ANON-KEY aus config.js>', 'apikey', '<ANON-KEY aus config.js>', 'x-kom27-cron', (select secret from public.cron_config where id = 1)), body := '{}'::jsonb, timeout_milliseconds := 60000); $cmd$);
+
+-- ===== v8: KOM27-Infos (gemeinsame Wissenssammlung) =====
+create table if not exists public.kb_entries (
+  id uuid primary key default gen_random_uuid(),
+  cat text not null default 'sonst',
+  title text not null check (length(title) between 1 and 200),
+  body text not null default '',
+  login_user text not null default '',
+  login_pass text not null default '',
+  pinned boolean not null default false,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+alter table public.kb_entries enable row level security;
+-- Wer schreibt/ändert, setzt der Server – nicht die App. Anheften darf nur der Master.
+create or replace function public.kb_stamp() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare me text := lower(coalesce(auth.jwt() ->> 'email', ''));
+begin
+  if tg_op = 'INSERT' then
+    new.created_by := me; new.created_at := now();
+    if not is_admin() then new.pinned := false; end if;
+  else
+    new.created_by := old.created_by; new.created_at := old.created_at;
+    if not is_admin() then new.pinned := old.pinned; end if;
+  end if;
+  new.updated_by := me; new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists kb_stamp on public.kb_entries;
+create trigger kb_stamp before insert or update on public.kb_entries for each row execute function public.kb_stamp();
+drop policy if exists kb_read on public.kb_entries;
+create policy kb_read on public.kb_entries for select to authenticated using (is_admin() or my_tech_id() is not null);
+drop policy if exists kb_insert on public.kb_entries;
+create policy kb_insert on public.kb_entries for insert to authenticated with check (is_admin() or my_tech_id() is not null);
+drop policy if exists kb_update on public.kb_entries;
+create policy kb_update on public.kb_entries for update to authenticated using (is_admin() or my_tech_id() is not null) with check (is_admin() or my_tech_id() is not null);
+drop policy if exists kb_delete on public.kb_entries;
+create policy kb_delete on public.kb_entries for delete to authenticated using (is_admin() or lower(created_by) = lower(auth.jwt() ->> 'email'));
+revoke execute on function public.kb_stamp() from public, anon, authenticated;
+do $$ begin alter publication supabase_realtime add table public.kb_entries; exception when others then null; end $$;

@@ -72,8 +72,9 @@ const DemoStore = {
     Object.assign(a, { tech_reply: ok ? 'kann' : 'kann_nicht', tech_reply_note: note || '', tech_reply_at: nowISO() }); this.w(d);
   },
   async requestCancel(email, key, note) {
-    const d = this.d(); const t = d.techs.find((x) => (x.email || '').toLowerCase() === email); const a = d.asg[key];
-    if (!t || !a || a.tech_id !== t.id || a.status !== 'zugesagt') throw new Error('Kein zugesagter Einsatz gefunden.');
+    const d = this.d(); const a = d.asg[key]; const owner = a && d.techs.find((x) => x.id === a.tech_id);
+    const ok = owner && ((owner.email || '').toLowerCase() === email || (owner.manager_email || '').trim().toLowerCase() === email);
+    if (!ok || a.status !== 'zugesagt') throw new Error('Kein zugesagter Einsatz gefunden.');
     Object.assign(a, { tech_reply: 'absage_wunsch', tech_reply_note: note || '', tech_reply_at: nowISO() }); this.w(d);
   },
   async respond(email, key, status, note) {
@@ -429,14 +430,14 @@ document.addEventListener('click', async (ev) => {
 // Techniker: zugesagten Einsatz nicht selbst absagen, sondern Absage beantragen – der Master gibt frei
 document.addEventListener('click', async (ev) => {
   const b = ev.target.closest('[data-cancelreq]'); if (!b) return;
-  const key = b.dataset.cancelreq; const sl = allSlots().find((x) => x.key === key); const t = myTech(); if (!t || !sl) return;
-  const r = prompt(`Absage für ${fmtDate(sl.date)} ${sl.zeit || ''} beantragen?\n\nDer Einsatz bleibt zugesagt, bis ${CFG.senderName} die Absage freigibt.\nKurzer Grund (bitte angeben):`, '');
+  const key = b.dataset.cancelreq; const sl = allSlots().find((x) => x.key === key); const t = S.asg[key] && techById(S.asg[key].tech_id); if (!t || !sl) return;
+  const r = prompt(`Absage${S.mgrMode ? ' für ' + t.name : ''} am ${fmtDate(sl.date)} ${sl.zeit || ''} beantragen?\n\nDer Einsatz bleibt zugesagt, bis ${CFG.senderName} die Absage freigibt.\nKurzer Grund (bitte angeben):`, '');
   if (r === null) return;
   const prev = S.asg[key];
   const ok = await optimistic(() => (S.asg[key] = Object.assign({}, prev, { tech_reply: 'absage_wunsch', tech_reply_note: r.trim(), tech_reply_at: nowISO() })), () => store.requestCancel(S.user.email, key, r.trim()), null, () => (S.asg[key] = prev));
   if (!ok) return;
   const sh = document.getElementById('sheet'); if (sh) { sh.remove(); document.body.classList.remove('noscroll'); }
-  notify('admins', [], `🙋 ${firstName(t)} möchte absagen`, `${fmtDate(sl.date)} ${sl.zeit || ''}${r.trim() ? ' – „' + r.trim() + '“' : ''} · bitte unter „Anfragen“ freigeben oder ablehnen`, 'cancelreq-' + key);
+  notify('admins', [], S.mgrMode ? `🙋 ${mgrLabel(t)}: Absage für ${firstName(t)}` : `🙋 ${firstName(t)} möchte absagen`, `${fmtDate(sl.date)} ${sl.zeit || ''}${r.trim() ? ' – „' + r.trim() + '“' : ''} · bitte unter „Anfragen“ freigeben oder ablehnen`, 'cancelreq-' + key);
   toast(`Absage beantragt – ${CFG.senderName} entscheidet`);
 });
 // Kann-nicht an einem Tag mit Zusage → automatisch Absage-Wunsch (Master entscheidet)
@@ -447,15 +448,17 @@ async function autoCancelReq(t, slots, note) {
     try { await store.requestCancel(S.user.email, sl.key, txt); S.asg[sl.key] = Object.assign({}, a, { tech_reply: 'absage_wunsch', tech_reply_note: txt, tech_reply_at: nowISO() }); } catch (e) { /* bleibt eingeteilt */ }
   }
 }
+// Techniker aus einem Einsatz austragen: Platz wird wieder „unbesetzt“, er wird dafür nicht erneut vorgeschlagen
+const releaseAsg = (prev, why) => Object.assign({}, prev, { tech_id: null, status: 'geplant', note: why ? 'frei: ' + (techById(prev.tech_id) || {}).name + ' – ' + why : '', declined: [...new Set([...(prev.declined || []), prev.tech_id].filter(Boolean))], requested_at: null, tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() });
 // Master: Absage-Wunsch freigeben oder ablehnen
 function decideCancel(key, ok, after) {
   const prev = S.asg[key]; if (!prev) return; const t = techById(prev.tech_id); const sl = allSlots().find((x) => x.key === key);
-  const a = ok ? Object.assign({}, prev, { status: 'abgesagt', note: prev.tech_reply_note || 'Absage freigegeben', declined: [...new Set([...(prev.declined || []), prev.tech_id])], tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() })
+  const a = ok ? releaseAsg(prev, prev.tech_reply_note || 'Absage freigegeben')
     : Object.assign({}, prev, { tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() });
   return optimistic(() => (S.asg[key] = a), async () => {
     await store.saveAssignments([a]);
     if (t) notify('techs', [t.id], ok ? 'Absage bestätigt' : 'Einsatz bleibt bestehen', `KOM27 ${sl ? fmtDate(sl.date) + ' ' + (sl.zeit || '') : ''} – ${ok ? 'du bist ausgetragen. Danke für die Info!' : 'bitte melde dich bei ' + CFG.senderName + ', falls es wirklich nicht geht.'}`, 'cw-' + key);
-    toast(ok ? `Absage freigegeben – ${t ? firstName(t) : ''} ist ausgetragen. Ersatz einteilen nicht vergessen.` : 'Abgelehnt – Einsatz bleibt zugesagt');
+    toast(ok ? `Absage freigegeben – ${t ? firstName(t) : ''} ist ausgetragen, der Platz ist wieder unbesetzt.` : 'Abgelehnt – Einsatz bleibt zugesagt');
     if (after) after();
   }, null, () => (S.asg[key] = prev));
 }
@@ -495,11 +498,14 @@ function openBell() {
   box.querySelectorAll('[data-blu]').forEach((b) => (b.onclick = async () => {
     const it = items[+b.dataset.blu]; const ok = b.dataset.ok === '1'; const prev = S.unav; const set = new Set(it.r.days);
     if (!ok && !confirm(`„Kann nicht“ von ${it.t.name} (${span(it.r)}) ablehnen? Die Tage werden gelöscht und ${firstName(it.t)} bekommt Bescheid.`)) return;
+    const jobs = ok ? allSlots().filter((x) => set.has(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === it.t.id && ['geplant', 'angefragt', 'zugesagt'].includes(S.asg[x.key].status)) : [];
+    if (jobs.length && !confirm(`${it.t.name} ist an diesen Tagen eingeteilt:\n${jobs.map((x) => '• ' + fmtDate(x.date) + ' ' + (x.zeit || '')).join('\n')}\n\nMit dem Bestätigen wird ${firstName(it.t)} dort ausgetragen und die Plätze sind wieder unbesetzt. Fortfahren?`)) return;
+    const prevAsg = jobs.map((x) => S.asg[x.key]); const rel = prevAsg.map((a) => releaseAsg(a, 'kann nicht' + (it.r.note ? ': ' + it.r.note : '')));
     close();
-    await optimistic(() => (S.unav = ok ? S.unav.map((u) => (u.tech_id === it.t.id && set.has(u.day) ? Object.assign({}, u, { confirmed: true }) : u)) : S.unav.filter((u) => !(u.tech_id === it.t.id && set.has(u.day)))),
-      async () => { if (ok) await store.confirmUnav(it.t.id, it.r.days); else await store.clearUnavMany(it.t.id, it.r.days);
+    await optimistic(() => { S.unav = ok ? S.unav.map((u) => (u.tech_id === it.t.id && set.has(u.day) ? Object.assign({}, u, { confirmed: true }) : u)) : S.unav.filter((u) => !(u.tech_id === it.t.id && set.has(u.day))); rel.forEach((a) => (S.asg[a.slot_key] = a)); },
+      async () => { if (ok) { await store.confirmUnav(it.t.id, it.r.days); if (rel.length) await store.saveAssignments(rel); } else await store.clearUnavMany(it.t.id, it.r.days);
         notify('techs', [it.t.id], ok ? '„Kann nicht“ bestätigt ✓' : '„Kann nicht“ nicht bestätigt', `${span(it.r)} – ${ok ? 'ist eingetragen.' : 'bitte melde dich bei ' + CFG.senderName + '.'}`, 'unav-ok-' + it.t.id);
-        toast(ok ? 'Bestätigt ✓' : 'Abgelehnt – Tage gelöscht'); }, null, () => (S.unav = prev));
+        toast(ok ? (rel.length ? `Bestätigt ✓ – ${firstName(it.t)} aus ${rel.length} ${rel.length === 1 ? 'Einsatz' : 'Einsätzen'} ausgetragen` : 'Bestätigt ✓') : 'Abgelehnt – Tage gelöscht'); }, null, () => { S.unav = prev; prevAsg.forEach((a) => (S.asg[a.slot_key] = a)); });
     setTimeout(openBell, 50);
   }));
   void reopen;
@@ -1541,7 +1547,7 @@ function openJob(key, list) {
     <div class="sh-actions">
       ${status === 'angefragt' && !S.admin && !S.viewer && !(hasMgr(myTech()) && !S.mgrMode && a.tech_reply) ? (S.mgrMode ? `<button class="big yes" data-ans="zugesagt">✓ Zusagen für ${esc(((techById(a.tech_id) || {}).name || '').split(' ')[0])}</button><button class="big no" data-ans="abgesagt">✗ Absagen</button>` : `<button class="big yes" data-ans="zugesagt">${hasMgr(myTech()) ? '👍 Ich könnte' : '✓ Ich kann'}</button><button class="big no" data-ans="abgesagt">✗ Kann nicht</button>`) : ''}
       ${status === 'zugesagt' && !S.viewer ? `<button class="big ghost" data-ics>📅 In meinen Kalender</button>` : ''}
-      ${status === 'zugesagt' && !S.viewer && !S.admin && !S.mgrMode && !hasMgr(myTech()) ? (a.tech_reply === 'absage_wunsch' ? `<p class="cw-pend big-pend">⏳ Absage beantragt – ${esc(CFG.senderName)} entscheidet</p>` : `<button class="big no" data-cancelreq="${esc(s.key)}">Absage beantragen</button>`) : ''}
+      ${status === 'zugesagt' && !S.viewer && !S.admin && (S.mgrMode || !hasMgr(myTech())) ? (a.tech_reply === 'absage_wunsch' ? `<p class="cw-pend big-pend">⏳ Absage beantragt – ${esc(CFG.senderName)} entscheidet</p>` : `<button class="big no" data-cancelreq="${esc(s.key)}">Absage beantragen</button>`) : ''}
       ${isOffer ? (meIn ? `<button class="big ghost" data-oint="off">Meldung zurückziehen</button>` : `<button class="big yes" data-oint="on">🙋 Ich hätte Zeit</button>`) : ''}
     </div>
   </div></div>`;
@@ -1751,7 +1757,7 @@ function renderManager(team, me) {
         </div>
       </details>
     </section>
-    ${yes.length ? `<section class="dpanel"><h2 class="sec">Kommende Einsätze deines Teams</h2><div class="mini-list">${yes.map((x) => `<div class="mini-line">${dateBox(x.date)}<button class="ml-txt jc-open" data-open="${esc(x.key)}"><b>${esc((techById(S.asg[x.key].tech_id) || {}).name || '')} · ${esc(niceTime(x.zeit))}</b><small>${esc(x.va || '')} · ${untilTxt(x.date)}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div></section>` : ''}
+    ${yes.length ? `<section class="dpanel"><h2 class="sec">Kommende Einsätze deines Teams</h2><div class="mini-list">${yes.map((x) => `<div class="mini-line">${dateBox(x.date)}<button class="ml-txt jc-open" data-open="${esc(x.key)}"><b>${esc((techById(S.asg[x.key].tech_id) || {}).name || '')} · ${esc(niceTime(x.zeit))}</b><small>${esc(x.va || '')} · ${untilTxt(x.date)}</small><span class="jc-more">Details ›</span></button>${S.asg[x.key].tech_reply === 'absage_wunsch' ? '<span class="cw-pend">⏳ Absage beantragt</span>' : `<button class="linkbtn danger" data-cancelreq="${esc(x.key)}">Absage beantragen</button>`}</div>`).join('')}</div></section>` : ''}
     </aside></div>
     <p class="note center">Fragen? ${esc(CFG.senderName)} erreichst du über die Anfrage-Mail.</p>${legalFoot()}`;
   const ad = m.querySelector('.ab-add'); if (ad) ad.ontoggle = () => (S.absOpen = ad.open);
@@ -1776,9 +1782,12 @@ function renderManager(team, me) {
     const tid = $('#mT').value; const from = $('#mFrom').value; const to = $('#mTo').value || from; const note = $('#mNote').value.trim();
     if (!from) return toast('Bitte ein Startdatum wählen.'); if (to < from) return toast('„Bis“ liegt vor „Von“.');
     const days = daysBetween(from, to); if (days.length > 120) return toast('Bitte höchstens 120 Tage auf einmal.');
+    const clashM = allSlots().filter((x) => days.includes(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === tid && S.asg[x.key].status === 'zugesagt');
+    if (clashM.length && !confirm(`${(techById(tid) || {}).name} hat in diesem Zeitraum ${clashM.length === 1 ? 'einen zugesagten Einsatz' : clashM.length + ' zugesagte Einsätze'}.\n\nTrotzdem eintragen? Dann geht automatisch ein Absage-Wunsch an ${CFG.senderName}.`)) return;
     const prev = S.unav; S.absOpen = false;
     const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO(), confirmed: !!S.admin }))); },
       () => store.setUnavMany(tid, days, note, !!S.admin), null, () => (S.unav = prev));
+    if (ok && clashM.length) { await autoCancelReq(techById(tid), clashM, note); paint(); }
     if (ok) { notify('admins', [], `${(techById(tid) || {}).name || 'Techniker'} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''} · eingetragen vom Projektleiter`, 'unav-' + tid); toast('Eingetragen'); }
   };
   m.querySelectorAll('[data-mdel]').forEach((b) => (b.onclick = () => {

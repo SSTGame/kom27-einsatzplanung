@@ -416,3 +416,12 @@ begin
 end; $$;
 drop trigger if exists unav_confirm_guard on public.unavailability;
 create trigger unav_confirm_guard before insert or update on public.unavailability for each row execute function public.unav_confirm_guard();
+
+-- ===================== v14: Projektleiter dürfen Absage beantragen =====================
+create or replace function public.request_cancel(p_slot text, p_note text)
+returns void language plpgsql security definer set search_path to 'public' as $function$
+begin
+  update assignments set tech_reply = 'absage_wunsch', tech_reply_note = coalesce(left(p_note, 300), ''), tech_reply_at = now()
+   where slot_key = p_slot and status = 'zugesagt' and (tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
+  if not found then raise exception 'Kein zugesagter Einsatz gefunden'; end if;
+end $function$;

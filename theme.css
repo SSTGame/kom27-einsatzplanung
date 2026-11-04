@@ -654,3 +654,16 @@ body.scroll-lock { position: fixed; left: 0; right: 0; width: 100%; overflow: hi
 .zs-lgd { margin-top: 10px; }
 @media (max-width: 700px) { .zs { padding: 12px 10px; } .zs-row { grid-template-columns: 84px 1fr; } .zs-name { font-size: 12.5px; } }
 .zs-gap { align-items: center; } .zs-gap em { position: static; display: block; transform: translateY(-50%); line-height: 1.35; padding: 0 5px; position: relative; top: 0; z-index: 1; box-shadow: 0 0 0 2px var(--panel); }
+
+/* Techniker: Abstand Hinweis, Abwesenheiten aufklappbar */
+.boss-help { margin-top: 14px; }
+.allgood + .boss-help, .allgood + h2 + .mini-list + .boss-help { margin-top: 16px; }
+.abs-list summary { list-style: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; cursor: pointer; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+.abs-list summary::-webkit-details-marker { display: none; }
+.abs-list summary b { font-size: 13.5px; }
+.abs-list .abs-n { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--st-abgesagt); color: #fff; font-size: 12px; font-weight: 700; font-family: var(--f-num); }
+.abs-list summary small { color: var(--muted); font-size: 12.5px; }
+.abs-list .abs-tg { margin-left: auto; font-style: normal; font-size: 13px; font-weight: 650; color: var(--accent); }
+.abs-list .abs-tg::after { content: ' ▾'; } .abs-list[open] .abs-tg::after { content: ' ▴'; }
+.abs-list[open] summary { margin-bottom: 4px; }
+.abs-list .abs-tg::before { content: 'anzeigen'; } .abs-list[open] .abs-tg::before { content: 'zuklappen'; }

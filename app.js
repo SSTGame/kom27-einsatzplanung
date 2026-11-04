@@ -1287,7 +1287,7 @@ function techCalHtml(t) {
       <button class="big no solid" id="rAdd">Ganzen Zeitraum als „kann nicht“ eintragen</button>
     </details>
     <div class="cal-legend"><span class="lgd off"></span>kann nicht <span class="lgd l-ok"></span>Einsatz zugesagt <span class="lgd l-ask"></span>Anfrage offen</div>
-    <div class="cal-sum">${(() => { const rs = unavRanges(t.id, today); return rs.length ? `<b>Deine eingetragenen Abwesenheiten</b>${rs.map((r) => `<div class="rline"><span>${r.from === r.to ? shortDate(r.from) : shortDate(r.from) + ' – ' + shortDate(r.to)} <small>${r.days.length} Tag${r.days.length > 1 ? 'e' : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span><button class="linkbtn danger" data-rdel="${r.days.join(',')}">löschen</button></div>`).join('')}` : 'Noch keine Tage eingetragen.'; })()}</div>
+    <div class="cal-sum">${(() => { const rs = unavRanges(t.id, today); return rs.length ? `<details class="abs-list" ${S.calListOpen ? 'open' : ''} ontoggle="S.calListOpen = this.open"><summary><b>Deine eingetragenen Abwesenheiten</b><span class="abs-n">${rs.length}</span><small>nächste: ${rs[0].from === rs[0].to ? shortDate(rs[0].from) : shortDate(rs[0].from) + ' – ' + shortDate(rs[0].to)}</small><i class="abs-tg"></i></summary>${rs.map((r) => `<div class="rline"><span>${r.from === r.to ? shortDate(r.from) : shortDate(r.from) + ' – ' + shortDate(r.to)} <small>${r.days.length} Tag${r.days.length > 1 ? 'e' : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span><button class="linkbtn danger" data-rdel="${r.days.join(',')}">löschen</button></div>`).join('')}</details>` : 'Noch keine Tage eingetragen.'; })()}</div>
   </div>`;
 }
 
@@ -2039,7 +2039,7 @@ function renderTech() {
     ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid <span class="sec-n">${nOpen}</span></h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
     ${team.length ? `<button class="big ghost" id="toTeam">👥 Zu den Freigaben für dein Team</button>` : ''}
     ${waiting.length ? `<h2 class="sec">⏳ Wartet auf Freigabe durch ${esc(mgrLabel(t))}</h2><div class="mini-list">${waiting.map((s) => line(s, 'wait')).join('')}</div>` : ''}
-    ${boss && yes.length ? `<p class="sec-help">Änderungen an zugesagten Einsätzen bitte über ${esc(mgrLabel(t))}.</p>` : ''}
+    ${boss && yes.length ? `<p class="sec-help boss-help">Änderungen an zugesagten Einsätzen bitte über ${esc(mgrLabel(t))}.</p>` : ''}
     ${toLog.length ? `<h2 class="sec" id="timeSec">⏱ Arbeitszeit bestätigen</h2><p class="sec-help">Kurz eintragen, wie lange du wirklich da warst – ${esc(CFG.senderName)} braucht das für die Abrechnung. Vorausgefüllt mit der geplanten Zeit.</p>
       ${toLog.map((x) => `<article class="time-card"><div class="tc-top">${dateBox(x.date)}<div class="tc-head"><b>${esc(x.va || 'Einsatz')}</b><small>${esc(longDate(x.date))} · geplant ${esc(x.zeit || '–')}</small></div></div>${timeForm(x, S.asg[x.key])}</article>`).join('')}` : ''}
     ${offered.length ? `<h2 class="sec" id="offerSec">📣 Offene Einsätze – hast du Zeit?</h2><p class="sec-help">Diese Einsätze sind noch nicht besetzt. Melde dich, wenn du kannst – ${esc(CFG.senderName)} entscheidet dann und du bekommst Bescheid.</p>

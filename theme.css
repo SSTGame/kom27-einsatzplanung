@@ -429,3 +429,5 @@ button.ov { cursor: pointer; } button.ov:hover { border-color: var(--accent); }
 .privbar .btn { flex: none; background: var(--bg); color: var(--ink); border: 0; }
 @media (max-width: 1099px) { body:has(.mine .viewtabs) .privbar, body.is-master .privbar { bottom: calc(92px + env(safe-area-inset-bottom)); } }
 a.brand { color: var(--ink); text-decoration: none; cursor: pointer; } a.brand:hover { opacity: .85; }
+.legal-links { align-items: baseline; line-height: 1.4; }
+.legal-links a, .legal-links .linkbtn { display: inline; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; line-height: inherit; vertical-align: baseline; min-height: 0; height: auto; box-shadow: none; }

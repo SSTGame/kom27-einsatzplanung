@@ -428,3 +428,4 @@ button.ov { cursor: pointer; } button.ov:hover { border-color: var(--accent); }
 .privbar a { color: inherit; text-decoration: underline; font-weight: 600; }
 .privbar .btn { flex: none; background: var(--bg); color: var(--ink); border: 0; }
 @media (max-width: 1099px) { body:has(.mine .viewtabs) .privbar, body.is-master .privbar { bottom: calc(92px + env(safe-area-inset-bottom)); } }
+a.brand { color: var(--ink); text-decoration: none; cursor: pointer; } a.brand:hover { opacity: .85; }

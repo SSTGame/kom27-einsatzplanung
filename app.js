@@ -417,6 +417,14 @@ document.addEventListener('click', async (ev) => {
   if (!confirm('Konto wirklich löschen?\n\nDeine Anmeldung und Push-Benachrichtigungen werden sofort gelöscht. Deine Einsätze und Arbeitszeiten bleiben bei der Planung, soweit sie für die Abrechnung nötig sind.\n\nDu kannst später jederzeit ein neues Konto anlegen.')) return;
   try { await store.deleteMe(); S.user = null; ls.del('kom27-last-email'); renderLogin('Dein Konto wurde gelöscht.'); } catch (e) { toast('Löschen hat nicht geklappt: ' + (e.message || e)); }
 });
+// Logo antippen = zurück zur Startseite (Master: Planung, Techniker/KOM27: Einsätze)
+document.addEventListener('click', (ev) => {
+  const h = ev.target.closest('[data-home]'); if (!h || ev.metaKey || ev.ctrlKey) return;
+  ev.preventDefault();
+  const sh = document.getElementById('sheet'); if (sh) sh.remove(); document.body.classList.remove('noscroll');
+  S.tab = 'plan'; S.techTab = 'jobs'; S.filter = 'alle'; S.keep = new Set(); S.view2 = undefined; S.komWeek = undefined;
+  if (S.user) paint(); window.scrollTo({ top: 0, behavior: 'smooth' });
+});
 function renderLogin(msg) {
   document.body.classList.remove('is-master');
   const demoTechs = DEMO ? (DemoStore.d().techs || []).filter((t) => t.email) : [];
@@ -481,7 +489,7 @@ function renderLogin(msg) {
 /* ---------------- Render: Master ---------------- */
 function header(extra) {
   return `<header class="top"><div class="top-inner">
-    <div class="brand">KOM27 Einsatzplanung<small>${DEMO ? 'Demo' : esc(S.user.email)}</small></div>
+    <a class="brand" href="./" data-home title="Zur Startseite">KOM27 Einsatzplanung<small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
     <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></span></button></div></header>`;

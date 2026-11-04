@@ -1470,7 +1470,7 @@ function colleaguesOf(s) {
 
 function timeline(s) {
   const det = s.det || {};
-  const rows = [[S.viewer ? 'Techniker' : 'Dein Einsatz', s.zeit, 'tl-me'], ['Raum gebucht', det.buch, 'tl-b'], ['Veranstaltung', det.vazeit || s.day.vazeit, 'tl-va']].map(([l, z, c]) => [l, z, c, parseSpan(z)]).filter((r) => r[3]);
+  const rows = [[S.viewer || S.mgrMode ? 'Techniker' : 'Dein Einsatz', s.zeit, 'tl-me'], ['Raum gebucht', det.buch, 'tl-b'], ['Veranstaltung', det.vazeit || s.day.vazeit, 'tl-va']].map(([l, z, c]) => [l, z, c, parseSpan(z)]).filter((r) => r[3]);
   if (rows.length < 2) return '';
   const lo = Math.floor(Math.min(...rows.map((r) => r[3][0]))); const hi = Math.ceil(Math.max(...rows.map((r) => r[3][1]))); const span = Math.max(hi - lo, 1);
   const ticks = []; for (let h = lo; h <= hi; h += span > 10 ? 2 : 1) ticks.push(`<i style="left:${((h - lo) / span) * 100}%">${hm(h).slice(0, 2)}</i>`);
@@ -1504,6 +1504,7 @@ function equipHtml(s) {
   const done = doneGet()[s.key] || [];
   return rooms.map(([room, text], ri) => {
     const items = equipItems(text);
+    if (S.mgrMode) return `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="plain">${items.map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</li>`).join('')}</ul></div>`;
     return `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="check">${items.map((it, ii) => { const id = ri + '.' + ii; const on = done.includes(id);
       return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${id}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</span></label></li>`; }).join('')}</ul></div>`;
   }).join('');
@@ -1530,15 +1531,15 @@ function openJob(key, list) {
       <div class="sh-va">${esc(s.va || 'Einsatz')}${s.label && s.label.replace(/\s/g, '') !== (s.va || '') ? ' · ' + esc(s.label) : ''}</div>
       ${grp.length > 1 ? `<div class="sh-days"><span>Tag ${gi + 1} von ${grp.length}</span>${grp.map((x) => `<button class="chip ${x.key === s.key ? 'on' : ''}" data-jump="${esc(x.key)}">${shortDate(x.date)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="facts">${fact(isOffer || S.viewer ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.nopam ? s.zeit : s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit, s.nopam && !s.zeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
+    <div class="facts">${fact(isOffer || S.viewer || S.mgrMode ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.nopam ? s.zeit : s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit, s.nopam && !s.zeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
-    <h3>🛠 ${S.viewer ? 'Aufbau' : 'Das baust du auf'}</h3>
+    <h3>🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}</h3>
     ${equipHtml(s)}
-    ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
+    ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : S.mgrMode ? '' : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
     ${(det.extras || []).length ? `<h3>ℹ️ Weitere Infos</h3><dl class="extras">${det.extras.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>` : ''}
     ${a.actual_start ? `<div class="hint ok">⏱ Bestätigte Arbeitszeit: ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''} = ${fmtH(actualHours(a))}</div>` : ''}
-    ${isOffer ? '' : `<h3>👥 ${S.viewer ? 'Weitere Techniker an dem Tag' : 'Mit dir im Haus'}</h3>`}
+    ${isOffer ? '' : `<h3>👥 ${S.viewer || S.mgrMode ? 'Weitere Techniker an dem Tag' : 'Mit dir im Haus'}</h3>`}
     ${isOffer ? '' : coll.length ? `<div class="coll">${coll.map((c) => `<span class="cchip ${c.status}">${esc(c.name)}${c.zeit ? ' <small>' + esc(c.zeit) + '</small>' : ''}${c.status === 'angefragt' ? ' <small>(angefragt)</small>' : ''}</span>`).join('')}</div>` : `<p class="muted">${S.viewer ? 'Sonst ist niemand eingeteilt.' : 'Nach aktuellem Stand bist du allein eingeteilt.'}</p>`}
     <h3>🏢 Medientechnik KOM27 vor Ort</h3>
     ${!s.day.kom ? `<p class="muted small">Erscheint nach dem nächsten Einlesen der Excel.</p>` : s.day.kom.length ? `<div class="coll">${s.day.kom.map((n) => `<span class="cchip kom">${esc(n)}</span>`).join('')}</div>` : `<p class="muted">Laut Excel ist an dem Tag niemand von der KOM27-Medientechnik eingetragen.</p>`}

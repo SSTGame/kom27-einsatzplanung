@@ -162,7 +162,7 @@ function dataSig() {
 function paint(anchorSel) {
   const anc = anchorSel ? document.querySelector(anchorSel) : null;
   const top = anc ? anc.getBoundingClientRect().top : null; const y = window.scrollY;
-  S.admin ? renderMaster() : S.viewer ? renderKom() : renderTech();
+  S.admin && !S.preview ? renderMaster() : S.viewer ? renderKom() : renderTech();
   const n = anchorSel ? document.querySelector(anchorSel) : null;
   if (n && top !== null) window.scrollBy(0, n.getBoundingClientRect().top - top); else window.scrollTo(0, y);
   S.sig = dataSig();
@@ -932,7 +932,7 @@ function renderTechs() {
       <tr class="tr-add"><td colspan="8"><button class="btn" id="addTech">+ Techniker hinzufügen</button></td></tr>
     </tbody></table></div>
   <p class="note"><b>Techniker mit eigenem Chef:</b> Bei „Freigabe durch“ die E-Mail des Projektleiters eintragen. Der Techniker sieht seine Anfragen und meldet „könnte / kann nicht“, die verbindliche Zusage gibt der Projektleiter – er meldet sich mit dieser E-Mail selbst an und sieht nur sein Team.</p>
-  <h2 class="sec">🏢 KOM27-Zugänge (nur ansehen)</h2>
+  <h2 class="sec">🏢 KOM27-Zugänge (nur ansehen) <button class="btn small" id="pvKom">👁 So sieht es für Jens & Felix aus</button></h2>
   <p class="note">Für die Medientechnik des KOM27 (z. B. Jens, Felix): sieht alle Termine, wer eingeteilt ist, Aufbaulisten und die KOM27-Infos – kann aber nichts zusagen oder einteilen. Anmelden wie die Techniker: mit dieser E-Mail auf „Konto anlegen“.</p>
   <div class="card"><table class="list viewers"><thead><tr><th>Name</th><th>E-Mail (= Login)</th><th></th></tr></thead><tbody>
     ${(S.viewers || []).map((v) => `<tr><td data-l="Name">${esc(v.name)}</td><td data-l="E-Mail">${esc(v.email)}</td><td class="td-del"><button class="btn small" data-vdel="${esc(v.email)}">Entfernen</button></td></tr>`).join('')}
@@ -953,6 +953,7 @@ function renderTechs() {
   }));
   const add = async (name) => { await save({ id: uid(), name, email: '', aliases: '', active: true, company: '', manager_email: null }); renderMaster(); };
   $('#addTech').onclick = () => add('Neuer Techniker');
+  $('#pvKom').onclick = () => { S.preview = true; S.viewer = true; S.techTab = 'jobs'; paint(); window.scrollTo(0, 0); };
   $('#vAdd').onclick = async () => {
     const name = $('#vName').value.trim(); const email = $('#vMail').value.trim().toLowerCase();
     if (!name || !/^\S+@\S+\.\S+$/.test(email)) return toast('Bitte Name und gültige E-Mail eintragen');
@@ -1522,6 +1523,7 @@ function komTodayCard() {
     <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
   </section>`;
 }
+const pvBar = () => (S.preview ? `<div class="pv-bar"><span>👁 <b>Vorschau:</b> So sehen Jens & Felix die App</span><button class="btn small" id="pvEnd">Zurück zum Master</button></div>` : '');
 function renderKom() {
   document.body.classList.remove('is-master');
   const today = todayISO();
@@ -1534,15 +1536,17 @@ function renderKom() {
     m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
     const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
+    const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
-  if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wire(); wireKb(m); return; }
+  if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml(); wire(); wireKb(m); return; }
   const from = S.komPast ? addDays(today, -60) : today;
   const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
   const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));
   const wSl = week.flatMap((d) => d.slots);
   const wOk = wSl.filter((s) => komOf(s.key) && komOf(s.key).status === 'zugesagt').length;
   const wOpen = wSl.filter((s) => !komOf(s.key)).length;
-  const me = (S.user.email || '').split('@')[0]; const v = (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
+  const me = (S.user.email || '').split('@')[0];
+  const v = S.preview ? ((S.viewers || [])[0] || { name: 'Jens' }) : (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
   let lastMon = '';
   const dayCard = (d) => {
     const mon = d.date.slice(0, 7); const head = mon !== lastMon ? `<h2 class="sec">${MON[+mon.slice(5, 7) - 1]} ${mon.slice(0, 4)}</h2>` : ''; lastMon = mon;
@@ -1553,7 +1557,7 @@ function renderKom() {
       <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
       ${rows}</article>`;
   };
-  m.innerHTML = vt + komTodayCard() + `
+  m.innerHTML = pvBar() + vt + komTodayCard() + `
     <section class="hello">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
       <p>Medientechnik KOM27 · hier siehst du alle Einsätze der PAM-Techniker</p>

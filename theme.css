@@ -500,3 +500,24 @@ table.grid td.sum, table.grid th.sum { min-width: 46px; padding: 0 4px; }
   .is-dash .hello.hi-mgr .sumrow { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
   .is-dash #toMe { max-width: 420px; margin-bottom: 14px; }
 }
+
+/* Live-Uhr */
+.clock { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap; flex: none; }
+.clock b { font-family: var(--f-num); font-stretch: 112%; font-size: 17px; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.clock small { font-size: 12px; color: var(--muted); font-weight: 600; }
+@media (min-width: 1100px) {
+  body.is-master .top-inner > .brand { order: -3; } body.is-master .top-inner > .live { order: -2; }
+  body.is-master .clock { order: -1; align-self: stretch; justify-content: center; margin: 0 4px 14px; padding: 8px 10px; }
+  body.is-master .clock b { font-size: 22px; }
+}
+@media (max-width: 1099px) {
+  .clock { padding: 4px 8px; } .clock b { font-size: 16px; }
+  .clock small { display: none; }
+}
+@media (max-width: 420px) {
+  .top-inner .live { font-size: 0; gap: 0; } .top-inner .live i { margin: 0; }
+  .brand { font-size: 15.5px; }
+}
+@media (max-width: 1099px) { .top-inner .live { font-size: 0; gap: 0; } }
+@media (max-width: 440px) { .brand .b-x { display: none; } .brand { font-size: 17px; } }
+@media (min-width: 360px) and (max-width: 1099px) { .clock small { display: inline; font-size: 11.5px; } }

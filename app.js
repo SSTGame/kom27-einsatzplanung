@@ -496,11 +496,15 @@ function renderLogin(msg) {
 }
 
 /* ---------------- Render: Master ---------------- */
+// Live-Uhr oben im Kopf
+const clockHtml = () => { const d = new Date(); return `<b>${pad(d.getHours())}:${pad(d.getMinutes())}</b><small>${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.</small>`; };
+setInterval(() => { const c = document.getElementById('clock'); if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; } }, 5000);
 function header(extra) {
   return `<header class="top"><div class="top-inner">
-    <a class="brand" href="./" data-home title="Zur Startseite">KOM27 Einsatzplanung<small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
+    <a class="brand" href="./" data-home title="Zur Startseite">KOM27<span class="b-x"> Einsatzplanung</span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
+    <span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
     <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></span></button></div></header>`;
 }
 

@@ -53,9 +53,10 @@ const DemoStore = {
     if (!t || !a || a.tech_id !== t.id || a.status !== 'zugesagt') throw new Error('Kein zugesagter Einsatz gefunden.');
     Object.assign(a, { actual_start: st, actual_end: en, break_min: brk, time_note: note || '', time_at: nowISO() }); this.w(d);
   },
-  async setUnav(tech_id, day, note) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '', created_at: nowISO() }); this.w(d); },
+  async setUnav(tech_id, day, note, confirmed) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '', created_at: nowISO(), confirmed: !!confirmed }); this.w(d); },
+  async confirmUnav(tech_id, days) { const d = this.d(); const set = new Set(days); (d.unav || []).forEach((u) => { if (u.tech_id === tech_id && set.has(u.day)) u.confirmed = true; }); this.w(d); },
   async clearUnav(tech_id, day) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); this.w(d); },
-  async setUnavMany(tech_id, days, note) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); days.forEach((day) => d.unav.push({ tech_id, day, note: note || '' })); this.w(d); },
+  async setUnavMany(tech_id, days, note, confirmed) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); days.forEach((day) => d.unav.push({ tech_id, day, note: note || '', created_at: nowISO(), confirmed: !!confirmed })); this.w(d); },
   async clearUnavMany(tech_id, days) { const d = this.d(); const set = new Set(days); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && set.has(u.day))); this.w(d); },
   async savePlan(plan) { const d = this.d(); d.plan = plan; this.w(d); },
   async saveKb(e) { const d = this.d(); d.kb = (d.kb || []).filter((x) => x.id !== e.id).concat([e]); this.w(d); return e; },
@@ -109,7 +110,7 @@ function makeSupabaseStore() {
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
-      const u = await sb.from('unavailability').select('tech_id, day, note, created_at'); // fehlt die Tabelle noch, einfach leer
+      let u = await sb.from('unavailability').select('tech_id, day, note, created_at, confirmed'); if (u.error) u = await sb.from('unavailability').select('tech_id, day, note, created_at'); // fehlt die Tabelle noch, einfach leer
       const [of, oi] = await Promise.all([sb.from('offers').select('*'), sb.from('offer_interest').select('*')]);
       const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
       const co = await sb.rpc('my_colleagues'); // wer am selben Tag mit im Einsatz ist (fehlt die Funktion: leer)
@@ -117,9 +118,10 @@ function makeSupabaseStore() {
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [] };
     },
-    async setUnav(tech_id, day, note) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '' })); },
+    async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
+    async confirmUnav(tech_id, days) { chk(await sb.from('unavailability').update({ confirmed: true }).eq('tech_id', tech_id).in('day', days)); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
-    async setUnavMany(tech_id, days, note) { chk(await sb.from('unavailability').upsert(days.map((day) => ({ tech_id, day, note: note || '' })))); },
+    async setUnavMany(tech_id, days, note, confirmed) { chk(await sb.from('unavailability').upsert(days.map((day) => ({ tech_id, day, note: note || '', confirmed: !!confirmed })))); },
     async clearUnavMany(tech_id, days) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).in('day', days)); },
     async savePlan(plan) { chk(await sb.from('plan').upsert({ id: 1, data: plan, imported_at: plan.importedAt })); },
     async saveTech(t) { return chk(await sb.from('technicians').upsert(Object.assign({}, t, { email: t.email || null })).select().single()); },
@@ -159,7 +161,7 @@ const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key)
 // Signatur der fachlichen Daten (ohne Zeitstempel) – ändert sich nichts, wird nicht neu gezeichnet
 function dataSig() {
   const a = Object.values(S.asg || {}).map((x) => [x.slot_key, x.tech_id, x.status, x.note || '', (x.declined || []).join(','), x.actual_start || '', x.actual_end || '', x.break_min ?? '', x.tech_reply || '']).sort().join('|');
-  const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '')).sort().join('|');
+  const u = (S.unav || []).map((x) => x.tech_id + x.day + (x.note || '') + (x.confirmed === false ? '?' : '')).sort().join('|');
   const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases, x.manager_email, x.company].join(',')).join('|');
   const kms = Object.values(S.komAsg || {}).map((x) => x.slot_key + x.status + x.name).sort().join('|');
   const kbs = kms + (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
@@ -437,6 +439,72 @@ document.addEventListener('click', async (ev) => {
   notify('admins', [], `🙋 ${firstName(t)} möchte absagen`, `${fmtDate(sl.date)} ${sl.zeit || ''}${r.trim() ? ' – „' + r.trim() + '“' : ''} · bitte unter „Anfragen“ freigeben oder ablehnen`, 'cancelreq-' + key);
   toast(`Absage beantragt – ${CFG.senderName} entscheidet`);
 });
+// Kann-nicht an einem Tag mit Zusage → automatisch Absage-Wunsch (Master entscheidet)
+async function autoCancelReq(t, slots, note) {
+  for (const sl of slots || []) {
+    const a = S.asg[sl.key]; if (!a || a.status !== 'zugesagt' || a.tech_reply === 'absage_wunsch') continue;
+    const txt = 'kann nicht eingetragen' + (note ? ': ' + note : '');
+    try { await store.requestCancel(S.user.email, sl.key, txt); S.asg[sl.key] = Object.assign({}, a, { tech_reply: 'absage_wunsch', tech_reply_note: txt, tech_reply_at: nowISO() }); } catch (e) { /* bleibt eingeteilt */ }
+  }
+}
+// Master: Absage-Wunsch freigeben oder ablehnen
+function decideCancel(key, ok, after) {
+  const prev = S.asg[key]; if (!prev) return; const t = techById(prev.tech_id); const sl = allSlots().find((x) => x.key === key);
+  const a = ok ? Object.assign({}, prev, { status: 'abgesagt', note: prev.tech_reply_note || 'Absage freigegeben', declined: [...new Set([...(prev.declined || []), prev.tech_id])], tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() })
+    : Object.assign({}, prev, { tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() });
+  return optimistic(() => (S.asg[key] = a), async () => {
+    await store.saveAssignments([a]);
+    if (t) notify('techs', [t.id], ok ? 'Absage bestätigt' : 'Einsatz bleibt bestehen', `KOM27 ${sl ? fmtDate(sl.date) + ' ' + (sl.zeit || '') : ''} – ${ok ? 'du bist ausgetragen. Danke für die Info!' : 'bitte melde dich bei ' + CFG.senderName + ', falls es wirklich nicht geht.'}`, 'cw-' + key);
+    toast(ok ? `Absage freigegeben – ${t ? firstName(t) : ''} ist ausgetragen. Ersatz einteilen nicht vergessen.` : 'Abgelehnt – Einsatz bleibt zugesagt');
+    if (after) after();
+  }, null, () => (S.asg[key] = prev));
+}
+// Alles, was der Master bestätigen muss
+function pendingItems() {
+  const today = todayISO(); const out = [];
+  allSlots().filter((s) => s.date >= today && S.asg[s.key] && S.asg[s.key].status === 'zugesagt' && S.asg[s.key].tech_reply === 'absage_wunsch').sort((a, b) => a.date.localeCompare(b.date))
+    .forEach((s) => out.push({ kind: 'cancel', s, a: S.asg[s.key], t: techById(S.asg[s.key].tech_id) }));
+  S.techs.forEach((t) => {
+    const days = (S.unav || []).filter((u) => u.tech_id === t.id && u.confirmed === false && u.day >= today).map((u) => u.day).sort();
+    const rs = []; days.forEach((d) => { const u = unavOf(t.id, d); const last = rs[rs.length - 1]; if (last && addDays(last.to, 1) === d && last.note === (u.note || '')) { last.to = d; last.days.push(d); } else rs.push({ from: d, to: d, note: u.note || '', days: [d] }); });
+    rs.forEach((r) => out.push({ kind: 'unav', t, r }));
+  });
+  return out;
+}
+const bellHtml = () => { if (!S.admin || S.preview) return ''; const n = pendingItems().length; return `<button class="bell ${n ? 'has' : ''}" id="bell" title="${n ? n + ' zu bestätigen' : 'Nichts zu bestätigen'}" aria-label="Zu bestätigen: ${n}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>${n ? `<b>${n}</b>` : ''}</button>`; };
+function openBell() {
+  const items = pendingItems();
+  const span = (r) => (r.from === r.to ? fmtDate(r.from) : fmtDate(r.from) + ' – ' + fmtDate(r.to));
+  const body = items.length ? items.map((it, i) => {
+    if (it.kind === 'cancel') return `<div class="bl-item cancel"><div class="bl-k">🙋 Möchte absagen</div><b>${esc(it.t ? it.t.name : '?')}</b> · ${esc(slotLine(it.s))}${it.a.tech_reply_note ? `<small>„${esc(it.a.tech_reply_note)}“</small>` : ''}<small class="muted">beantragt ${esc(ago(it.a.tech_reply_at))}</small>
+      <div class="bl-act"><button class="btn danger-solid" data-blc="${esc(it.s.key)}" data-ok="1">Absage freigeben</button><button class="btn" data-blc="${esc(it.s.key)}" data-ok="0">Ablehnen – bleibt eingeteilt</button></div></div>`;
+    const clash = allSlots().filter((x) => it.r.days.includes(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === it.t.id && ['zugesagt', 'angefragt'].includes(S.asg[x.key].status));
+    return `<div class="bl-item unav"><div class="bl-k">⛔ Kann nicht</div><b>${esc(it.t.name)}</b> · ${esc(span(it.r))} <small>${it.r.days.length} Tag${it.r.days.length > 1 ? 'e' : ''}${it.r.note ? ' · „' + esc(it.r.note) + '“' : ''}</small>
+      ${clash.length ? `<small class="bl-warn">⚠ ist an ${esc(clash.map((x) => fmtDate(x.date)).join(', '))} eingeteilt${clash.some((x) => S.asg[x.key].tech_reply === 'absage_wunsch') ? ' – Absage-Wunsch steht oben' : ''}</small>` : ''}
+      <div class="bl-act"><button class="btn primary" data-blu="${i}" data-ok="1">✓ Bestätigen</button><button class="btn" data-blu="${i}" data-ok="0">Ablehnen</button></div></div>`;
+  }).join('') : '<p class="muted bl-empty">✓ Nichts zu bestätigen.</p>';
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet bl-sheet" role="dialog" aria-modal="true" aria-label="Zu bestätigen">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><span class="pill">${items.length ? items.length + ' zu bestätigen' : 'Alles erledigt'}</span></div>
+    <h2 class="bl-h">Zu bestätigen</h2><p class="note">„Kann nicht“-Einträge und Absagen der Techniker gelten erst, wenn du sie bestätigst.</p>${body}</div></div>`;
+  const old = $('#sheet'); if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', html); document.body.classList.add('noscroll');
+  const box = $('#sheet'); const close = () => { box.remove(); document.body.classList.remove('noscroll'); };
+  box.onclick = (e) => { if (e.target === box) close(); }; box.querySelector('[data-close]').onclick = close;
+  const reopen = () => { if (document.getElementById('sheet')) openBell(); };
+  box.querySelectorAll('[data-blc]').forEach((b) => (b.onclick = () => { close(); decideCancel(b.dataset.blc, b.dataset.ok === '1', () => setTimeout(openBell, 50)); }));
+  box.querySelectorAll('[data-blu]').forEach((b) => (b.onclick = async () => {
+    const it = items[+b.dataset.blu]; const ok = b.dataset.ok === '1'; const prev = S.unav; const set = new Set(it.r.days);
+    if (!ok && !confirm(`„Kann nicht“ von ${it.t.name} (${span(it.r)}) ablehnen? Die Tage werden gelöscht und ${firstName(it.t)} bekommt Bescheid.`)) return;
+    close();
+    await optimistic(() => (S.unav = ok ? S.unav.map((u) => (u.tech_id === it.t.id && set.has(u.day) ? Object.assign({}, u, { confirmed: true }) : u)) : S.unav.filter((u) => !(u.tech_id === it.t.id && set.has(u.day)))),
+      async () => { if (ok) await store.confirmUnav(it.t.id, it.r.days); else await store.clearUnavMany(it.t.id, it.r.days);
+        notify('techs', [it.t.id], ok ? '„Kann nicht“ bestätigt ✓' : '„Kann nicht“ nicht bestätigt', `${span(it.r)} – ${ok ? 'ist eingetragen.' : 'bitte melde dich bei ' + CFG.senderName + '.'}`, 'unav-ok-' + it.t.id);
+        toast(ok ? 'Bestätigt ✓' : 'Abgelehnt – Tage gelöscht'); }, null, () => (S.unav = prev));
+    setTimeout(openBell, 50);
+  }));
+  void reopen;
+}
+document.addEventListener('click', (ev) => { if (ev.target.closest('#bell')) openBell(); });
 // Logo antippen = zurück zur Startseite (Master: Planung, Techniker/KOM27: Einsätze)
 document.addEventListener('click', (ev) => {
   const h = ev.target.closest('[data-home]'); if (!h || ev.metaKey || ev.ctrlKey) return;
@@ -538,7 +606,7 @@ function header(extra) {
     <a class="brand" href="./" data-home title="Zur Startseite"><span class="b-t">KOM27<span class="b-x"> Einsatzplanung</span></span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
-    <span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
+    ${bellHtml()}<span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
     <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></span></button></div></header>`;
 }
 
@@ -953,8 +1021,8 @@ function renderPlan() {
       if (kind === 'jump') { S.view = 'liste'; S.filter = 'alle'; if (x < today) S.showPast = true; renderMaster(); const el = document.getElementById('d-' + x); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } return; }
       if (kind === 'unav' || kind === 'unavdel') {
         const dt = x; const tid = y; const prevU = S.unav;
-        return optimistic(() => { S.unav = S.unav.filter((u) => !(u.tech_id === tid && u.day === dt)); if (kind === 'unav') S.unav = [...S.unav, { tech_id: tid, day: dt, note: z || '' }]; },
-          async () => { if (kind === 'unav') await store.setUnav(tid, dt, z || ''); else await store.clearUnav(tid, dt); }, null, () => (S.unav = prevU));
+        return optimistic(() => { S.unav = S.unav.filter((u) => !(u.tech_id === tid && u.day === dt)); if (kind === 'unav') S.unav = [...S.unav, { tech_id: tid, day: dt, note: z || '', confirmed: true }]; },
+          async () => { if (kind === 'unav') await store.setUnav(tid, dt, z || '', true); else await store.clearUnav(tid, dt); }, null, () => (S.unav = prevU));
       }
       const key = x; const prev = S.asg[key];
       if (kind === 'rm') return optimistic(() => delete S.asg[key], () => store.deleteAssignments([key]), null, () => (S.asg[key] = prev));
@@ -1197,16 +1265,7 @@ function renderReq() {
   }));
   fillPushBox(true);
   wireMsgBox(m);
-  const cwDecide = (key, ok) => {
-    const prev = S.asg[key]; const t = techById(prev.tech_id); const sl = allSlots().find((x) => x.key === key);
-    const a = ok ? Object.assign({}, prev, { status: 'abgesagt', note: prev.tech_reply_note || 'Absage freigegeben', declined: [...new Set([...(prev.declined || []), prev.tech_id])], tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() })
-      : Object.assign({}, prev, { tech_reply: null, tech_reply_note: null, tech_reply_at: null, updated_at: nowISO() });
-    optimistic(() => (S.asg[key] = a), async () => {
-      await store.saveAssignments([a]);
-      if (t) notify('techs', [t.id], ok ? 'Absage bestätigt' : 'Einsatz bleibt bestehen', `KOM27 ${sl ? fmtDate(sl.date) + ' ' + (sl.zeit || '') : ''} – ${ok ? 'du bist ausgetragen. Danke für die Info!' : 'bitte melde dich bei ' + CFG.senderName + ', falls es wirklich nicht geht.'}`, 'cw-' + key);
-      toast(ok ? `Absage freigegeben – ${t ? firstName(t) : ''} ist ausgetragen. Ersatz unter „Planung“ einteilen.` : 'Abgelehnt – Einsatz bleibt zugesagt');
-    }, null, () => (S.asg[key] = prev));
-  };
+  const cwDecide = (key, ok) => decideCancel(key, ok);
   m.querySelectorAll('[data-cwok]').forEach((b) => (b.onclick = () => cwDecide(b.dataset.cwok, true)));
   m.querySelectorAll('[data-cwno]').forEach((b) => (b.onclick = () => cwDecide(b.dataset.cwno, false)));
   if ($('#remindNow')) $('#remindNow').onclick = async () => {
@@ -1326,7 +1385,7 @@ function techCalHtml(t) {
       <button class="big no solid" id="rAdd">Ganzen Zeitraum als „kann nicht“ eintragen</button>
     </details>
     <div class="cal-legend"><span class="lgd off"></span>kann nicht <span class="lgd l-ok"></span>Einsatz zugesagt <span class="lgd l-ask"></span>Anfrage offen</div>
-    <div class="cal-sum">${(() => { const rs = unavRanges(t.id, today); return rs.length ? `<details class="abs-list" ${S.calListOpen ? 'open' : ''} ontoggle="S.calListOpen = this.open"><summary><b>Deine eingetragenen Abwesenheiten</b><span class="abs-n">${rs.length}</span><small>nächste: ${rs[0].from === rs[0].to ? shortDate(rs[0].from) : shortDate(rs[0].from) + ' – ' + shortDate(rs[0].to)}</small><i class="abs-tg"></i></summary>${rs.map((r) => `<div class="rline"><span>${r.from === r.to ? shortDate(r.from) : shortDate(r.from) + ' – ' + shortDate(r.to)} <small>${r.days.length} Tag${r.days.length > 1 ? 'e' : ''}${r.note ? ' · ' + esc(r.note) : ''}</small></span><button class="linkbtn danger" data-rdel="${r.days.join(',')}">löschen</button></div>`).join('')}</details>` : 'Noch keine Tage eingetragen.'; })()}</div>
+    <div class="cal-sum">${(() => { const rs = unavRanges(t.id, today); return rs.length ? `<details class="abs-list" ${S.calListOpen ? 'open' : ''} ontoggle="S.calListOpen = this.open"><summary><b>Deine eingetragenen Abwesenheiten</b><span class="abs-n">${rs.length}</span><small>nächste: ${rs[0].from === rs[0].to ? shortDate(rs[0].from) : shortDate(rs[0].from) + ' – ' + shortDate(rs[0].to)}</small><i class="abs-tg"></i></summary>${rs.map((r) => `<div class="rline"><span>${r.from === r.to ? shortDate(r.from) : shortDate(r.from) + ' – ' + shortDate(r.to)} <small>${r.days.length} Tag${r.days.length > 1 ? 'e' : ''}${r.note ? ' · ' + esc(r.note) : ''}</small>${r.days.some((d) => (unavOf(t.id, d) || {}).confirmed === false) ? ' <em class="un-pend">⏳ wartet auf Bestätigung</em>' : ' <em class="un-ok">✓ bestätigt</em>'}</span><button class="linkbtn danger" data-rdel="${r.days.join(',')}">löschen</button></div>`).join('')}</details>` : 'Noch keine Tage eingetragen.'; })()}</div>
   </div>`;
 }
 
@@ -1351,12 +1410,13 @@ function wireTechCal(t) {
     const days = daysBetween(from, to);
     if (days.length > 120) return toast('Bitte höchstens 120 Tage auf einmal eintragen.');
     const clash = allSlots().filter((x) => days.includes(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status === 'zugesagt');
-    if (clash.length && !confirm(`In diesem Zeitraum hast du ${clash.length} Einsatz/Einsätze schon zugesagt. Trotzdem eintragen? Bitte sag dann auch ${CFG.senderName} Bescheid.`)) return;
+    if (clash.length && !confirm(`In diesem Zeitraum hast du ${clash.length === 1 ? 'einen Einsatz' : clash.length + ' Einsätze'} schon zugesagt.\n\nTrotzdem eintragen? Dann geht automatisch ein Absage-Wunsch an ${CFG.senderName}. Bis er freigibt, bleibst du eingeteilt.`)) return;
     const btn = $('#rAdd'); btn.disabled = true;
     try {
-      await store.setUnavMany(t.id, days, note);
+      await store.setUnavMany(t.id, days, note, false);
+      await autoCancelReq(t, clash, note);
       notify('admins', [], `${firstName(t)} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''}`, 'unav-' + t.id);
-      const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))).concat(days.map((day) => ({ tech_id: t.id, day, note })));
+      const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))).concat(days.map((day) => ({ tech_id: t.id, day, note, confirmed: false })));
       S.rFrom = S.rTo = S.rNote = ''; S.calMonth = from.slice(0, 7);
       toast(`${days.length} Tag${days.length > 1 ? 'e' : ''} eingetragen (${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''})`);
       redraw();
@@ -1369,11 +1429,11 @@ function wireTechCal(t) {
   }));
   box.querySelectorAll('[data-day]').forEach((b) => (b.onclick = async () => {
     const day = b.dataset.day; const had = unavOf(t.id, day);
-    if (!had && b.classList.contains('job-zugesagt') && !confirm('An diesem Tag hast du schon einen Einsatz zugesagt. Trotzdem als „kann nicht“ eintragen? Bitte sag dann auch ' + CFG.senderName + ' Bescheid.')) return;
+    if (!had && b.classList.contains('job-zugesagt') && !confirm('An diesem Tag hast du schon einen Einsatz zugesagt.\n\nTrotzdem als „kann nicht“ eintragen? Dann geht automatisch ein Absage-Wunsch an ' + CFG.senderName + '. Bis er freigibt, bleibst du eingeteilt.')) return;
     b.disabled = true;
     try {
       if (had) { await store.clearUnav(t.id, day); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && u.day === day)); }
-      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note); S.unav.push({ tech_id: t.id, day, note }); notify('admins', [], `${firstName(t)} kann nicht`, fmtDate(day, true) + (note ? ' (' + note + ')' : ''), 'unav-' + t.id); }
+      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note, false); S.unav.push({ tech_id: t.id, day, note, confirmed: false }); await autoCancelReq(t, allSlots().filter((x) => x.date === day && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status === 'zugesagt'), note); notify('admins', [], `${firstName(t)} kann nicht`, fmtDate(day, true) + (note ? ' (' + note + ')' : ''), 'unav-' + t.id); }
       redraw();
     } catch (e) { b.disabled = false; toast(e.message); }
   }));
@@ -1685,8 +1745,8 @@ function renderManager(team, me) {
     if (!from) return toast('Bitte ein Startdatum wählen.'); if (to < from) return toast('„Bis“ liegt vor „Von“.');
     const days = daysBetween(from, to); if (days.length > 120) return toast('Bitte höchstens 120 Tage auf einmal.');
     const prev = S.unav; S.absOpen = false;
-    const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO() }))); },
-      () => store.setUnavMany(tid, days, note), null, () => (S.unav = prev));
+    const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO(), confirmed: !!S.admin }))); },
+      () => store.setUnavMany(tid, days, note, !!S.admin), null, () => (S.unav = prev));
     if (ok) { notify('admins', [], `${(techById(tid) || {}).name || 'Techniker'} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''} · eingetragen vom Projektleiter`, 'unav-' + tid); toast('Eingetragen'); }
   };
   m.querySelectorAll('[data-mdel]').forEach((b) => (b.onclick = () => {

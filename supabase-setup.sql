@@ -405,3 +405,14 @@ begin
 end $function$;
 revoke all on function public.request_cancel(text, text) from public, anon;
 grant execute on function public.request_cancel(text, text) to authenticated;
+
+-- ===================== v13: „Kann nicht“ muss der Master bestätigen =====================
+alter table public.unavailability add column if not exists confirmed boolean not null default false;
+create or replace function public.unav_confirm_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then new.confirmed := false; end if;
+  return new;
+end; $$;
+drop trigger if exists unav_confirm_guard on public.unavailability;
+create trigger unav_confirm_guard before insert or update on public.unavailability for each row execute function public.unav_confirm_guard();

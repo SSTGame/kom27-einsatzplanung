@@ -617,3 +617,4 @@ body.scroll-lock { position: fixed; left: 0; right: 0; width: 100%; overflow: hi
   .kr-grid tr.kr-rooms td { font-size: 10.5px; }
 }
 .l-short { display: none; } @media (max-width: 900px) { .l-long { display: none; } .l-short { display: inline; } }
+.kd-va { position: relative; } .kd-va .jc-more { position: static; margin-left: auto; color: var(--accent); font-size: 12.5px; white-space: nowrap; }

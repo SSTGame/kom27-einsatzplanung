@@ -1,0 +1,274 @@
+/* =====================================================================
+   KOM27 Einsatzplanung – Design „Pult & Zeit“
+   Liegt über style.css. Idee: Die Uhrzeit ist das Wichtigste (breite
+   Archivo-Ziffern wie auf einer Show-Uhr), alles andere bleibt ruhig.
+   Schriften: Instrument Sans (Text), Archivo (Zeiten, Überschriften) – OFL, selbst gehostet.
+   ===================================================================== */
+@font-face { font-family: 'Instrument Sans'; font-style: normal; font-display: swap; font-weight: 400 700; font-stretch: 75% 100%; src: url(fonts/instrument-sans.woff2) format('woff2-variations'); }
+@font-face { font-family: 'Archivo'; font-style: normal; font-display: swap; font-weight: 100 900; font-stretch: 62% 125%; src: url(fonts/archivo.woff2) format('woff2-variations'); }
+
+:root {
+  --bg: #eef0f3;          /* Saalgrau */
+  --panel: #ffffff;
+  --panel-2: #f6f7f9;
+  --ink: #17202b;         /* Tintenblau */
+  --muted: #5d6775;
+  --line: #dde1e7;
+  --line-strong: #c6ccd5;
+  --accent: #2c46e0;      /* Signalblau */
+  --accent-ink: #ffffff;
+  --st-geplant: #6e7887; --st-angefragt: #2b6ceb; --st-zugesagt: #0f8f55; --st-abgesagt: #d33b2c; --st-leer: #c27400;
+  --f-ui: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --f-num: 'Archivo', 'Instrument Sans', system-ui, sans-serif;
+  --r-lg: 20px; --r-md: 14px; --r-sm: 10px;
+  --shadow-float: 0 10px 30px -12px rgba(23, 32, 43, .28), 0 2px 6px rgba(23, 32, 43, .06);
+  --sidebar: 236px;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f151c; --panel: #17202a; --panel-2: #1d2833; --ink: #e8edf3; --muted: #95a2b1; --line: #273340; --line-strong: #364454;
+    --accent: #7088ff; --accent-ink: #0f151c;
+    --st-geplant: #8d98a6; --st-angefragt: #6a9bff; --st-zugesagt: #3cc485; --st-abgesagt: #ff6f60; --st-leer: #f0a33a;
+    --free: #13232c;
+    --shadow-float: 0 12px 34px -12px rgba(0, 0, 0, .7), 0 2px 6px rgba(0, 0, 0, .3);
+  }
+}
+
+/* ---------- Grundlagen ---------- */
+html { -webkit-text-size-adjust: 100%; }
+body { font-family: var(--f-ui); font-size: 15.5px; line-height: 1.5; font-stretch: 100%; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Zeiten & Zahlen: breite Ziffern, gleich breit */
+.td-time, .jc-time b, .fact b, .c-date b, .dbox b, .sumbox b, .stat b, .ml-txt b, .slot .time, .ks-time, .tk-row span, .kom-slot .ks-time, .tc-head small, table.grid td, .tl-ticks i {
+  font-family: var(--f-num); font-variant-numeric: tabular-nums;
+}
+.td-time { font-stretch: 115%; font-weight: 750; letter-spacing: -.01em; }
+.jc-time b, .fact.big b { font-stretch: 112%; font-weight: 700; letter-spacing: -.005em; }
+.ml-txt b { font-stretch: 108%; font-weight: 650; }
+
+/* Überschriften: Satzschreibung statt GROSSBUCHSTABEN */
+h1, h2, h3, .hello h1, .kb-head h1, .login h1 { font-family: var(--f-num); font-stretch: 108%; letter-spacing: -.012em; }
+.hello h1 { font-size: 30px; font-weight: 750; margin: 4px 0 2px; }
+h2.sec { text-transform: none; letter-spacing: -.005em; font-size: 18px; font-weight: 700; color: var(--ink); margin: 26px 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.week { text-transform: none; letter-spacing: 0; font-family: var(--f-num); font-stretch: 110%; font-weight: 700; font-size: 13px; color: var(--muted); background: var(--panel-2); padding: 8px 16px; }
+.sec-help, .note { color: var(--muted); }
+
+/* ---------- Kopfzeile ---------- */
+header.top { background: color-mix(in srgb, var(--panel) 86%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px); border-bottom: 1px solid var(--line); }
+.top-inner { padding: 10px 20px; min-height: 58px; flex-wrap: nowrap; }
+.brand { font-family: var(--f-num); font-stretch: 112%; font-weight: 750; font-size: 17px; letter-spacing: -.01em; white-space: nowrap; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand::before { content: ''; width: 26px; height: 26px; flex: none; border-radius: 8px; background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M7 6v14M7 13l7-7M7 13l7 7' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='19.5' cy='13' r='2.4' fill='%237cf0b0'/%3E%3C/svg%3E") center/26px no-repeat; }
+@media (prefers-color-scheme: dark) { .brand::before { background-color: #2a3644; } }
+.brand small { font-family: var(--f-ui); font-stretch: 100%; font-weight: 500; font-size: 13px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
+.live { font-size: 11px; letter-spacing: .02em; }
+#logout { border-radius: 999px; padding: 6px 12px; font-weight: 600; font-size: 13px; }
+
+/* ---------- Knöpfe, Chips, Eingaben ---------- */
+.btn { border-radius: var(--r-sm); padding: 8px 14px; font-weight: 600; font-size: 14px; border-color: var(--line); background: var(--panel); transition: background .15s, border-color .15s; }
+.btn:hover { border-color: var(--line-strong); background: var(--panel-2); }
+.btn.small { padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 0 rgba(255, 255, 255, .15) inset, 0 4px 12px -4px color-mix(in srgb, var(--accent) 60%, transparent); }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.chip { height: 34px; padding: 0 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border-color: var(--line); }
+.chip b { font-family: var(--f-num); font-variant-numeric: tabular-nums; background: var(--panel-2); }
+.chip.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.big { border-radius: var(--r-md); min-height: 52px; font-size: 16px; font-weight: 650; }
+.big.ghost { background: var(--panel-2); }
+input[type=text], input[type=email], input[type=password], input[type=search], input[type=time], select, textarea { border-radius: var(--r-sm); }
+.seg { border-radius: 10px; padding: 3px; background: var(--panel-2); gap: 2px; }
+.seg button { border-radius: 8px; font-weight: 600; background: transparent; }
+.seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(23, 32, 43, .14); }
+
+/* Status: leise Marke mit LED-Punkt statt Farbblock */
+.pill { font-family: var(--f-ui); font-size: 12px; font-weight: 650; padding: 3px 9px 3px 8px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; }
+.pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.pill.geplant { background: color-mix(in srgb, var(--st-geplant) 14%, var(--panel)); color: var(--st-geplant); }
+.pill.angefragt { background: color-mix(in srgb, var(--st-angefragt) 14%, var(--panel)); color: var(--st-angefragt); }
+.pill.zugesagt { background: color-mix(in srgb, var(--st-zugesagt) 15%, var(--panel)); color: var(--st-zugesagt); }
+.pill.abgesagt { background: color-mix(in srgb, var(--st-abgesagt) 14%, var(--panel)); color: var(--st-abgesagt); }
+.pill.leer { background: transparent; border: 1px dashed var(--st-leer); color: var(--st-leer); }
+.pill.leer::before { background: transparent; border: 1.5px solid currentColor; width: 6px; height: 6px; }
+@media (prefers-color-scheme: dark) {
+  .pill.zugesagt::before { box-shadow: 0 0 6px var(--st-zugesagt); }
+  .pill.angefragt::before { box-shadow: 0 0 6px var(--st-angefragt); }
+}
+
+/* ---------- Karten & Flächen ---------- */
+.card, .job-card, .time-card, .offer-card, .calcard, .msgbox, .feed, .hcard, .changes { border-radius: var(--r-lg); border-color: var(--line); box-shadow: none; }
+.job-card { padding: 18px; }
+.importline, .syncline, details.removed { border-radius: var(--r-md); }
+.importline { border-style: solid; background: var(--panel); }
+.dbox { border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); min-width: 54px; padding: 5px 4px 4px; }
+.dbox span { font-size: 11px; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
+.dbox b { font-size: 24px; font-weight: 750; font-stretch: 112%; line-height: 1.05; }
+.jc-detail { border-radius: var(--r-md); border-style: solid; background: color-mix(in srgb, var(--accent) 7%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 22%, var(--line)); font-weight: 650; }
+.sumrow { gap: 10px; }
+.sumbox { border-radius: var(--r-md); padding: 14px; }
+.sumbox b { font-size: 30px; font-weight: 750; font-stretch: 112%; }
+.allgood { border-radius: var(--r-lg); }
+
+/* Heute-Karte: die eine laute Stelle */
+.tcard { border-radius: 24px; padding: 18px 18px 14px; background: radial-gradient(120% 140% at 100% 0%, #3d5cff 0%, #2c46e0 42%, #1e2fa6 100%); box-shadow: 0 18px 40px -18px rgba(44, 70, 224, .65); }
+.tcard.tc-live { background: radial-gradient(120% 140% at 100% 0%, #19b06c 0%, #0f8f55 45%, #0a6340 100%); box-shadow: 0 18px 40px -18px rgba(15, 143, 85, .6); }
+.tcard.tc-morgen, .tcard.tc-done { background: radial-gradient(120% 140% at 100% 0%, #3a4a5e 0%, #263241 50%, #18212b 100%); box-shadow: 0 18px 40px -18px rgba(23, 32, 43, .6); }
+.td-tag { font-family: var(--f-num); font-stretch: 115%; font-weight: 800; letter-spacing: .06em; font-size: 12px; border-radius: 7px; }
+.td-time { font-size: 38px; line-height: 1.05; margin: 10px 0 4px; }
+.td-go { border-radius: 16px; min-height: 56px; font-family: var(--f-num); font-stretch: 108%; font-size: 17px; }
+.td-hint { border-radius: 12px; }
+
+/* ---------- Detail-Blatt ---------- */
+.sheet { border-radius: 26px 26px 0 0; }
+.sheet::before { content: ''; display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--line-strong); margin: -6px auto 8px; }
+@media (min-width: 700px) { .sheet { border-radius: 24px; } .sheet::before { display: none; } }
+.sh-date h2 { font-size: 24px; font-weight: 750; }
+.fact { border-radius: var(--r-md); }
+.fact.big { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 25%, var(--line)); }
+.fact.big b { font-size: 30px; }
+.room { border-radius: var(--r-md); }
+.sheet h3 { font-size: 17px; font-weight: 700; margin-top: 22px; }
+
+/* ---------- Planung (Master) ---------- */
+.plan { border-radius: var(--r-lg); }
+.row { border-top-color: var(--line); }
+.c-date b { font-weight: 750; font-stretch: 110%; }
+.row.today .c-date { color: var(--accent); }
+.va-id { font-family: var(--f-num); font-stretch: 104%; font-weight: 700; letter-spacing: -.005em; }
+.slot { border-radius: 12px; background: var(--panel-2); border-color: var(--line); border-left-width: 4px; }
+.slot select { font-weight: 650; }
+.c-slots { gap: 10px; }
+.monthnav select { font-family: var(--f-num); font-stretch: 112%; font-weight: 750; font-size: 24px; letter-spacing: -.01em; }
+.tb-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---------- Techniker / KOM27: Umschalter ---------- */
+.viewtabs { border-radius: 16px; padding: 4px; background: var(--panel); border-color: var(--line); }
+.viewtabs button { border-radius: 12px; font-weight: 650; }
+.viewtabs button.on { background: var(--ink); color: var(--bg); }
+
+/* KOM27-Infos */
+.kb-card { border-radius: var(--r-md); }
+.kb-card summary { font-family: var(--f-ui); font-weight: 650; }
+
+/* =====================================================================
+   Computer (breit): Master mit Seitenleiste links
+   ===================================================================== */
+@media (min-width: 1100px) {
+  body.is-master header.top { position: fixed; inset: 0 auto 0 0; width: var(--sidebar); border-bottom: 0; border-right: 1px solid var(--line); background: var(--panel); -webkit-backdrop-filter: none; backdrop-filter: none; z-index: 30; }
+  body.is-master .top-inner { flex-direction: column; align-items: stretch; height: 100%; max-width: none; padding: 22px 14px 18px; gap: 4px; }
+  body.is-master .brand { flex-direction: row; flex-wrap: wrap; row-gap: 0; padding: 0 8px; }
+  body.is-master .brand small { display: block; width: 100%; margin: 2px 0 0 36px; font-size: 12px; }
+  body.is-master .live { align-self: flex-start; margin: 10px 8px 14px 44px; }
+  body.is-master nav.tabs { flex-direction: column; gap: 2px; }
+  body.is-master nav.tabs button { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 11px; font-size: 15px; font-weight: 600; color: var(--muted); text-align: left; }
+  body.is-master nav.tabs button:hover { background: var(--panel-2); color: var(--ink); }
+  body.is-master nav.tabs button.on { background: color-mix(in srgb, var(--accent) 11%, var(--panel)); color: var(--accent); }
+  body.is-master nav.tabs .tic { display: inline-block; font-size: 18px; width: 24px; text-align: center; font-style: normal; }
+  body.is-master nav.tabs .tbadge { margin-left: auto; }
+  body.is-master .top-inner > .spacer { flex: 1; }
+  body.is-master #logout { align-self: stretch; text-align: left; border-radius: 11px; padding: 10px 12px; }
+  body.is-master main { margin-left: var(--sidebar); max-width: none; padding: 28px 36px 60px; }
+  body.is-master main > * { max-width: 1320px; }
+  body.is-master #toast { left: calc(50% + var(--sidebar) / 2); }
+  .row { grid-template-columns: 96px minmax(240px, 340px) 1fr; }
+  .c-slots .slot { min-width: 250px; }
+  .toolbar { margin-bottom: 14px; }
+}
+
+/* Techniker/KOM27 am Computer: ruhige Spalte, Umschalter oben */
+@media (min-width: 701px) {
+  .mine { padding-top: 22px; }
+}
+
+/* =====================================================================
+   Handy
+   ===================================================================== */
+@media (max-width: 700px) {
+  body { font-size: 15px; }
+  .top-inner { padding: 8px 14px; min-height: 52px; gap: 10px; }
+  .brand { font-size: 16px; }
+  .brand::before { width: 24px; height: 24px; background-size: 24px; }
+  .brand small { display: none; }
+  .lo-t { display: none; }
+  .lo-i { display: inline; font-size: 16px; line-height: 1; }
+  #logout { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; flex: none; }
+  .hello h1 { font-size: 27px; }
+  main { padding: 12px 14px; }
+
+  /* Master: Aktionen als eine wischbare Zeile */
+  .toolbar { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .toolbar .monthnav { grid-column: 1 / -1; }
+  .toolbar .monthnav select { font-size: 22px; }
+  .toolbar .seg { grid-column: 1; justify-self: start; }
+  .toolbar .tb-actions { grid-column: 1 / -1; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -14px; padding: 2px 14px 4px; }
+  .toolbar .tb-actions::-webkit-scrollbar { display: none; }
+  .toolbar .tb-actions .btn { flex: none; }
+  .toolbar .tb-actions #auto { order: -1; }
+  .is-master nav.tabs { background: color-mix(in srgb, var(--panel) 90%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(16px); backdrop-filter: saturate(1.4) blur(16px); box-shadow: 0 -1px 0 var(--line); border-top: 0; }
+  .is-master nav.tabs button { font-weight: 600; }
+  .is-master nav.tabs button.on { background: transparent; color: var(--accent); }
+  .is-master nav.tabs button.on .tic { transform: translateY(-1px); }
+  .is-master nav.tabs button.on::before { content: ''; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+
+  /* Techniker/KOM27: Umschalter als schwebende Leiste unten */
+  .mine { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+  .mine .viewtabs { position: fixed; left: 14px; right: 14px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 40; margin: 0; padding: 5px; border-radius: 20px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent); -webkit-backdrop-filter: saturate(1.5) blur(18px); backdrop-filter: saturate(1.5) blur(18px); box-shadow: var(--shadow-float); }
+  .mine .viewtabs button { padding: 11px 6px; font-size: 15px; border-radius: 15px; }
+  body:not(.is-master) #toast { bottom: calc(90px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); }
+  .pv-bar { top: 60px; }
+  .td-time { font-size: 34px; }
+  .job-card { padding: 16px; }
+}
+
+/* ---------- Korrekturen nach dem ersten Durchgang ---------- */
+/* Weichzeichner erzeugt einen eigenen Bezugsrahmen – feste Leisten im Kopf würden sonst oben kleben */
+@media (max-width: 1099px) { body.is-master header.top { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--panel); } }
+.lo-i svg { display: block; }
+@media (min-width: 1100px) {
+  body.is-master .brand { white-space: normal; font-size: 16px; line-height: 1.2; align-items: flex-start; }
+  body.is-master .brand::before { margin-top: -2px; }
+  body.is-master .brand small { margin: 4px 0 0 36px; }
+  body.is-master .live { margin: 8px 8px 16px 44px; }
+}
+@media (min-width: 1100px) {
+  body.is-master .brand { display: grid; grid-template-columns: 26px 1fr; column-gap: 10px; align-items: start; }
+  body.is-master .brand::before { grid-row: 1 / span 2; margin-top: 1px; }
+  body.is-master .brand small { grid-column: 2; margin: 3px 0 0; }
+  body.is-master .live { margin: 10px 8px 18px 44px; }
+}
+.c-date b { margin-right: 5px; }
+
+/* ---------- Anmeldung ---------- */
+.login .row { display: flex; grid-template-columns: none; border-top: 0; align-items: center; }
+.login { border-radius: 24px; padding: 30px 26px 26px; box-shadow: var(--shadow-float); border-color: var(--line); }
+.login h1 { font-size: 26px; font-weight: 750; display: flex; align-items: center; gap: 12px; }
+.login h1::before { content: ''; width: 40px; height: 40px; flex: none; border-radius: 12px; background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M7 6v14M7 13l7-7M7 13l7 7' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='19.5' cy='13' r='2.4' fill='%237cf0b0'/%3E%3C/svg%3E") center/40px no-repeat; }
+@media (prefers-color-scheme: dark) { .login h1::before { background-color: #2a3644; } }
+.login input { background: var(--panel-2); font-size: 16px; padding: 12px 14px; }
+.login #in { min-height: 46px; padding: 0 22px; font-size: 15px; }
+@media (max-width: 700px) {
+  .login { margin: 7vh 14px; padding: 26px 20px 20px; }
+  .login .row { flex-direction: column; align-items: stretch; }
+  .login .row .btn { width: 100%; min-height: 46px; }
+  .login .demo .row { flex-direction: row; flex-wrap: wrap; }
+  .login .demo .row .btn { width: auto; min-height: 0; }
+  .sh-date h2 { font-size: 21px; }
+}
+
+/* Techniker: kompakte Begrüßung, nächster Einsatz, Anfrage-Zähler */
+.hello.hi-line { padding: 2px 2px 10px; }
+.hello.hi-line h1 { font-size: 22px; margin: 2px 0 0; }
+.hello.hi-line p { font-size: 14px; }
+.tnext { display: grid; gap: 3px; width: 100%; text-align: left; position: relative; margin: 0 0 18px; padding: 16px 18px; border-radius: 20px;
+  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); color: var(--ink); font: inherit; cursor: pointer; }
+.tnext .tn-lbl { font-size: 13px; font-weight: 650; color: var(--accent); }
+.tnext .tn-time { font-family: var(--f-num); font-stretch: 110%; font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.tnext .tn-where { font-size: 14px; color: var(--muted); }
+.tnext .jc-more { position: absolute; right: 16px; top: 16px; font-size: 13px; color: var(--accent); }
+.sec-n { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; margin-left: 6px; border-radius: 12px;
+  background: var(--st-leer); color: #fff; font-size: 13px; font-weight: 700; vertical-align: 3px; font-family: var(--f-num); }
+h2.sec:has(.sec-n) { justify-content: flex-start; gap: 0; }

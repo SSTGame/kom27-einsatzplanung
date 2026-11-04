@@ -448,7 +448,7 @@ function header(extra) {
     <div class="brand">KOM27 Einsatzplanung<small>${DEMO ? 'Demo' : esc(S.user.email)}</small></div>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
-    <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true">⎋</span></button></div></header>`;
+    <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></span></button></div></header>`;
 }
 
 function renderMaster() {
@@ -697,10 +697,12 @@ function renderPlan() {
       </div>
       <div class="seg" role="tablist"><button data-view="liste" class="${S.view !== 'raster' ? 'on' : ''}">Liste</button><button data-view="raster" class="${S.view === 'raster' ? 'on' : ''}">Raster</button></div>
       <div class="spacer"></div>
+      <div class="tb-actions">
       ${(() => { const n = visDays.filter((d) => !d.cancelled).reduce((acc, d) => acc + d.slots.filter((x) => (slotState(x) === 'leer' || slotState(x) === 'abgesagt') && !offerOf(x.key)).length, 0); return n ? `<button class="btn" id="offerAll" title="Alle unbesetzten Einsätze dieses Monats an alle Techniker schicken – wer Zeit hat, meldet sich">📣 Offene ausschreiben (${n})</button>` : ''; })()}
       <button class="btn" id="copy">Zusagen kopieren</button>
       <button class="btn" id="pdfMonth" title="Monatsplan als PDF / zum Drucken">🖨 PDF</button>
       <button class="btn primary" id="auto">Auto-Einteilung</button>
+      </div>
     </div>
     ${S.view === 'raster' ? gridHtml(monthDays, today) : `<div class="chips">${FILTERS.map(([k, l]) => `<button class="chip f-${k} ${S.filter === k ? 'on' : ''}" data-filter="${k}">${l}<b>${cnt[k]}</b></button>`).join('')}
       <label class="pastsw"><input type="checkbox" id="showPast" ${S.showPast ? 'checked' : ''}> vergangene Tage</label></div>
@@ -1415,6 +1417,19 @@ function roomsOfSlot(s) {
   if (det.rooms && det.rooms.length) return det.rooms;
   return s.day.info ? s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; }) : [];
 }
+// Kein Einsatz heute/morgen: kleine Karte mit dem nächsten zugesagten Termin
+function nextCard(t) {
+  const today = todayISO();
+  const s = slotsOfTech(t.id, addDays(today, 1)).filter((x) => x.date > today && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled).sort((a, b) => (a.date + (a.zeit || '')).localeCompare(b.date + (b.zeit || '')))[0];
+  if (!s) return '';
+  const det = s.det || {};
+  return `<button class="tnext" data-open="${esc(s.key)}">
+    <span class="tn-lbl">Nächster Einsatz · ${esc(untilTxt(s.date))}</span>
+    <span class="tn-time">${esc(fmtDate(s.date))} · ${esc(niceTime(s.zeit))}</span>
+    <span class="tn-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}</span>
+    <span class="jc-more">Details ›</span>
+  </button>`;
+}
 function todayCard(t) {
   const today = todayISO(); const tom = addDays(today, 1);
   const on = (d) => slotsOfTech(t.id, d).filter((s) => s.date === d && S.asg[s.key].status === 'zugesagt' && !s.day.cancelled);
@@ -1442,7 +1457,7 @@ function todayCard(t) {
   return `<section class="tcard ${cls} tc-${which}">
     <div class="td-top"><span class="td-tag">${which === 'heute' ? 'HEUTE' : 'MORGEN'}</span><span class="td-state">${cls === 'tc-live' ? '<i class="pulse"></i>' : ''}${esc(state)}</span></div>
     <div class="td-time">${esc(niceTime(s.zeit))}</div>
-    <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')} · ${esc(s.va || 'Einsatz')}${(det.vazeit || s.day.vazeit) ? ' · VA ' + esc(det.vazeit || s.day.vazeit) : ''}</div>
+    <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}${det.einlass ? ' · Einlass ' + esc(det.einlass) : ''}</div>
     ${hints.map((i) => `<div class="td-hint">⚠️ ${esc(i.t)}</div>`).join('')}
     <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
     <button class="big td-go" data-open="${esc(s.key)}">🛠 Aufbauliste & Details${items.length ? ` <small>${nDone}/${items.length} erledigt</small>` : ''}</button>
@@ -1674,19 +1689,14 @@ function renderTech() {
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
   if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml(); wireVt(); wireKb(m); return; }
   m.innerHTML = vt + `
-    ${todayCard(t)}
-    <section class="hello">
+    <section class="hello hi-line">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
-      <p>Medientechnik im KOM27, Mauerstraße</p>
+      <p>${yes.length} ${yes.length === 1 ? 'Einsatz' : 'Einsätze'} zugesagt · ${String(Math.round(monH * 10) / 10).replace('.', ',')} Std. im ${MON[+mon.slice(5, 7) - 1]}</p>
       <div id="pushBox"></div>
-      <div class="sumrow">
-        <div class="sumbox ${nOpen ? 'warn' : ''}"><b>${nOpen}</b><span>${nOpen === 1 ? 'Anfrage wartet' : 'Anfragen warten'} auf dich</span></div>
-        <div class="sumbox ok"><b>${yes.length}</b><span>${yes.length === 1 ? 'zugesagter Einsatz' : 'zugesagte Einsätze'}</span></div>
-        <div class="sumbox"><b>${String(Math.round(monH * 10) / 10).replace('.', ',')}</b><span>Stunden im ${MON[+mon.slice(5, 7) - 1]}</span></div>
-      </div>
     </section>
+    ${todayCard(t) || nextCard(t)}
+    ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid <span class="sec-n">${nOpen}</span></h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
     ${team.length ? `<button class="big ghost" id="toTeam">👥 Zu den Freigaben für dein Team</button>` : ''}
-    ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid</h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
     ${waiting.length ? `<h2 class="sec">⏳ Wartet auf Freigabe durch ${esc(mgrLabel(t))}</h2><div class="mini-list">${waiting.map((s) => line(s, 'wait')).join('')}</div>` : ''}
     ${boss && yes.length ? `<p class="sec-help">Änderungen an zugesagten Einsätzen bitte über ${esc(mgrLabel(t))}.</p>` : ''}
     ${toLog.length ? `<h2 class="sec" id="timeSec">⏱ Arbeitszeit bestätigen</h2><p class="sec-help">Kurz eintragen, wie lange du wirklich da warst – ${esc(CFG.senderName)} braucht das für die Abrechnung. Vorausgefüllt mit der geplanten Zeit.</p>

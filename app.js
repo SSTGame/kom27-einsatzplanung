@@ -422,7 +422,7 @@ document.addEventListener('click', (ev) => {
   const h = ev.target.closest('[data-home]'); if (!h || ev.metaKey || ev.ctrlKey) return;
   ev.preventDefault();
   const sh = document.getElementById('sheet'); if (sh) sh.remove(); document.body.classList.remove('noscroll');
-  S.tab = 'plan'; S.techTab = 'jobs'; S.filter = 'alle'; S.keep = new Set(); S.view2 = undefined; S.komWeek = undefined;
+  S.tab = 'plan'; S.techTab = 'jobs'; S.filter = 'alle'; S.keep = new Set(); S.view2 = undefined; S.komWeek = undefined; S.view = undefined;
   if (S.user) paint(); window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 function renderLogin(msg) {
@@ -436,7 +436,7 @@ function renderLogin(msg) {
     ${S.recovery ? `
       <label>Neues Passwort</label><input id="pw1" type="password" autocomplete="new-password">
       <div class="row"><button class="btn primary" id="setpw">Passwort speichern</button></div>` : `
-      <label for="em">E-Mail</label><input id="em" type="email" autocomplete="username" value="${esc(ls.get('kom27-last-email') || '')}">
+      <label for="em">E-Mail oder Benutzername</label><input id="em" type="text" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" value="${esc(ls.get('kom27-last-email') || '')}">
       <label for="pw">Passwort</label><input id="pw" type="password" autocomplete="current-password">
       <div class="row">
         <button class="btn primary" id="in">Anmelden</button>
@@ -480,7 +480,9 @@ function renderLogin(msg) {
     const bs = [...document.querySelectorAll('.login button')]; bs.forEach((x) => (x.disabled = true));
     try { await fn(); } finally { bs.forEach((x) => (x.disabled = false)); lockMail(); }
   };
-  const creds = () => { const em = $('#em').value.trim(); ls.set('kom27-last-email', em); return [em, $('#pw').value]; };
+  // Benutzername (z. B. „admin“ fürs iPad) → hinterlegte Login-Adresse
+  const loginMail = (x) => { x = x.trim(); if (x.includes('@')) return x.toLowerCase(); const n = x.toLowerCase().replace(/[^a-z0-9._-]/g, ''); return n && CFG.userAlias ? CFG.userAlias.replace('{name}', n) : x; };
+  const creds = () => { const em = $('#em').value.trim(); ls.set('kom27-last-email', em); return [loginMail(em), $('#pw').value]; };
   if (S.recovery) {
     $('#setpw').onclick = async () => { try { await store.setPassword($('#pw1').value); S.recovery = false; toast('Passwort geändert'); boot(); } catch (e) { err(e); } };
     return;
@@ -744,6 +746,7 @@ function renderPlan() {
   const today = todayISO();
   if (!S.month) S.month = today.slice(0, 7);
   if (!S.filter) S.filter = 'alle';
+  if (!S.view) S.view = ls.get('kom27-view') || 'raster'; // Startansicht: Raster (zuletzt gewählte Ansicht wird gemerkt)
   const months = monthsAvailable();
   const mi = months.indexOf(S.month);
   const monthDays = allDays().filter((d) => d.date.startsWith(S.month));
@@ -863,7 +866,7 @@ function renderPlan() {
   document.querySelectorAll('[data-ovf]').forEach((b) => (b.onclick = () => { S.view = 'liste'; S.filter = b.dataset.ovf; if (b.dataset.ovm) S.month = b.dataset.ovm; S.keep = new Set(); renderMaster(); const c = document.querySelector('.card.plan'); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
   document.querySelectorAll('[data-ovtab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.ovtab; renderMaster(); window.scrollTo(0, 0); }));
   if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
-  document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; renderMaster(); }));
+  document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; ls.set('kom27-view', S.view); renderMaster(); }));
   document.querySelectorAll('[data-gc]').forEach((c) => (c.onclick = (ev) => { ev.stopPropagation(); const [tid, dt] = c.dataset.gc.split('|');
     gridMenu(c, tid, dt, (kind, x, y, z) => {
       if (kind === 'jump') { S.view = 'liste'; S.filter = 'alle'; if (x < today) S.showPast = true; renderMaster(); const el = document.getElementById('d-' + x); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } return; }

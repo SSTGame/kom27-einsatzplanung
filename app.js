@@ -620,8 +620,7 @@ function gridHtml(days, today) {
   const rowsH = techs.map((t) => `<tr><th class="name">${esc(t.name)}</th>${days.map((d) => {
     const e = (map[t.id] || {})[d.date]; const u = unavOf(t.id, d.date); const gc = `data-gc="${t.id}|${d.date}"`;
     if (!e) {
-      if (!slotDay[d.date]) return `<td class="${d.free ? 'we' : ''}">${u ? `<span class="gblock" title="${esc('Kann nicht' + (u.note ? ': ' + u.note : ''))}">✗</span>` : ''}</td>`;
-      return `<td class="${d.free ? 'we' : ''}"><button class="gadd ${u ? 'blocked' : ''}" ${gc} title="${esc(u ? 'Kann nicht' + (u.note ? ': ' + u.note : '') + ' – trotzdem eintragen?' : t.name + ' an diesem Tag eintragen')}">${u ? '✗' : '+'}</button></td>`;
+      return `<td class="${d.free ? 'we' : ''}"><button class="gadd ${u ? 'blocked' : ''} ${slotDay[d.date] ? '' : 'noslot'}" ${gc} title="${esc(u ? 'Kann nicht' + (u.note ? ': ' + u.note : '') : slotDay[d.date] ? t.name + ' eintragen oder „kann nicht“ setzen' : '„Kann nicht“ für ' + t.name + ' eintragen')}">${u ? '✗' : '+'}</button></td>`;
     }
     const worst = ['abgesagt', 'geplant', 'angefragt', 'zugesagt'].find((st) => e.some((x) => x.a.status === st));
     const tip = e.map((x) => `${x.s.zeit || ''} ${x.s.va || ''} – ${ST_LABEL[x.a.status]}`).join('\n');
@@ -635,9 +634,11 @@ function gridHtml(days, today) {
 // Menü im Raster: Techniker an einem Tag eintragen, Status ändern oder austragen
 function gridMenu(btn, techId, date, act) {
   closeMenu();
-  const t = techById(techId); const day = allDays().find((d) => d.date === date); if (!t || !day) return;
+  const t = techById(techId); const day = allDays().find((d) => d.date === date) || { date, slots: [] }; if (!t) return;
   const TL = timelines(); const u = unavOf(techId, date);
-  const rows = day.slots.map((s) => {
+  const slots = day.cancelled ? [] : day.slots || [];
+  const busy = slots.some((s) => { const a = S.asg[s.key]; return a && a.tech_id === techId && a.status !== 'abgesagt'; });
+  const rows = slots.map((s) => {
     const a = S.asg[s.key]; const mine = a && a.tech_id === techId && a.status !== 'abgesagt';
     const other = a && a.tech_id && a.tech_id !== techId && a.status !== 'abgesagt' ? techById(a.tech_id) : null;
     const dec = ((a || {}).declined || []).includes(techId);
@@ -648,7 +649,10 @@ function gridMenu(btn, techId, date, act) {
       + `<button class="gm-act" data-gset="${esc(s.key)}">＋ ${esc(t.name.split(' ')[0])} eintragen${other ? ' (ersetzt ' + esc(other.name.split(' ')[0]) + ')' : ''}</button>`;
   }).join('<hr>');
   const m = document.createElement('div'); m.className = 'stmenu gmenu'; m.setAttribute('role', 'menu');
-  m.innerHTML = `<div class="gm-h"><b>${esc(t.name)}</b><small>${esc(longDate(date))}</small></div>${u ? `<div class="gm-warn">⛔ hat sich abgemeldet${u.note ? ': ' + esc(u.note) : ''}</div>` : ''}${rows}<hr><button class="gm-act ghost" data-gjump="${date}">Tag in der Liste öffnen ›</button>`;
+  const unavHtml = u
+    ? `<div class="gm-un on">⛔ <b>Kann nicht</b>${u.note ? ' – ' + esc(u.note) : ''}</div><button class="gm-act" data-gunoff>„Kann nicht“ entfernen</button>`
+    : `<div class="gm-un"><input type="text" id="gmNote" placeholder="Grund (optional), z. B. Urlaub" maxlength="80"></div><button class="gm-act danger" data-gunon>⛔ ${esc(t.name.split(' ')[0])} kann an diesem Tag nicht</button>${busy ? '<div class="gm-warn">Achtung: ist an diesem Tag eingeteilt – Einteilung bleibt bestehen.</div>' : ''}`;
+  m.innerHTML = `<div class="gm-h"><b>${esc(t.name)}</b><small>${esc(longDate(date))}</small></div>${rows || '<div class="gm-slot"><small>Kein Einsatz an diesem Tag.</small></div>'}<hr>${unavHtml}${slots.length ? `<hr><button class="gm-act ghost" data-gjump="${date}">Tag in der Liste öffnen ›</button>` : ''}`;
   document.body.appendChild(m);
   const r = btn.getBoundingClientRect(); const w = m.offsetWidth; const h = m.offsetHeight;
   let top = r.bottom + 4; if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4);
@@ -658,6 +662,9 @@ function gridMenu(btn, techId, date, act) {
   m.querySelectorAll('[data-grm]').forEach((b) => (b.onclick = () => { closeMenu(); act('rm', b.dataset.grm, techId); }));
   m.querySelectorAll('[data-gst]').forEach((b) => (b.onclick = () => { closeMenu(); act('st', b.dataset.k, b.dataset.gst); }));
   m.querySelectorAll('[data-gjump]').forEach((b) => (b.onclick = () => { closeMenu(); act('jump', b.dataset.gjump); }));
+  const on = m.querySelector('[data-gunon]'); if (on) on.onclick = () => { const n = (m.querySelector('#gmNote') || {}).value || ''; closeMenu(); act('unav', date, techId, n.trim()); };
+  const ni = m.querySelector('#gmNote'); if (ni) ni.onkeydown = (e) => { if (e.key === 'Enter') on.click(); };
+  const off = m.querySelector('[data-gunoff]'); if (off) off.onclick = () => { closeMenu(); act('unavdel', date, techId); };
   setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
   document.addEventListener('keydown', menuKey);
   const y0 = window.scrollY; const onScroll = () => { if (!document.querySelector('.stmenu')) return window.removeEventListener('scroll', onScroll); if (Math.abs(window.scrollY - y0) > 60) { closeMenu(); window.removeEventListener('scroll', onScroll); } };
@@ -845,8 +852,13 @@ function renderPlan() {
   if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
   document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; renderMaster(); }));
   document.querySelectorAll('[data-gc]').forEach((c) => (c.onclick = (ev) => { ev.stopPropagation(); const [tid, dt] = c.dataset.gc.split('|');
-    gridMenu(c, tid, dt, (kind, x, y) => {
+    gridMenu(c, tid, dt, (kind, x, y, z) => {
       if (kind === 'jump') { S.view = 'liste'; S.filter = 'alle'; if (x < today) S.showPast = true; renderMaster(); const el = document.getElementById('d-' + x); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } return; }
+      if (kind === 'unav' || kind === 'unavdel') {
+        const dt = x; const tid = y; const prevU = S.unav;
+        return optimistic(() => { S.unav = S.unav.filter((u) => !(u.tech_id === tid && u.day === dt)); if (kind === 'unav') S.unav = [...S.unav, { tech_id: tid, day: dt, note: z || '' }]; },
+          async () => { if (kind === 'unav') await store.setUnav(tid, dt, z || ''); else await store.clearUnav(tid, dt); }, null, () => (S.unav = prevU));
+      }
       const key = x; const prev = S.asg[key];
       if (kind === 'rm') return optimistic(() => delete S.asg[key], () => store.deleteAssignments([key]), null, () => (S.asg[key] = prev));
       if (kind === 'st') { if (!prev || prev.status === y) return; const a = Object.assign({}, prev, { status: y, updated_at: nowISO() }, y === 'angefragt' && !prev.requested_at ? { requested_at: nowISO() } : {}); return optimistic(() => (S.asg[key] = a), () => store.saveAssignments([a]), null, () => (S.asg[key] = prev)); }

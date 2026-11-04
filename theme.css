@@ -459,3 +459,9 @@ table.grid th.name { min-width: 112px; padding: 6px 10px; }
 table.grid td.sum, table.grid th.sum { min-width: 46px; padding: 0 4px; }
 .need { width: 30px; font-size: 10.5px; } .gcell, .gadd { width: 28px; }
 @media (max-width: 700px) { table.grid th.name { min-width: 84px; max-width: 96px; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; padding: 6px 8px; } }
+.gadd.noslot { opacity: .55; } tr:hover .gadd.noslot { opacity: .8; }
+@media (hover: none) { .gadd.noslot { border-color: transparent; } }
+.gadd.blocked { opacity: 1; color: var(--st-abgesagt); border-color: transparent; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--st-abgesagt) 14%, transparent) 0 3px, transparent 3px 6px); }
+.gm-un { padding: 4px 8px; font-size: 13px; } .gm-un.on { color: var(--st-abgesagt); }
+.gm-un input { width: 100%; box-sizing: border-box; font-size: 14px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--ink); }
+.stmenu { z-index: 100; }

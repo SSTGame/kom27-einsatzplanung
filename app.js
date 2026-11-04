@@ -427,18 +427,38 @@ function renderLogin(msg) {
       ${(DEMO ? DemoStore.d().viewers || [] : []).map((v) => `<button class="btn small" data-demo="${esc(v.email)}">Als ${esc(v.name)} (KOM27)</button>`).join('')}
     </div></div>` : ''}
   </div>`;
-  const err = (e) => ($('#err').textContent = e.message || e);
+  // Fehlermeldungen von Supabase verständlich machen
+  const deMsg = (m) => {
+    m = String(m || '');
+    if (/rate limit|over_email_send|429|security purposes/i.test(m)) return '⏳ Gerade wurden zu viele E-Mails verschickt. Bitte ca. 30–60 Minuten warten und dann nur EINMAL tippen. Wenn du schon eine Bestätigungs-Mail bekommen hast: die gilt weiterhin, einfach dort tippen.';
+    if (/invalid login credentials/i.test(m)) return 'E-Mail oder Passwort stimmt nicht. Noch kein Konto? Dann „Erstes Mal? Konto anlegen“.';
+    if (/email not confirmed/i.test(m)) return 'Bitte zuerst den Link in der Bestätigungs-Mail antippen (auch im Spam-Ordner schauen).';
+    if (/already registered|already been registered/i.test(m)) return 'Für diese E-Mail gibt es schon ein Konto – bitte einfach anmelden oder „Passwort vergessen“ antippen.';
+    if (/valid email|invalid format/i.test(m)) return 'Bitte eine gültige E-Mail-Adresse eintragen.';
+    return m;
+  };
+  const err = (e) => ($('#err').textContent = deMsg(e.message || e));
+  // Schutz gegen Mehrfach-Tippen: während einer Anfrage alles sperren, nach einer Mail 2 Minuten warten
+  const MAIL_WAIT = 120000;
+  const mailLeft = () => Math.max(0, (+ls.get('kom27-mail-at') || 0) + MAIL_WAIT - Date.now());
+  const lockMail = () => { const b = [$('#up'), $('#forgot')].filter(Boolean); const left = mailLeft(); b.forEach((x) => (x.disabled = left > 0)); if (left > 0) setTimeout(lockMail, Math.min(left, 5000) + 50); };
+  const busy = (fn, mail) => async () => {
+    if (mail && mailLeft() > 0) return err('Die E-Mail ist schon unterwegs – bitte im Postfach (auch Spam) nachsehen. Nochmal schicken geht in ' + Math.ceil(mailLeft() / 60000) + ' Min.');
+    const bs = [...document.querySelectorAll('.login button')]; bs.forEach((x) => (x.disabled = true));
+    try { await fn(); } finally { bs.forEach((x) => (x.disabled = false)); lockMail(); }
+  };
   const creds = () => { const em = $('#em').value.trim(); ls.set('kom27-last-email', em); return [em, $('#pw').value]; };
   if (S.recovery) {
     $('#setpw').onclick = async () => { try { await store.setPassword($('#pw1').value); S.recovery = false; toast('Passwort geändert'); boot(); } catch (e) { err(e); } };
     return;
   }
-  $('#in').onclick = async () => { try { const [e, p] = creds(); S.user = await store.signIn(e, p); boot(); } catch (e) { err(e); } };
+  $('#in').onclick = busy(async () => { try { const [e, p] = creds(); S.user = await store.signIn(e, p); boot(); } catch (e) { err(e); } });
+  lockMail();
   $('#pw').onkeydown = (ev) => { if (ev.key === 'Enter') $('#in').click(); };
-  $('#up').onclick = async () => {
-    try { const [e, p] = creds(); if (p.length < 8) throw new Error('Passwort bitte mit mindestens 8 Zeichen.'); const u = await store.signUp(e, p); if (u) { S.user = u; boot(); } else err('Fast fertig! Wir haben dir eine E-Mail mit dem Betreff „KOM27 Einsatzplanung – E-Mail bestätigen“ geschickt. Tippe dort auf „E-Mail bestätigen“ – danach bist du drin. (Nichts gekommen? Bitte im Spam-Ordner schauen.)'); } catch (e) { err(e); }
-  };
-  $('#forgot').onclick = async () => { try { const [e] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); await store.reset(e); err('Link zum Zurücksetzen wurde per E-Mail geschickt.'); } catch (e) { err(e); } };
+  $('#up').onclick = busy(async () => {
+    try { const [e, p] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); if (p.length < 8) throw new Error('Passwort bitte mit mindestens 8 Zeichen.'); const u = await store.signUp(e, p); ls.set('kom27-mail-at', String(Date.now())); if (u) { S.user = u; boot(); } else err('Fast fertig! Wir haben dir eine E-Mail mit dem Betreff „KOM27 Einsatzplanung – E-Mail bestätigen“ geschickt. Tippe dort auf „E-Mail bestätigen“ – danach bist du drin. (Nichts gekommen? Bitte im Spam-Ordner schauen.)'); } catch (e) { err(e); }
+  }, true);
+  $('#forgot').onclick = busy(async () => { try { const [e] = creds(); if (!e) throw new Error('Bitte erst die E-Mail eintragen.'); await store.reset(e); ls.set('kom27-mail-at', String(Date.now())); err('Link zum Zurücksetzen wurde per E-Mail geschickt. Bitte auch im Spam-Ordner schauen.'); } catch (e) { err(e); } }, true);
   document.querySelectorAll('[data-demo]').forEach((b) => (b.onclick = async () => { S.user = await store.signIn(b.dataset.demo); boot(); }));
 }
 

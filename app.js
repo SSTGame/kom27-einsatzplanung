@@ -658,6 +658,51 @@ function gridHtml(days, today) {
     <tbody><tr class="needrow"><th class="name">Besetzt / Bedarf</th>${needRow}<td class="sum" title="Im Monat: ${tot.z} von ${tot.n} Plätzen zugesagt">${tot.z}/${tot.n}</td></tr>${rowsH || `<tr><td colspan="${days.length + 2}" class="empty-msg">Noch keine Techniker angelegt.</td></tr>`}</tbody></table></div>`;
 }
 
+// Zeitstrahl: eine Woche als durchgehende Zeitachse je Techniker, mit Ruhezeiten zwischen den Einsätzen
+function timelineWeekHtml(today) {
+  const mon = S.tlWeek || mondayOf(S.month && S.month !== today.slice(0, 7) ? S.month + '-01' : today);
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+  const H = 7 * 24; const pc = (h) => Math.max(0, Math.min(100, (h / H) * 100));
+  const base = Date.parse(mon + 'T00:00:00Z') / 36e5;
+  const from = addDays(mon, -2); const to = addDays(mon, 8);
+  const sls = allSlots().filter((s) => s.date >= from && s.date <= to && !s.day.cancelled);
+  const span = (s) => { const p = parseSpan(s.zeit); if (!p) return null; const b = Date.parse(s.date + 'T00:00:00Z') / 36e5 - base; return [b + p[0], b + p[1]]; };
+  const short = (z) => { const p = parseSpan(z); if (!p) return '?'; const f = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + (m % 60 ? ':' + pad(m % 60) : ''); }; return f(p[0]) + '–' + f(p[1]); };
+  const fh = (h) => (Math.round(h * 10) / 10).toString().replace('.', ',');
+  const techs = S.techs.filter((t) => t.active !== false);
+  const dayBg = dates.map((dt, i) => { const wd = new Date(dt + 'T12:00:00').getDay(); return `<i class="zs-day ${wd === 0 || wd === 6 ? 'we' : ''} ${dt === today ? 'today' : ''}" style="left:${pc(i * 24)}%;width:${pc(24)}%"></i>`; }).join('');
+  const now = new Date(); const nowH = Date.parse(todayISO() + 'T00:00:00Z') / 36e5 - base + now.getHours() + now.getMinutes() / 60;
+  const nowLine = nowH > 0 && nowH < H ? `<i class="zs-now" style="left:${pc(nowH)}%"></i>` : '';
+  const row = (label, bars, cls) => `<div class="zs-row ${cls || ''}"><div class="zs-name">${label}</div><div class="zs-track">${dayBg}${nowLine}${bars}</div></div>`;
+  let rows = '';
+  techs.forEach((t) => {
+    const mine = sls.filter((s) => { const a = S.asg[s.key]; return a && a.tech_id === t.id && a.status !== 'abgesagt'; }).map((s) => ({ s, a: S.asg[s.key], sp: span(s) })).filter((x) => x.sp).sort((x, y) => x.sp[0] - y.sp[0]);
+    const un = dates.map((dt, i) => { const u = unavOf(t.id, dt); return u ? `<i class="zs-unav" style="left:${pc(i * 24)}%;width:${pc(24)}%" title="${esc('Kann nicht' + (u.note ? ': ' + u.note : ''))}"></i>` : ''; }).join('');
+    let bars = '';
+    mine.forEach((x, i) => {
+      const [a, b] = x.sp; if (b <= 0 || a >= H) return;
+      bars += `<button class="zs-bar st-${x.a.status}" data-gc="${t.id}|${x.s.date}" style="left:${pc(a)}%;width:${Math.max(pc(b) - pc(a), 0.6)}%" title="${esc(fmtDate(x.s.date) + ' ' + (x.s.zeit || '') + ' · ' + (x.s.va || '') + ' · ' + ST_LABEL[x.a.status])}"><b>${esc(short(x.s.zeit))}</b><small>${esc(x.s.va || '')}</small></button>`;
+      const n = mine[i + 1]; if (!n) return;
+      const gap = n.sp[0] - b; if (gap <= 0 || gap > 40) return;
+      const mid = (b + n.sp[0]) / 2; if (mid <= 0 || mid >= H) return;
+      bars += `<span class="zs-gap ${gap < REST_H ? 'bad' : ''}" style="left:${pc(b)}%;width:${pc(n.sp[0]) - pc(b)}%" title="Ruhezeit bis zum nächsten Einsatz: ${fh(gap)} Std."><em>${gap < REST_H ? '⚠ ' : ''}${fh(gap)} h</em></span>`;
+    });
+    if (bars || un) rows += row(esc(t.name), un + bars);
+    else rows += row(esc(t.name), un, 'zs-empty');
+  });
+  const open = sls.filter((s) => { const a = S.asg[s.key]; return !a || !a.tech_id || a.status === 'abgesagt'; }).map((s) => ({ s, sp: span(s) })).filter((x) => x.sp && x.sp[1] > 0 && x.sp[0] < H);
+  if (open.length) rows = row('<span class="t-leer">❗ offen</span>', open.map((x) => `<button class="zs-bar st-leer" data-jump="${x.s.date}" style="left:${pc(x.sp[0])}%;width:${Math.max(pc(x.sp[1]) - pc(x.sp[0]), 0.6)}%" title="${esc(fmtDate(x.s.date) + ' ' + (x.s.zeit || '') + ' · ' + (x.s.va || '') + ' · noch unbesetzt')}"><b>${esc(short(x.s.zeit))}</b><small>${esc(x.s.va || '')}</small></button>`).join(''), 'zs-open') + rows;
+  const head = dates.map((dt, i) => { const wd = new Date(dt + 'T12:00:00').getDay(); return `<div class="zs-h ${dt === today ? 'today' : ''} ${wd === 0 || wd === 6 ? 'we' : ''}" style="left:${pc(i * 24)}%;width:${pc(24)}%"><b>${WD[wd]} ${dt.slice(8, 10)}.${dt.slice(5, 7)}.</b><span><i>6</i><i>12</i><i>18</i></span></div>`; }).join('');
+  return `<div class="card zs">
+    <div class="zs-nav"><button class="btn small" data-tlw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><button class="btn small" data-tlw="7" aria-label="Woche vor">›</button><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-tlw="0">diese Woche</button>' : ''}</div>
+    <div class="zs-scroll"><div class="zs-grid">
+      <div class="zs-row zs-head"><div class="zs-name"></div><div class="zs-track">${head}</div></div>
+      ${rows || '<div class="empty-msg">Noch keine Techniker angelegt.</div>'}
+    </div></div>
+    <div class="legend zs-lgd"><span class="lg zugesagt"></span>zugesagt <span class="lg angefragt"></span>angefragt <span class="lg geplant"></span>geplant <span class="lg miss"></span>offen <span class="lg blocked"></span>kann nicht · <b>„13 h“ = Ruhezeit bis zum nächsten Einsatz</b>, rot unter ${REST_H} h · rote Linie = jetzt · Balken antippen = ändern</div>
+  </div>`;
+}
+
 // Menü im Raster: Techniker an einem Tag eintragen, Status ändern oder austragen
 function gridMenu(btn, techId, date, act) {
   closeMenu();
@@ -855,7 +900,7 @@ function renderPlan() {
         <select id="month">${months.map((x) => `<option value="${x}" ${x === S.month ? 'selected' : ''}>${MON[+x.slice(5, 7) - 1]} ${x.slice(0, 4)}</option>`).join('')}</select>
         <button class="btn small" id="mNext" ${mi >= months.length - 1 ? 'disabled' : ''} aria-label="Nächster Monat">›</button>
       </div>
-      <div class="seg" role="tablist"><button data-view="liste" class="${S.view !== 'raster' ? 'on' : ''}">Liste</button><button data-view="raster" class="${S.view === 'raster' ? 'on' : ''}">Raster</button></div>
+      <div class="seg" role="tablist"><button data-view="liste" class="${S.view !== 'raster' ? 'on' : ''}">Liste</button><button data-view="raster" class="${S.view === 'raster' ? 'on' : ''}">Raster</button><button data-view="zeit" class="${S.view === 'zeit' ? 'on' : ''}">Zeitstrahl</button></div>
       <div class="spacer"></div>
       <div class="tb-actions">
       ${(() => { const n = visDays.filter((d) => !d.cancelled).reduce((acc, d) => acc + d.slots.filter((x) => (slotState(x) === 'leer' || slotState(x) === 'abgesagt') && !offerOf(x.key)).length, 0); return n ? `<button class="btn" id="offerAll" title="Alle unbesetzten Einsätze dieses Monats an alle Techniker schicken – wer Zeit hat, meldet sich">📣 Offene ausschreiben (${n})</button>` : ''; })()}
@@ -864,14 +909,14 @@ function renderPlan() {
       <button class="btn primary" id="auto">Auto-Einteilung</button>
       </div>
     </div>
-    ${S.view === 'raster' ? gridHtml(monthDays, today) : `<div class="chips">${FILTERS.map(([k, l]) => `<button class="chip f-${k} ${S.filter === k ? 'on' : ''}" data-filter="${k}">${l}<b>${cnt[k]}</b></button>`).join('')}
+    ${S.view === 'zeit' ? timelineWeekHtml(today) : S.view === 'raster' ? gridHtml(monthDays, today) : `<div class="chips">${FILTERS.map(([k, l]) => `<button class="chip f-${k} ${S.filter === k ? 'on' : ''}" data-filter="${k}">${l}<b>${cnt[k]}</b></button>`).join('')}
       <label class="pastsw"><input type="checkbox" id="showPast" ${S.showPast ? 'checked' : ''}> vergangene Tage</label></div>
     <div class="card plan">${rows ? html : `<div class="empty-msg">${S.filter === 'alle' ? 'Keine Einsätze in diesem Zeitraum.' : 'Nichts mit diesem Status. 👍'}</div>`}</div>`}
     <p class="note">Farbiger Balken = mehrtägige Veranstaltung (wie in der Excel). Status anklicken, um ihn von Hand zu ändern, z. B. nach einer telefonischen Zusage.</p>
   ` : '');
   wireImport();
   if (!S.plan) return;
-  const go = (i) => { if (months[i]) { S.month = months[i]; renderMaster(); } };
+  const go = (i) => { if (months[i]) { S.month = months[i]; S.tlWeek = undefined; renderMaster(); } };
   $('#mPrev').onclick = () => go(mi - 1);
   $('#mNext').onclick = () => go(mi + 1);
   document.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.filter; S.keep = new Set(); renderMaster(); }));
@@ -879,6 +924,7 @@ function renderPlan() {
   document.querySelectorAll('[data-ovtab]').forEach((b) => (b.onclick = () => { S.tab = b.dataset.ovtab; renderMaster(); window.scrollTo(0, 0); }));
   if ($('#showPast')) $('#showPast').onchange = (e) => { S.showPast = e.target.checked; renderMaster(); };
   document.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => { S.view = b.dataset.view; ls.set('kom27-view', S.view); renderMaster(); }));
+  document.querySelectorAll('[data-tlw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.tlw; const cur = S.tlWeek || mondayOf(S.month && S.month !== today.slice(0, 7) ? S.month + '-01' : today); S.tlWeek = n ? addDays(cur, n) : mondayOf(today); S.month = addDays(S.tlWeek, 3).slice(0, 7); renderMaster(); }));
   document.querySelectorAll('[data-gc]').forEach((c) => (c.onclick = (ev) => { ev.stopPropagation(); const [tid, dt] = c.dataset.gc.split('|');
     gridMenu(c, tid, dt, (kind, x, y, z) => {
       if (kind === 'jump') { S.view = 'liste'; S.filter = 'alle'; if (x < today) S.showPast = true; renderMaster(); const el = document.getElementById('d-' + x); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } return; }
@@ -904,7 +950,7 @@ function renderPlan() {
     const el = document.getElementById('d-' + c.dataset.jump); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
   }));
   const days = monthDays;
-  $('#month').onchange = (e) => { S.month = e.target.value; S.keep = new Set(); renderMaster(); };
+  $('#month').onchange = (e) => { S.month = e.target.value; S.keep = new Set(); S.tlWeek = undefined; renderMaster(); };
   wireChanges();
   wireRemove();
   const anchor = (key) => `[data-sk="${CSS.escape(key)}"]`;

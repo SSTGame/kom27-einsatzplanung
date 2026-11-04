@@ -179,15 +179,32 @@
     return out;
   }
 
+  // Derselbe Tag kann in der Excel mehrfach vorkommen (z. B. zweite Veranstaltung weiter unten) – zu einem Tag zusammenfassen
+  function mergeDays(days) {
+    const by = new Map(); const out = [];
+    (days || []).forEach((d) => {
+      const m = by.get(d.date);
+      if (!m) { const c = Object.assign({}, d, { slots: (d.slots || []).slice() }); by.set(d.date, c); out.push(c); return; }
+      const uni = (a, b) => [...new Set([...(a || []), ...(b || [])])];
+      m.slots = m.slots.concat(d.slots || []);
+      m.vas = uni(m.vas, d.vas); m.vaIds = uni(m.vaIds, d.vaIds); m.kom = (m.kom || d.kom) ? uni(m.kom, d.kom) : m.kom;
+      m.info = [m.info, d.info].filter(Boolean).join(' · ');
+      m.vazeit = [...new Set([m.vazeit, d.vazeit].filter(Boolean))].join(' / ');
+      m.anzahl = (+m.anzahl || 0) + (+d.anzahl || 0);
+      m.free = !!(m.free && d.free); m.blocked = !!(m.blocked || d.blocked); m.cancelled = !!(m.cancelled && d.cancelled);
+    });
+    return out;
+  }
+
   const MONTHS = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
   function parseWorkbook(wb) {
     let all = [];
     wb.eachSheet((ws) => { if (MONTHS.includes(ws.name.trim().toLowerCase())) all = all.concat(parseSheet(ws)); });
     all.sort((a, b) => a.date.localeCompare(b.date));
-    const days = buildSlots(all);
+    const days = mergeDays(buildSlots(all));
     return { importedAt: new Date().toISOString(), days };
   }
 
-  const api = { parseWorkbook, vaDays, VERSION: 3 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 3 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

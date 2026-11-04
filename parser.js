@@ -184,7 +184,9 @@
     const by = new Map(); const out = [];
     (days || []).forEach((d) => {
       const m = by.get(d.date);
-      if (!m) { const c = Object.assign({}, d, { slots: (d.slots || []).slice() }); by.set(d.date, c); out.push(c); return; }
+      const part = { vas: d.vas || [], info: d.info || '', vazeit: d.vazeit || '' };
+      if (!m) { const c = Object.assign({}, d, { slots: (d.slots || []).slice(), parts: d.parts || [part] }); by.set(d.date, c); out.push(c); return; }
+      m.parts = (m.parts || []).concat(d.parts || [part]);
       const uni = (a, b) => [...new Set([...(a || []), ...(b || [])])];
       m.slots = m.slots.concat(d.slots || []);
       m.vas = uni(m.vas, d.vas); m.vaIds = uni(m.vaIds, d.vaIds); m.kom = (m.kom || d.kom) ? uni(m.kom, d.kom) : m.kom;

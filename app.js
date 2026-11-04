@@ -1755,9 +1755,38 @@ function vaListOf(d) {
   const parts = String(d.vazeit || '').split(' / ');
   return ids.map((va, i) => {
     const s = (d.slots || []).find((x) => x.va === va);
-    const zeit = (s && s.det && s.det.vazeit) || (parts.length === ids.length ? parts[i] : parts.length === 1 ? parts[0] : '') || '';
-    return { va, zeit, pam: !!s, key: s ? s.key : null };
+    const pt = (d.parts || []).find((x) => (x.vas || []).includes(va));
+    const zeit = (s && s.det && s.det.vazeit) || (pt && pt.vazeit && !pt.vazeit.includes(' / ') ? pt.vazeit : '') || (parts.length === ids.length ? parts[i] : parts.length === 1 ? parts[0] : '') || '';
+    return { va, zeit, pam: !!s, key: s ? s.key : null, info: pt && (d.parts || []).length > 1 ? pt.info : d.info || '' };
   });
+}
+// Details zu einer Veranstaltung ohne PAM-Techniker (KOM27-Ansicht)
+function openVa(date, va) {
+  const d = allDays().find((x) => x.date === date); if (!d) return;
+  const x = vaListOf(d).find((y) => y.va === va) || { va, zeit: d.vazeit, info: d.info };
+  const rooms = String(x.info || '').split(' · ').filter(Boolean).map((r) => { const i = r.indexOf(': '); return i > 0 ? [r.slice(0, i), r.slice(i + 2)] : ['', r]; });
+  const pam = (d.slots || []).map((s) => ({ s, k: komOf(s.key) }));
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Veranstaltung">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><span class="pill st-nopam">Ohne PAM-Techniker</span></div>
+    <div class="sh-head"><div class="sh-date">${dateBox(d.date)}<div><h2>${esc(longDate(d.date))}</h2><span class="until">${untilTxt(d.date)}</span></div></div>
+      <div class="sh-va">${esc(va)}</div></div>
+    <div class="facts">${x.zeit ? `<div class="fact big"><small>Veranstaltung (VA-Zeit)</small><b>${esc(niceTime(x.zeit))}</b></div>` : ''}</div>
+    <div class="hint">Für diese Veranstaltung ist laut VA-Kalender kein PAM-Techniker angefordert.</div>
+    <h3>🛠 Aufbau laut Excel</h3>
+    ${rooms.length ? rooms.map(([room, text]) => `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="plain">${equipItems(text).map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</li>`).join('')}</ul></div>`).join('') : '<p class="muted">In der Excel steht dazu nichts.</p>'}
+    <h3>🏢 Medientechnik KOM27 vor Ort</h3>
+    ${(d.kom || []).length ? `<div class="coll">${d.kom.map((n) => `<span class="cchip kom">${esc(n)}</span>`).join('')}</div>` : '<p class="muted">Laut Excel niemand eingetragen.</p>'}
+    <h3>👥 PAM-Techniker an dem Tag</h3>
+    ${pam.length ? `<div class="coll">${pam.map(({ s, k }) => `<button class="cchip ${k ? k.status : ''}" data-open="${esc(s.key)}">${k ? esc(k.name) : '❗ noch offen'} <small>${esc(s.zeit || '')}${s.va ? ' · ' + esc(s.va) : ''}</small></button>`).join('')}</div>` : '<p class="muted">An diesem Tag ist kein PAM-Techniker im Haus.</p>'}
+  </div></div>`;
+  const old = $('#sheet'); if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', html); document.body.classList.add('noscroll');
+  const box = $('#sheet');
+  const close = () => { box.remove(); document.body.classList.remove('noscroll'); document.removeEventListener('keydown', k_); };
+  const k_ = (e) => { if (e.key === 'Escape') close(); }; document.addEventListener('keydown', k_);
+  box.onclick = (e) => { if (e.target === box) close(); };
+  box.querySelector('[data-close]').onclick = close;
+  box.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => { close(); openJob(b.dataset.open); }));
 }
 function komTodayCard() {
   const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
@@ -1771,7 +1800,7 @@ function komTodayCard() {
     return `<section class="tcard tc-${w}">
     <div class="td-top"><span class="td-tag">${w === 'heute' ? 'HEUTE IM HAUS' : 'MORGEN IM HAUS'}</span><span class="td-state">${esc(longDate(dv.date))}</span></div>
     <div class="td-where" style="margin-top:8px">📍 ${esc(roomsOf(dv.info) || 'KOM27')}</div>
-    <div class="tk-list">${vaListOf(dv).map((x) => `<div class="tk-row"><b>${esc(x.va)}</b><span>${x.zeit ? esc(niceTime(x.zeit)) : ''}</span></div>`).join('')}</div>
+    <div class="tk-list">${vaListOf(dv).map((x) => `<button class="tk-row" data-va="${dv.date}|${esc(x.va)}"><b>${esc(x.va)}</b><span>${x.zeit ? esc(niceTime(x.zeit)) : ''} ›</span></button>`).join('')}</div>
     <p class="td-note">Kein PAM-Techniker angefordert.</p>
     <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
   </section>`;
@@ -1803,7 +1832,7 @@ function komWeekGrid(today, seg) {
   const row = (label, cls, cell) => `<tr class="${cls}"><th>${label}</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${cell(dt)}</td>`).join('')}</tr>`;
   const hasVa = dates.some((dt) => byDate[dt] && !byDate[dt].cancelled && vaListOf(byDate[dt]).length);
   let rows = '';
-  if (hasVa) rows += row('Veranstaltung', 'kr-vas', (dt) => (byDate[dt] && !byDate[dt].cancelled ? vaListOf(byDate[dt]) : []).map((x) => `<${x.key ? `button data-open="${esc(x.key)}"` : 'span'} class="kr-va ${x.pam ? '' : 'nopam'}" title="${esc(x.va + (x.zeit ? ' · ' + x.zeit : '') + (x.pam ? '' : ' · ohne PAM-Techniker'))}"><b>${esc(x.va.replace(/^VA/, ''))}</b><small>${x.zeit ? esc(short(x.zeit)) : ''}${x.pam ? '' : ' · ohne PAM'}</small></${x.key ? 'button' : 'span'}>`).join(''));
+  if (hasVa) rows += row('Veranstaltung', 'kr-vas', (dt) => (byDate[dt] && !byDate[dt].cancelled ? vaListOf(byDate[dt]) : []).map((x) => `<${x.key ? `button data-open="${esc(x.key)}"` : `button data-va="${dt}|${esc(x.va)}"`} class="kr-va ${x.pam ? '' : 'nopam'}" title="${esc(x.va + (x.zeit ? ' · ' + x.zeit : '') + (x.pam ? '' : ' · ohne PAM-Techniker'))}"><b>${esc(x.va.replace(/^VA/, ''))}</b><small>${x.zeit ? esc(short(x.zeit)) : ''}${x.pam ? '' : ' · ohne PAM'}</small></button>`).join(''));
   if (hasKom) rows += row('🏢 KOM27', 'kr-kom', (dt) => ((byDate[dt] || {}).kom || []).map((n) => `<span class="kr-kom-n">${esc(n.split(' ')[0])}</span>`).join(''));
   names.forEach((n) => (rows += row(esc(n), '', (dt) => sl(dt).filter((s) => komOf(s.key) && komOf(s.key).name === n).map((s) => chip(s, komOf(s.key).status)).join(''))));
   if (hasOpen) rows += row('❗ noch offen', 'kr-open', (dt) => sl(dt).filter((s) => !komOf(s.key)).map((s) => chip(s, 'leer')).join(''));
@@ -1826,6 +1855,7 @@ function renderKom() {
     m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
+    m.querySelectorAll('[data-va]').forEach((b) => (b.onclick = () => { const [dt, va] = b.dataset.va.split('|'); openVa(dt, va); }));
     const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
     m.querySelectorAll('[data-kv]').forEach((b) => (b.onclick = () => { S.komView = b.dataset.kv; paint(); }));
     m.querySelectorAll('[data-kw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.kw; S.komWeek = n ? addDays(S.komWeek || mondayOf(today), n) : mondayOf(today); paint(); }));
@@ -1847,7 +1877,7 @@ function renderKom() {
       return `<button class="kom-slot ${k ? 'st-' + k.status : 'st-leer'}" data-open="${esc(s.key)}"><span class="ks-who">${k ? esc(k.name) : 'noch nicht besetzt'}</span><span class="ks-st">${k ? (k.status === 'zugesagt' ? '✓ zugesagt' : '⏳ angefragt') : '❗ offen'}</span><span class="ks-time">${esc(niceTime(s.zeit))}${s.va ? ' · ' + esc(s.va) : ''}</span><span class="jc-more">Details ›</span></button>`; }).join('')
       : '';
     const noPam = vaListOf(d).filter((x) => !x.pam);
-    const extra = noPam.length ? `<div class="kd-nopam"><span>${d.slots.length ? 'Außerdem ohne PAM-Techniker' : 'Ohne PAM-Techniker'}</span>${noPam.map((x) => `<b>${esc(x.va)}${x.zeit ? ' <small>' + esc(niceTime(x.zeit)) + '</small>' : ''}</b>`).join('')}</div>` : (d.slots.length ? '' : '<p class="muted small">Kein PAM-Techniker angefordert</p>');
+    const extra = noPam.length ? `<div class="kd-nopam"><span>${d.slots.length ? 'Außerdem ohne PAM-Techniker' : 'Ohne PAM-Techniker'}</span>${noPam.map((x) => `<button class="kd-va" data-va="${d.date}|${esc(x.va)}"><b>${esc(x.va)}</b>${x.zeit ? ' <small>' + esc(niceTime(x.zeit)) + '</small>' : ''}<span class="jc-more">Details ›</span></button>`).join('')}</div>` : (d.slots.length ? '' : '<p class="muted small">Kein PAM-Techniker angefordert</p>');
     return `${head}<article class="job-card kom-day ${d.date === today ? 'is-today' : ''} ${d.date < today ? 'past' : ''} ${d.cancelled ? 'cancel' : ''}">
       <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
       ${rows}${extra}</article>`;
@@ -1869,7 +1899,7 @@ function renderKom() {
     ${raster ? komWeekGrid(today, seg) : `<div class="kl-head">${seg}<label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
     </div><aside class="dash-side only-d">${tc}
-      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-komday="${d.date}"`}>${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '<span class="muted">ohne PAM-Techniker</span>'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
+      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '<span class="muted">ohne PAM-Techniker</span>'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
     </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
   wire();

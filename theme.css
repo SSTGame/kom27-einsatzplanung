@@ -537,3 +537,11 @@ button.kr-va { cursor: pointer; } button.kr-va:hover { border-color: var(--accen
 .kn-row[data-komday] { cursor: default; }
 .kr-grid thead tr > th:first-child, .kr-grid tbody th { width: 118px; white-space: normal; }
 .kr-va b, .kr-va small { white-space: nowrap; } @media (max-width: 700px) { .kr-va b { font-size: 11px; } .kr-va small { font-size: 10px; } }
+.pill.st-nopam { background: transparent; border: 1.5px dashed var(--muted); color: var(--muted); }
+ul.plain { margin: 6px 0 10px; padding-left: 20px; } ul.plain li { margin: 4px 0; line-height: 1.45; } ul.plain li.imp { color: var(--st-abgesagt); font-weight: 650; } ul.plain .sub { display: block; color: var(--muted); font-size: 12.5px; }
+.kd-nopam .kd-va { display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 6px 0; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.kd-nopam .kd-va .jc-more { margin-left: auto; color: var(--accent); font-size: 12.5px; }
+.kd-nopam .kd-va small { color: var(--muted); }
+button.tk-row { width: 100%; border: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+button.cchip { font: inherit; cursor: pointer; border: 0; }
+.kr-va.nopam { cursor: pointer; } .kr-va.nopam:hover { border-color: var(--accent); color: var(--ink); }

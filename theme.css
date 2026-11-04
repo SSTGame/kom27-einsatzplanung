@@ -715,3 +715,18 @@ body.scroll-lock { position: fixed; left: 0; right: 0; width: 100%; overflow: hi
 .mc-e.wish { outline: 2px solid var(--st-abgesagt); outline-offset: 1px; }
 .mc-away { font-size: 10.5px; color: var(--st-abgesagt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 600px) { .mc-grid { gap: 2px; } .mc-d { min-height: 58px; padding: 3px 2px; border-radius: 7px; } .mc-e { padding: 2px 3px; } .mc-e b { font-size: 10px; } .mc-e span { font-size: 9.5px; } .mc-away { font-size: 9.5px; } }
+
+/* Aufbauliste bearbeiten */
+h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { margin-left: auto; font-size: 13px; }
+.eq-list { list-style: none; margin: 6px 0; padding: 0; }
+.eq-list li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.eq-list li > span { flex: 1; min-width: 0; } .eq-list li.imp > span { color: var(--st-abgesagt); font-weight: 650; }
+.eq-list .sub { display: block; color: var(--muted); font-size: 12.5px; font-weight: 400; }
+.eq-x { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--st-abgesagt); cursor: pointer; font-size: 14px; }
+.eq-gone > span { text-decoration: line-through; color: var(--muted); }
+.eq-undo { flex: none; border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
+.eq-new { display: flex; gap: 6px; margin: 8px 0 4px; }
+.eq-new input { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--ink); }
+.eq-newroom .eq-new input[data-eroom] { flex: 0 0 34%; }
+.eq-add { font-style: normal; font-size: 11px; font-weight: 650; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 6px; padding: 0 5px; margin-left: 4px; white-space: nowrap; }
+.eq-info { margin-top: 4px; }

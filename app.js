@@ -41,7 +41,7 @@ const DemoStore = {
     if (!d.kb) { d.kb = KB_DEMO(); this.w(d); }
     const kom = Object.values(d.asg || {}).filter((a) => a.tech_id && ['zugesagt', 'angefragt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, status: a.status, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '?' }));
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom,
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}),
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -53,6 +53,7 @@ const DemoStore = {
     if (!t || !a || a.tech_id !== t.id || a.status !== 'zugesagt') throw new Error('Kein zugesagter Einsatz gefunden.');
     Object.assign(a, { actual_start: st, actual_end: en, break_min: brk, time_note: note || '', time_at: nowISO() }); this.w(d);
   },
+  async saveEdit(row) { const d = this.d(); d.edits = d.edits || {}; d.edits[row.slot_key] = { slot_key: row.slot_key, removed: row.removed, added: row.added, updated_by: S.user && S.user.email, updated_at: nowISO() }; this.w(d); },
   async setUnav(tech_id, day, note, confirmed) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); d.unav.push({ tech_id, day, note: note || '', created_at: nowISO(), confirmed: !!confirmed }); this.w(d); },
   async confirmUnav(tech_id, days) { const d = this.d(); const set = new Set(days); (d.unav || []).forEach((u) => { if (u.tech_id === tech_id && set.has(u.day)) u.confirmed = true; }); this.w(d); },
   async clearUnav(tech_id, day) { const d = this.d(); d.unav = (d.unav || []).filter((u) => !(u.tech_id === tech_id && u.day === day)); this.w(d); },
@@ -116,9 +117,11 @@ function makeSupabaseStore() {
       const ps = await sb.from('push_subscriptions').select('email'); // Admin sieht alle, Techniker nur eigene
       const co = await sb.rpc('my_colleagues'); // wer am selben Tag mit im Einsatz ist (fehlt die Funktion: leer)
       const kb = await sb.from('kb_entries').select('*'); // KOM27-Infos (fehlt die Tabelle: leer)
+      const ee = await sb.from('equip_edits').select('*'); // von Hand angepasste Aufbaulisten
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [] };
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [] };
     },
+    async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
     async confirmUnav(tech_id, days) { chk(await sb.from('unavailability').update({ confirmed: true }).eq('tech_id', tech_id).in('day', days)); },
     async clearUnav(tech_id, day) { chk(await sb.from('unavailability').delete().eq('tech_id', tech_id).eq('day', day)); },
@@ -154,7 +157,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -166,8 +169,9 @@ function dataSig() {
   const t = (S.techs || []).map((x) => [x.id, x.name, x.email, x.active, x.aliases, x.manager_email, x.company].join(',')).join('|');
   const kms = Object.values(S.komAsg || {}).map((x) => x.slot_key + x.status + x.name).sort().join('|');
   const kbs = kms + (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
+  const eds = Object.values(S.edits || {}).map((x) => x.slot_key + JSON.stringify(x.removed) + JSON.stringify(x.added)).sort().join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
-  return [a, u, t, o, kbs, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
+  return [a, u, t, o, kbs, eds, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
 }
 // neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
 function paint(anchorSel) {
@@ -1496,18 +1500,40 @@ function equipItems(text) {
   if (out.length === 1 && !out[0].sub && out[0].t.split(',').length > 2) return out[0].t.split(',').map((x) => ({ t: x.trim(), sub: null })).filter((x) => x.t);
   return out;
 }
-function equipHtml(s) {
+// Aufbauliste: Excel-Punkte + eigene Ergänzungen, ohne entfernte Punkte (gilt für alle)
+function equipModel(s) {
   const det = s.det || {};
   let rooms = det.rooms && det.rooms.length ? det.rooms : null;
-  if (!rooms && s.day.info) rooms = s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; });
-  if (!rooms) return `<p class="muted">Für diesen Tag steht in der Excel noch nichts zum Aufbau.</p>`;
+  if (!rooms && s.day && s.day.info) rooms = s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; });
+  const ed = (S.edits || {})[s.key] || { removed: [], added: [] };
+  const rm = new Set(ed.removed || []);
+  const groups = (rooms || []).map(([room, text]) => ({ room: room || '', items: equipItems(text).map((it) => Object.assign({}, it, { id: (room || '') + '|' + it.t, src: 'xl' })) }));
+  (ed.added || []).forEach((x) => { let g = groups.find((y) => y.room === (x.room || '')); if (!g) { g = { room: x.room || '', items: [] }; groups.push(g); } g.items.push({ t: x.t, sub: null, id: '+' + x.id, src: 'add', by: x.by }); });
+  return { groups, rm, ed, fromExcel: !!rooms };
+}
+const equipList = (s) => { const m = equipModel(s); return m.groups.flatMap((g) => g.items.filter((it) => !m.rm.has(it.id))); };
+const canEditEquip = (s) => !S.mgrMode && !S.preview && (S.admin || S.viewer || (!s.nopam && (myTech() && S.asg[s.key] && S.asg[s.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[s.key].status))));
+function equipHtml(s) {
+  const m = equipModel(s); const edit = S.equipEdit === s.key && canEditEquip(s);
   const done = doneGet()[s.key] || [];
-  return rooms.map(([room, text], ri) => {
-    const items = equipItems(text);
-    if (S.mgrMode) return `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="plain">${items.map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</li>`).join('')}</ul></div>`;
-    return `<div class="room"><div class="room-h">📍 ${esc(room || 'Raum')}</div><ul class="check">${items.map((it, ii) => { const id = ri + '.' + ii; const on = done.includes(id);
-      return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${id}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</span></label></li>`; }).join('')}</ul></div>`;
+  const roomName = (r) => esc(r || 'Allgemein');
+  if (!m.groups.length && !edit) return `<p class="muted">Für diesen Tag steht in der Excel noch nichts zum Aufbau.</p>`;
+  const added = (it) => (it.src === 'add' ? `<em class="eq-add" title="von Hand ergänzt${it.by ? ' von ' + esc(it.by) : ''}">＋${it.by ? ' ' + esc(it.by.split(' ')[0]) : ''}</em>` : '');
+  const html = m.groups.map((g) => {
+    const vis = g.items.filter((it) => !m.rm.has(it.id)); const gone = g.items.filter((it) => m.rm.has(it.id));
+    if (!edit && !vis.length) return '';
+    const head = `<div class="room-h">📍 ${roomName(g.room)}</div>`;
+    if (edit) return `<div class="room eq-edit">${head}<ul class="eq-list">${vis.map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</span><button class="eq-x" data-erm="${esc(it.id)}" aria-label="Punkt entfernen" title="entfernen">✕</button></li>`).join('')}
+      ${gone.map((it) => `<li class="eq-gone"><span>${esc(it.t)}</span><button class="eq-undo" data-eun="${esc(it.id)}" title="wiederherstellen">↺ zurück</button></li>`).join('')}</ul>
+      <div class="eq-new"><input type="text" maxlength="160" placeholder="Punkt hinzufügen, z. B. 2 Funkmikrofone extra" data-enew="${esc(g.room)}"><button class="btn small" data-eadd="${esc(g.room)}">＋</button></div></div>`;
+    if (S.mgrMode) return `<div class="room">${head}<ul class="plain">${vis.map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</li>`).join('')}</ul></div>`;
+    return `<div class="room">${head}<ul class="check">${vis.map((it) => { const on = done.includes(it.id);
+      return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${esc(it.id)}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</span></label></li>`; }).join('')}</ul></div>`;
   }).join('');
+  const extraRoom = edit ? `<div class="room eq-edit eq-newroom"><div class="room-h">＋ Neuer Bereich</div><div class="eq-new"><input type="text" maxlength="40" placeholder="Raum, z. B. Foyer" data-eroom><input type="text" maxlength="160" placeholder="Punkt" data-enew="__new"><button class="btn small" data-eadd="__new">＋</button></div></div>` : '';
+  const changed = (m.ed.removed || []).length || (m.ed.added || []).length;
+  const info = changed && !edit ? `<p class="muted small eq-info">✏️ Von Hand angepasst${m.ed.updated_by ? ' · zuletzt ' + esc(m.ed.updated_by.split('@')[0]) : ''}${(m.ed.removed || []).length ? ' · ' + m.ed.removed.length + ' entfernt' : ''}${(m.ed.added || []).length ? ' · ' + m.ed.added.length + ' ergänzt' : ''}</p>` : '';
+  return html + extraRoom + info;
 }
 
 function openJob(key, list) {
@@ -1534,7 +1560,7 @@ function openJob(key, list) {
     <div class="facts">${fact(isOffer || S.viewer || S.mgrMode ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.nopam ? s.zeit : s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit, s.nopam && !s.zeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
-    <h3>🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}</h3>
+    <h3 class="eq-h">🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}${canEditEquip(s) ? `<button class="btn small eq-btn ${S.equipEdit === s.key ? 'primary' : ''}" data-eedit>${S.equipEdit === s.key ? '✓ Fertig' : '✏️ Bearbeiten'}</button>` : ''}</h3>
     ${equipHtml(s)}
     ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : S.mgrMode ? '' : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
     ${(det.extras || []).length ? `<h3>ℹ️ Weitere Infos</h3><dl class="extras">${det.extras.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>` : ''}
@@ -1566,6 +1592,23 @@ function openJob(key, list) {
     const all = doneGet(); const cur = new Set(all[s.key] || []); c.checked ? cur.add(c.dataset.chk) : cur.delete(c.dataset.chk);
     all[s.key] = [...cur]; ls.set(DONE_K, all); c.closest('li').classList.toggle('done', c.checked);
   }));
+  // Aufbauliste bearbeiten
+  const reo = () => { const sc = (box.querySelector('.sheet') || {}).scrollTop || 0; openJob(s); const nb = document.querySelector('#sheet .sheet'); if (nb) nb.scrollTop = sc; };
+  const eb = box.querySelector('[data-eedit]'); if (eb) eb.onclick = () => { S.equipEdit = S.equipEdit === s.key ? null : s.key; reo(); };
+  const saveEd = async (mut) => {
+    const cur = (S.edits || {})[s.key] || { removed: [], added: [] };
+    const nx = { slot_key: s.key, removed: [...(cur.removed || [])], added: [...(cur.added || [])] }; mut(nx);
+    const prev = (S.edits || {})[s.key]; S.edits = Object.assign({}, S.edits, { [s.key]: Object.assign({}, cur, nx) }); reo();
+    try { await store.saveEdit(nx); } catch (e) { S.edits = Object.assign({}, S.edits, { [s.key]: prev }); toast('Speichern ging nicht: ' + (e.message || e)); reo(); }
+  };
+  box.querySelectorAll('[data-erm]').forEach((b) => (b.onclick = () => { const id = b.dataset.erm; saveEd((nx) => { if (id[0] === '+') nx.added = nx.added.filter((a) => '+' + a.id !== id); else nx.removed = [...new Set([...nx.removed, id])]; }); }));
+  box.querySelectorAll('[data-eun]').forEach((b) => (b.onclick = () => { const id = b.dataset.eun; saveEd((nx) => (nx.removed = nx.removed.filter((x) => x !== id))); }));
+  box.querySelectorAll('[data-eadd]').forEach((b) => {
+    const room0 = b.dataset.eadd; const inp = b.parentElement.querySelector('[data-enew]');
+    const add = () => { const t = (inp.value || '').trim(); if (!t) return inp.focus(); const room = room0 === '__new' ? ((b.parentElement.querySelector('[data-eroom]') || {}).value || '').trim() : room0;
+      saveEd((nx) => nx.added.push({ id: uid().replace(/-/g, '').slice(0, 10), room, t, by: (myTech() || {}).name || (S.admin ? CFG.senderName : '') })); };
+    b.onclick = add; inp.onkeydown = (e) => { if (e.key === 'Enter') add(); };
+  });
   const ics = box.querySelector('[data-ics]'); if (ics) ics.onclick = () => icsFor([s], myTech() || { name: 'KOM27' });
   box.querySelectorAll('[data-oint]').forEach((b) => (b.onclick = () => { close(); if (window.__interest) window.__interest([s.key], b.dataset.oint === 'on'); }));
   box.querySelectorAll('[data-ans]').forEach((b) => (b.onclick = async () => {
@@ -1835,7 +1878,7 @@ function todayCard(t) {
   else if (h < span[1]) { state = 'Läuft · noch bis ' + hm2(span[1]) + ' Uhr'; cls = 'tc-live'; }
   else { state = 'Geschafft 👍'; cls = 'tc-done'; }
   const rooms = roomsOfSlot(s);
-  const items = rooms.flatMap(([, txt]) => equipItems(txt));
+  const items = equipList(s);
   const nDone = (doneGet()[s.key] || []).length;
   const hints = items.filter((i) => /probe|achtung|wichtig|signal|!/i.test(i.t) && i.t.length < 90).slice(0, 3);
   const coll = colleaguesOf(s).filter((c) => c.status === 'zugesagt');
@@ -2404,7 +2447,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

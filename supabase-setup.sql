@@ -425,3 +425,19 @@ begin
    where slot_key = p_slot and status = 'zugesagt' and (tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
   if not found then raise exception 'Kein zugesagter Einsatz gefunden'; end if;
 end $function$;
+
+-- ===================== v15: Aufbauliste von Hand anpassen =====================
+create table if not exists public.equip_edits (
+  slot_key text primary key, removed jsonb not null default '[]'::jsonb, added jsonb not null default '[]'::jsonb,
+  updated_by text, updated_at timestamptz not null default now());
+alter table public.equip_edits enable row level security;
+drop policy if exists equip_read on public.equip_edits;
+create policy equip_read on public.equip_edits for select to authenticated using (true);
+drop policy if exists equip_write on public.equip_edits;
+create policy equip_write on public.equip_edits for all to authenticated
+  using (public.is_admin() or public.is_viewer() or exists (select 1 from public.assignments a where a.slot_key = equip_edits.slot_key and a.tech_id = public.my_tech_id() and a.status in ('angefragt','zugesagt')))
+  with check (public.is_admin() or public.is_viewer() or exists (select 1 from public.assignments a where a.slot_key = equip_edits.slot_key and a.tech_id = public.my_tech_id() and a.status in ('angefragt','zugesagt')));
+create or replace function public.equip_stamp() returns trigger language plpgsql security definer set search_path = public as $$
+begin new.updated_by := coalesce(auth.jwt() ->> 'email', new.updated_by); new.updated_at := now(); return new; end; $$;
+drop trigger if exists equip_stamp on public.equip_edits;
+create trigger equip_stamp before insert or update on public.equip_edits for each row execute function public.equip_stamp();

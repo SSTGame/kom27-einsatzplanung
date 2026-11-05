@@ -527,7 +527,7 @@ function renderLogin(msg) {
   document.body.classList.remove('is-master');
   const demoTechs = DEMO ? (DemoStore.d().techs || []).filter((t) => t.email) : [];
   if (DEMO) [...new Set((DemoStore.d().techs || []).map(mgrMail).filter(Boolean))].forEach((m) => demoTechs.push({ email: m, name: 'Projektleiter ' + m.split('@')[0] }));
-  $('#app').innerHTML = `
+  $('#app').innerHTML = (window.KOM27Theme ? KOM27Theme.btn('tt-float') : '') + `
   <div class="card login">
     <h1>KOM27 Einsatzplanung</h1>
     <div class="muted">Medientechnik · ÖPP Mauerstraße</div>
@@ -616,7 +616,7 @@ function header(extra) {
     <a class="brand" href="./" data-home title="Zur Startseite"><span class="b-t">KOM27<span class="b-x"> Einsatzplanung</span></span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
-    ${bellHtml()}<span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
+    ${bellHtml()}${window.KOM27Theme ? KOM27Theme.btn() : ''}<span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
     <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></span></button></div></header>`;
 }
 

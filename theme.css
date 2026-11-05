@@ -25,15 +25,13 @@
   --sidebar: 236px;
   --radius: 14px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
+:root[data-theme="dark"] {
     --bg: #0f151c; --panel: #17202a; --panel-2: #1d2833; --ink: #e8edf3; --muted: #95a2b1; --line: #273340; --line-strong: #364454;
     --accent: #7088ff; --accent-ink: #0f151c;
     --st-geplant: #8d98a6; --st-angefragt: #6a9bff; --st-zugesagt: #3cc485; --st-abgesagt: #ff6f60; --st-leer: #f0a33a;
     --free: #13232c;
     --shadow-float: 0 12px 34px -12px rgba(0, 0, 0, .7), 0 2px 6px rgba(0, 0, 0, .3);
   }
-}
 
 /* ---------- Grundlagen ---------- */
 html { -webkit-text-size-adjust: 100%; }
@@ -63,7 +61,7 @@ header.top { background: color-mix(in srgb, var(--panel) 86%, transparent); -web
 .top-inner { padding: 10px 20px; min-height: 58px; flex-wrap: nowrap; }
 .brand { font-family: var(--f-num); font-stretch: 112%; font-weight: 750; font-size: 17px; letter-spacing: -.01em; white-space: nowrap; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand::before { content: ''; width: 26px; height: 26px; flex: none; border-radius: 8px; background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M7 6v14M7 13l7-7M7 13l7 7' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='19.5' cy='13' r='2.4' fill='%237cf0b0'/%3E%3C/svg%3E") center/26px no-repeat; }
-@media (prefers-color-scheme: dark) { .brand::before { background-color: #2a3644; } }
+:root[data-theme="dark"] .brand::before { background-color: #2a3644; }
 .brand small { font-family: var(--f-ui); font-stretch: 100%; font-weight: 500; font-size: 13px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
 .live { font-size: 11px; letter-spacing: .02em; }
 #logout { border-radius: 999px; padding: 6px 12px; font-weight: 600; font-size: 13px; }
@@ -93,10 +91,8 @@ input[type=text], input[type=email], input[type=password], input[type=search], i
 .pill.abgesagt { background: color-mix(in srgb, var(--st-abgesagt) 14%, var(--panel)); color: var(--st-abgesagt); }
 .pill.leer { background: transparent; border: 1px dashed var(--st-leer); color: var(--st-leer); }
 .pill.leer::before { background: transparent; border: 1.5px solid currentColor; width: 6px; height: 6px; }
-@media (prefers-color-scheme: dark) {
-  .pill.zugesagt::before { box-shadow: 0 0 6px var(--st-zugesagt); }
-  .pill.angefragt::before { box-shadow: 0 0 6px var(--st-angefragt); }
-}
+:root[data-theme="dark"] .pill.zugesagt::before { box-shadow: 0 0 6px var(--st-zugesagt); }
+:root[data-theme="dark"] .pill.angefragt::before { box-shadow: 0 0 6px var(--st-angefragt); }
 
 /* ---------- Karten & Flächen ---------- */
 .card, .job-card, .time-card, .offer-card, .calcard, .msgbox, .feed, .hcard, .changes { border-radius: var(--r-lg); border-color: var(--line); box-shadow: none; }
@@ -247,7 +243,7 @@ input[type=text], input[type=email], input[type=password], input[type=search], i
 .login { border-radius: 24px; padding: 30px 26px 26px; box-shadow: var(--shadow-float); border-color: var(--line); }
 .login h1 { font-size: 26px; font-weight: 750; display: flex; align-items: center; gap: 12px; }
 .login h1::before { content: ''; width: 40px; height: 40px; flex: none; border-radius: 12px; background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M7 6v14M7 13l7-7M7 13l7 7' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='19.5' cy='13' r='2.4' fill='%237cf0b0'/%3E%3C/svg%3E") center/40px no-repeat; }
-@media (prefers-color-scheme: dark) { .login h1::before { background-color: #2a3644; } }
+:root[data-theme="dark"] .login h1::before { background-color: #2a3644; }
 .login input { background: var(--panel-2); font-size: 16px; padding: 12px 14px; }
 .login #in { min-height: 46px; padding: 0 22px; font-size: 15px; }
 @media (max-width: 700px) {
@@ -733,3 +729,15 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 .eq-new2 select { flex: 0 0 38%; min-width: 0; font: inherit; font-size: 15px; padding: 9px 30px 9px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); -webkit-appearance: none; appearance: none;
   background: var(--panel-2) linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 16px) 50% / 5px 5px no-repeat, var(--panel-2) linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 11px) 50% / 5px 5px no-repeat; }
 .eq-new2 select { background-color: var(--panel-2); background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+
+/* ---------- Hell/Dunkel-Knopf ---------- */
+.theme-tg { display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; padding: 0; }
+.theme-tg:hover { background: var(--panel-2); border-color: var(--line-strong); }
+.theme-tg .tt-l { display: none; }
+.theme-tg.tt-float { position: fixed; top: 14px; right: 14px; z-index: 20; }
+.lg-top .theme-tg { margin-left: auto; }
+@media (min-width: 1100px) {
+  body.is-master .theme-tg { align-self: stretch; width: auto; height: auto; display: flex; justify-content: flex-start; gap: 10px; border-radius: 11px; padding: 10px 12px; font-weight: 600; font-size: 14px; }
+  body.is-master .theme-tg .tt-l { display: inline; }
+}
+@media (max-width: 440px) { header.top .clock small { display: none; } .top-inner { gap: 8px; } .theme-tg { width: 38px; height: 38px; } }

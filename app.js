@@ -1192,6 +1192,14 @@ function renderHours() {
   };
 }
 
+// Auswahl-Liste für Nachrichten: große Zeilen, deutlich markiert
+function pickListHtml(items, sel, attr) {
+  const n = items.filter((t) => sel.has(t.id)).length;
+  const CHK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  return `<div class="pk-head"><span><b>${n}</b> von ${items.length} ausgewählt</span><button type="button" class="btn small" data-${attr}all="1">Alle</button><button type="button" class="btn small" data-${attr}all="0" ${n ? '' : 'disabled'}>Keine</button></div>
+  <div class="msg-pick pk-list">${items.map((t) => { const on = sel.has(t.id); const info = [t.heute ? 'heute im Einsatz' : t.morgen ? 'morgen im Einsatz' : '', t.push ? '' : '🔕 Mitteilungen aus – bekommt nichts'].filter(Boolean).join(' · ');
+    return `<label class="pick ${on ? 'on' : ''} ${t.push ? '' : 'nopush'}"><input type="checkbox" data-${attr}="${t.id}" ${on ? 'checked' : ''}><span class="pk-box">${CHK}</span><span class="pk-name">${esc(t.name)}${info ? `<small>${esc(info)}</small>` : ''}</span></label>`; }).join('')}</div>`;
+}
 /* ---------------- Eigene Push-Nachricht an Techniker ---------------- */
 function msgGroups() {
   const today = todayISO(); const tom = addDays(today, 1);
@@ -1206,7 +1214,7 @@ function msgBoxHtml() {
   const opt = (k, l) => `<button class="chip ${to === k ? 'on' : ''}" data-msgto="${k}">${l}${k !== 'wahl' ? ` <b>${g[k].length}</b>` : ''}</button>`;
   return `<div class="card msgbox" id="msgBox"><h3>📲 Nachricht an Techniker</h3>
     <div class="chips">${opt('alle', 'Alle')}${opt('heute', 'Heute im Einsatz')}${opt('morgen', 'Morgen im Einsatz')}${opt('wahl', 'Auswählen …')}</div>
-    ${to === 'wahl' ? `<div class="msg-pick">${g.alle.map((t) => `<label class="pick ${(S.msgPick || new Set()).has(t.id) ? 'on' : ''}"><input type="checkbox" data-mpick="${t.id}" ${(S.msgPick || new Set()).has(t.id) ? 'checked' : ''}> <span>${esc(t.name)}</span><span title="${push(t) ? 'Mitteilungen an' : 'Mitteilungen nicht eingeschaltet'}">${push(t) ? '🔔' : '🔕'}</span></label>`).join('')}</div>` : ''}
+    ${to === 'wahl' ? pickListHtml((() => { const h = new Set(g.heute.map((t) => t.id)), mo = new Set(g.morgen.map((t) => t.id)); return g.alle.map((t) => ({ id: t.id, name: t.name, push: push(t), heute: h.has(t.id), morgen: mo.has(t.id) })); })(), S.msgPick || (S.msgPick = new Set()), 'mpick') : ''}
     <input type="text" id="msgTitle" maxlength="60" placeholder="Betreff (optional) – sonst „Nachricht von ${esc(CFG.senderName)}“" value="${esc((S.msgDraft || {}).title || '')}">
     <textarea id="msgBody" rows="3" maxlength="300" placeholder="Deine Nachricht, z. B. „Morgen bitte schon um 7:30 da sein – Umbau Saal 2“">${esc((S.msgDraft || {}).body || '')}</textarea>
     <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : 'Keine Empfänger ausgewählt'}</span>
@@ -1217,6 +1225,7 @@ function wireMsgBox(m) {
   const keep = () => { S.msgDraft = { title: $('#msgTitle').value, body: $('#msgBody').value }; };
   m.querySelectorAll('[data-msgto]').forEach((b) => (b.onclick = () => { keep(); S.msgTo = b.dataset.msgto; paint('#msgBox'); }));
   m.querySelectorAll('[data-mpick]').forEach((c) => (c.onchange = () => { keep(); const p = S.msgPick || (S.msgPick = new Set()); c.checked ? p.add(c.dataset.mpick) : p.delete(c.dataset.mpick); paint('#msgBox'); }));
+  m.querySelectorAll('[data-mpickall]').forEach((b) => (b.onclick = () => { keep(); S.msgPick = new Set(b.dataset.mpickall === '1' ? msgGroups().alle.map((t) => t.id) : []); paint('#msgBox'); }));
   const sendBtn = m.querySelector('#msgSend'); if (!sendBtn) return;
   sendBtn.onclick = async () => {
     const title = $('#msgTitle').value.trim() || `Nachricht von ${CFG.senderName}`; const body = $('#msgBody').value.trim();
@@ -2129,7 +2138,7 @@ function komMsgHtml() {
   const nPush = list.filter((t) => t.push).length;
   const opt = (k, l) => `<button class="chip ${to === k ? 'on' : ''}" data-kmto="${k}">${l}${k !== 'wahl' ? ` <b>${g[k].length}</b>` : ''}</button>`;
   return head + `<div class="chips">${opt('heute', 'Heute im Einsatz')}${opt('morgen', 'Morgen im Einsatz')}${opt('alle', 'Alle')}${opt('wahl', 'Auswählen …')}</div>
-    ${to === 'wahl' ? `<div class="msg-pick">${g.alle.map((t) => `<label class="pick ${K.pick.has(t.id) ? 'on' : ''}"><input type="checkbox" data-kmpick="${t.id}" ${K.pick.has(t.id) ? 'checked' : ''}> <span>${esc(t.name)}</span><span title="${t.push ? 'Mitteilungen an' : 'Mitteilungen nicht eingeschaltet'}">${t.push ? '🔔' : '🔕'}</span></label>`).join('')}</div>`
+    ${to === 'wahl' ? pickListHtml(g.alle, K.pick, 'kmpick')
       : list.length ? `<p class="note km-who">${list.map((t) => esc(t.name) + (t.push ? '' : ' 🔕')).join(', ')}</p>` : ''}
     <input type="text" id="kmTitle" maxlength="60" placeholder="Betreff (optional)" value="${esc((K.draft || {}).title || '')}">
     <textarea id="kmBody" rows="4" maxlength="300" placeholder="Deine Nachricht, z. B. „Saal 2 ist schon offen, ihr könnt direkt hoch“">${esc((K.draft || {}).body || '')}</textarea>
@@ -2144,6 +2153,7 @@ function wireKomMsg(m) {
   const r = m.querySelector('#kmRetry'); if (r) r.onclick = () => { K.err = ''; K.techs = null; paint(); };
   m.querySelectorAll('[data-kmto]').forEach((b) => (b.onclick = () => { keep(); K.to = b.dataset.kmto; paint(); }));
   m.querySelectorAll('[data-kmpick]').forEach((c) => (c.onchange = () => { keep(); c.checked ? K.pick.add(c.dataset.kmpick) : K.pick.delete(c.dataset.kmpick); paint(); }));
+  m.querySelectorAll('[data-kmpickall]').forEach((b) => (b.onclick = () => { keep(); K.pick = new Set(b.dataset.kmpickall === '1' ? komMsgList().alle.map((t) => t.id) : []); paint(); }));
   const send = m.querySelector('#kmSend'); if (!send) return;
   send.onclick = async () => {
     keep(); const title = ((K.draft || {}).title || '').trim(); const body = ((K.draft || {}).body || '').trim();

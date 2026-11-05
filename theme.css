@@ -746,3 +746,23 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 @media (max-width: 480px) { .mine .viewtabs button { font-size: 14px; padding-left: 2px; padding-right: 2px; } .mine .viewtabs button small { display: none; } }
 @media (max-width: 480px) { .mine .viewtabs .vt-l { display: none; } }
 #komMsg .chips { flex-wrap: wrap; overflow: visible; }
+
+/* ---------- Nachricht: Auswahl der Empfänger ---------- */
+.msgbox .chips { flex-wrap: wrap; overflow: visible; }
+.pk-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.pk-head span { flex: 1; color: var(--muted); font-size: 14px; }
+.pk-head b { color: var(--ink); font-size: 16px; }
+.pk-head .btn { min-height: 36px; }
+.msg-pick.pk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 0 0 12px; }
+.msg-pick.pk-list .pick { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; margin: 0; padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--panel); white-space: normal; font-size: 16px; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: border-color .12s, background .12s; }
+.msg-pick.pk-list .pick input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.pk-box { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--line-strong); color: transparent; background: var(--panel); }
+.pk-name { display: flex; flex-direction: column; font-weight: 600; line-height: 1.25; min-width: 0; }
+.pk-name small { font-weight: 400; font-size: 13px; color: var(--muted); }
+.msg-pick.pk-list .pick.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.msg-pick.pk-list .pick.on .pk-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.msg-pick.pk-list .pick.nopush:not(.on) .pk-name { color: var(--muted); }
+.msg-pick.pk-list .pick:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 560px) { .msg-pick.pk-list { grid-template-columns: 1fr; } }
+.is-dash .viewtabs:has(> button:nth-child(3)) { max-width: 600px; }
+.viewtabs button { white-space: nowrap; }

@@ -2173,12 +2173,13 @@ function hausplanHtml(today, seg) {
       <div class="hp-body">
         <div class="hp-sem">${tile('Seminar 1', '', 'sem')}${tile('Seminar 2', '', 'sem')}${tile('Seminar 3', '', 'sem')}</div>
         <div class="hp-mid">
-          <div class="hp-plan">${block('Saal 4', 'b4')}${block('Saal 1', 'b1')}${tile('Foyer', 'fo', 'foy')}${block('Saal 3', 'b3')}${block('Saal 2', 'b2')}</div>
+          <div class="hp-plan">${block('Saal 4', 'b4')}${block('Saal 1', 'b1')}<div class="hp-lobby ${(byRoom.Foyer || []).length ? 'used' : ''}"></div>${block('Saal 3', 'b3')}${block('Saal 2', 'b2')}</div>
           ${tile('Saal 4', 's4', 'led')}${tile('Saal 1', 's1', 'led')}
-          ${tile('Saal 3', 's3', 'led')}${tile('Saal 2', 's2', 'led')}
+          <div class="hp-sum"><span><b>${nPam}</b>mit PAM</span><span><b>${nNo}</b>ohne PAM</span></div>
+          ${tile('Foyer', 'fo', 'foy')}${tile('Saal 3', 's3', 'led')}${tile('Saal 2', 's2', 'led')}
         </div>
         ${others.length ? `<div class="hp-sem hp-oth">${others.map((r) => tile(r, '', 'led')).join('')}</div>` : ''}
-        <div class="hp-foot"><small>${dt === today ? 'Heute' : 'An diesem Tag'} belegt: <b>${nPam}</b> ${nPam === 1 ? 'Raum' : 'Räume'} mit PAM · <b>${nNo}</b> ohne PAM</small><span><i class="hp-k pam"></i>PAM zugesagt</span><span><i class="hp-k pam-open"></i>PAM offen</span><span><i class="hp-k nopam"></i>ohne PAM</span><span><i class="hp-k free"></i>frei</span></div>
+        <div class="hp-foot"><small>Legende</small><span><i class="hp-k pam"></i>PAM zugesagt</span><span><i class="hp-k pam-open"></i>PAM offen</span><span><i class="hp-k nopam"></i>ohne PAM</span><span><i class="hp-k free"></i>frei</span></div>
       </div>
     </div>
     ${gantt}</div>`;

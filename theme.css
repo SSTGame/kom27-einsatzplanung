@@ -964,14 +964,3 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
   .hg-ticks, .hg-lgd { margin-left: 70px; } .hg-l { width: 62px; font-size: 12.5px; }
 }
 .hp .kv-seg { flex-wrap: nowrap; } .hp .kv-seg button { white-space: nowrap; }
-/* Foyer in der Mitte des Grundrisses (zwischen den Sälen) */
-.hp-mid { grid-template-areas: "s4 plan s1" ". plan ." "s3 plan s2"; }
-.hp-plan { grid-template-rows: 1fr auto 1fr; }
-.hp-plan .hp-t.fo { grid-area: auto; grid-column: 1 / -1; margin: 8px 0; min-height: 96px; z-index: 1; }
-.hp-plan .hp-t.fo.free { background: var(--hp-card); border: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent); box-shadow: none; }
-.hp-foot small b { color: var(--hp-ink); }
-@media (max-width: 700px) {
-  .hp-mid { grid-template-columns: minmax(0, 1fr) minmax(96px, 1.1fr) minmax(0, 1fr); }
-  .hp-plan .hp-t.fo { min-height: 90px; padding: 8px 4px; }
-  .hp-plan .hp-t.fo .hp-n { font-size: 15px; }
-}

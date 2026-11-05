@@ -797,3 +797,71 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 .lg.pamroom { background: color-mix(in srgb, var(--st-zugesagt) 13%, var(--panel)); border: 1.5px solid color-mix(in srgb, var(--st-zugesagt) 45%, transparent); }
 @media (max-width: 700px) { .kr-room { padding: 5px 6px; } .kr-room b { font-size: 12px; } .kr-room small { font-size: 11px; } }
 @media (max-width: 700px) { .kr-room b { white-space: normal; font-size: 11.5px; } }
+
+/* KOM27 „Nächste 7 Tage“: wer kommt, Räume je Veranstaltung */
+.kn-row .kn-who { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 2px; }
+.kn-who .kw-n { font-style: normal; font-weight: 700; font-size: 13.5px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.kn-who .kw-n.zugesagt { background: color-mix(in srgb, var(--st-zugesagt) 15%, var(--panel)); color: var(--st-zugesagt); }
+.kn-who .kw-n.angefragt { background: color-mix(in srgb, var(--st-angefragt) 14%, var(--panel)); color: var(--st-angefragt); }
+.kn-who .kw-n.offen { background: color-mix(in srgb, var(--st-leer) 14%, var(--panel)); color: var(--st-leer); }
+.kn-who .kw-n.nopam { background: var(--panel-2); color: var(--muted); font-weight: 600; }
+.kn-row small em { font-style: normal; font-weight: 600; }
+
+/* ---------- Handy: kein Seitwärts-Schieben, größere Tippflächen ---------- */
+@media (max-width: 700px) {
+  .toolbar .tb-actions { margin: 0 -12px; padding: 2px 12px 4px; }
+  .btn, .btn.small { min-height: 42px; }
+  .seg button, .chip { min-height: 40px; }
+  select { min-height: 42px; }
+  .ov-row { min-height: 40px; }
+  button.pill[data-stm] { min-height: 34px; padding-left: 12px; padding-right: 12px; }
+  .va-id .rm, .slot .rm-slot { min-width: 34px; min-height: 34px; display: inline-grid; place-items: center; }
+  .monthnav .btn, [data-tlw], [data-kw] { min-width: 42px; }
+  input[type=checkbox] { width: 20px; height: 20px; }
+  .legal-links a, .legal-links .linkbtn { display: inline-block; padding: 10px 6px; }
+  .need[data-jump] { min-height: 30px; min-width: 36px; }
+}
+
+/* ---------- Nachrichten zum Nachlesen ---------- */
+.mi-list { display: grid; gap: 10px; }
+.mi { position: relative; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.mi.new { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.mi-h { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.mi-h b { font-size: 14.5px; }
+.mi-h small { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.mi.mi-kom .mi-h b { color: var(--st-zugesagt); }
+.mi-t { font-weight: 700; margin-top: 4px; }
+.mi p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.mi-to { display: block; margin-top: 6px; color: var(--muted); font-size: 12.5px; }
+.mi-del { margin-top: 4px; font-size: 13px; color: var(--st-abgesagt); padding: 6px 0; }
+.mi-hist { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.mi-hist summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.mi-hist summary small { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--panel-2); font-size: 12px; margin: 0 4px; }
+.mi-hist .mi-list { margin-top: 8px; }
+.mi-sent, .mi-inbox { margin-top: 16px; }
+.mi-inbox h2.sec, .mi-sent h2.sec { margin-top: 0; }
+.vt-badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--st-abgesagt); color: #fff; font-size: 12px; font-weight: 700; margin-left: 2px; }
+.msg-banner { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 14px; padding: 12px 14px; border: 1.5px solid var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.msg-banner .mb-i { font-size: 22px; }
+.msg-banner > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.msg-banner small { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-banner .mb-go { color: var(--accent-text, var(--accent)); font-weight: 700; white-space: nowrap; }
+
+/* ---------- Lesbarkeit: kräftigere Statusfarben (Kontrast ≥ 4,5 : 1) ---------- */
+:root[data-theme="light"], :root:not([data-theme]) {
+  --st-geplant: #5f6977; --st-angefragt: #2160d9; --st-zugesagt: #0a7745; --st-abgesagt: #c42f22; --st-leer: #9a5600;
+  --muted: #56606d;
+}
+:root[data-theme="dark"] { --accent: #8096ff; }
+/* auf gefüllten Statusflächen im dunklen Design dunkle Schrift */
+:root[data-theme="dark"] .big.yes, :root[data-theme="dark"] .kr-chip.st-zugesagt, :root[data-theme="dark"] .kr-chip.st-angefragt,
+:root[data-theme="dark"] .sec-n, :root[data-theme="dark"] .big.no.solid, :root[data-theme="dark"] .btn.danger-solid,
+:root[data-theme="dark"] .need.miss, :root[data-theme="dark"] .gcell, :root[data-theme="dark"] .vt-badge { color: #0f151c; }
+:root[data-theme="light"] .live.on, :root:not([data-theme]) .live.on { color: var(--st-zugesagt); }
+/* Tablet: Kopfzeile des Masters passt in eine Zeile (Abmelden als Symbol, Uhr ohne Datum) */
+@media (min-width: 701px) and (max-width: 1099px) {
+  body.is-master .lo-t { display: none; }
+  body.is-master .lo-i { display: inline; line-height: 1; }
+  body.is-master header.top .clock small { display: none; }
+  body.is-master #logout { padding: 0; width: 40px; height: 40px; display: inline-grid; place-items: center; }
+}

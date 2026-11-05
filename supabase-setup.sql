@@ -441,3 +441,28 @@ create or replace function public.equip_stamp() returns trigger language plpgsql
 begin new.updated_by := coalesce(auth.jwt() ->> 'email', new.updated_by); new.updated_at := now(); return new; end; $$;
 drop trigger if exists equip_stamp on public.equip_edits;
 create trigger equip_stamp before insert or update on public.equip_edits for each row execute function public.equip_stamp();
+-- v16: Nachrichten (vom Master, Projektleiter oder KOM27) auch in der App lesbar
+create table if not exists public.messages (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  sender_email text not null,
+  sender_name text not null default '',
+  sender_role text not null check (sender_role in ('master', 'manager', 'kom')),
+  title text not null default '',
+  body text not null check (char_length(body) between 1 and 400),
+  tech_ids uuid[] not null default '{}'
+);
+create index if not exists messages_created_idx on public.messages (created_at desc);
+alter table public.messages enable row level security;
+drop policy if exists msg_read on public.messages;
+create policy msg_read on public.messages for select to authenticated using (
+  is_admin()
+  or (is_viewer() and sender_role = 'kom')
+  or my_tech_id() = any (tech_ids)
+  or lower(sender_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  or tech_ids && array(select my_managed_ids())
+);
+drop policy if exists msg_admin_del on public.messages;
+create policy msg_admin_del on public.messages for delete to authenticated using (is_admin());
+-- Schreiben nur über die Server-Funktion "notify" (Dienstkonto) – keine Insert-Policy für Seitenbesucher
+do $$ begin alter publication supabase_realtime add table public.messages; exception when others then null; end $$;

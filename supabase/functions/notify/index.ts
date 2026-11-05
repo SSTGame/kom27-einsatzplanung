@@ -116,6 +116,9 @@ Deno.serve(async (req) => {
     title = String(title ?? "").slice(0, 80); body = String(body ?? "").slice(0, 400);
 
     let emails: string[] = [];
+    // eigene Nachrichten (nicht automatische Hinweise) werden zusätzlich gespeichert, damit man sie in der App nachlesen kann
+    let store: { sender_name: string; sender_role: string; title: string; tech_ids: string[] } | null = null;
+    const cleanName = (x: unknown) => String(x ?? "").replace(/[<>]/g, "").trim().slice(0, 40);
     if (target === "admins") {
       const { data } = await db.from("admins").select("email");
       emails = (data ?? []).map((r) => r.email);
@@ -129,18 +132,25 @@ Deno.serve(async (req) => {
       if (!rows.length) return json({ error: "keine Berechtigung" }, 403);
       // bei Technikern mit eigenem Chef geht die Mitteilung auch an den Projektleiter
       emails = rows.flatMap((r) => [r.email, isAdmin ? r.manager_email : null]).filter(Boolean);
+      if (input.store === true) store = { sender_name: cleanName(input.sender_name) || me.split("@")[0], sender_role: isAdmin ? "master" : "manager", title: typeof input.raw_title === "string" ? input.raw_title.slice(0, 80) : title, tech_ids: rows.map((r) => r.id) };
     } else if (target === "kom") {
       // KOM27-Zugang -> ausgewählte Techniker, der Master bekommt immer eine Kopie
       if (!isViewer) return json({ error: "nur KOM27-Zugang" }, 403);
-      const { data } = await db.from("technicians").select("email").in("id", Array.isArray(tech_ids) ? tech_ids.slice(0, 200) : []).neq("active", false);
+      const { data } = await db.from("technicians").select("id, email").in("id", Array.isArray(tech_ids) ? tech_ids.slice(0, 200) : []).neq("active", false);
       const { data: ad } = await db.from("admins").select("email");
       emails = [...(data ?? []).map((r) => r.email), ...(ad ?? []).map((r) => r.email)].filter(Boolean);
       const { data: v } = await db.from("kom_viewers").select("name").eq("email", me).maybeSingle();
       const who = v?.name || me.split("@")[0];
+      store = { sender_name: who, sender_role: "kom", title, tech_ids: (data ?? []).map((r) => r.id) };
       title = `KOM27 · ${who}: ${title || "Nachricht"}`;
     } else return json({ error: "unbekanntes Ziel" }, 400);
+    let saved = false;
+    if (store && body.trim()) {
+      const { error: insErr } = await db.from("messages").insert({ sender_email: me, sender_name: store.sender_name, sender_role: store.sender_role, title: String(store.title || "").slice(0, 80), body: body.trim(), tech_ids: store.tech_ids });
+      saved = !insErr;
+    }
     emails = [...new Set(emails.map((e) => e.toLowerCase()))].filter((e) => e !== me);
-    if (!emails.length) return json({ sent: 0 });
+    if (!emails.length) return json({ sent: 0, saved });
 
     const { data: subs } = await db.from("push_subscriptions").select("*").in("email", emails);
     webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") ?? "mailto:kom27@example.com", keys.public_key, keys.private_key);
@@ -155,7 +165,7 @@ Deno.serve(async (req) => {
         if (code === 404 || code === 410) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
       }
     }));
-    return json({ sent, devices: subs?.length ?? 0 });
+    return json({ sent, devices: subs?.length ?? 0, saved });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

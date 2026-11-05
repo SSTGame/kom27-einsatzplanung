@@ -35,13 +35,17 @@ const DemoStore = {
   async getViewers() { return this.d().viewers || []; },
   async saveViewer(v) { const d = this.d(); d.viewers = (d.viewers || []).filter((x) => x.email !== v.email).concat([v]); this.w(d); },
   async deleteViewer(email) { const d = this.d(); d.viewers = (d.viewers || []).filter((x) => x.email !== email); this.w(d); },
+  async addMessage(m) { const d = this.d(); d.messages = (d.messages || []).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sender_email: ls.get(this.U) || '' }, m)]); this.w(d); },
+  async deleteMessage(id) { const d = this.d(); d.messages = (d.messages || []).filter((x) => x.id !== id); this.w(d); },
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
     const coll = Object.values(d.asg || {}).filter((a) => me && a.tech_id && a.tech_id !== me.id && ['angefragt', 'zugesagt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '', status: a.status }));
     if (!d.kb) { d.kb = KB_DEMO(); this.w(d); }
     const kom = Object.values(d.asg || {}).filter((a) => a.tech_id && ['zugesagt', 'angefragt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, status: a.status, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '?' }));
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}),
+    const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
+    const msgs = (d.messages || []).filter((x) => isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs,
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -109,6 +113,7 @@ function makeSupabaseStore() {
     async getViewers() { const r = await sb.from('kom_viewers').select('*').order('name'); return r.error ? [] : r.data; },
     async saveViewer(v) { chk(await sb.from('kom_viewers').upsert(v)); },
     async deleteViewer(email) { chk(await sb.from('kom_viewers').delete().eq('email', email)); },
+    async deleteMessage(id) { chk(await sb.from('messages').delete().eq('id', id)); },
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
@@ -119,7 +124,8 @@ function makeSupabaseStore() {
       const kb = await sb.from('kb_entries').select('*'); // KOM27-Infos (fehlt die Tabelle: leer)
       const ee = await sb.from('equip_edits').select('*'); // von Hand angepasste Aufbaulisten
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [] };
+      const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [] };
     },
     async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
@@ -157,7 +163,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -524,6 +530,7 @@ document.addEventListener('click', (ev) => {
   if (S.user) paint(); window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 function renderLogin(msg) {
+  S.techTab = 'jobs'; S.komMsg = null; S.msgPick = null; // nichts vom vorherigen Konto übernehmen
   document.body.classList.remove('is-master');
   const demoTechs = DEMO ? (DemoStore.d().techs || []).filter((t) => t.email) : [];
   if (DEMO) [...new Set((DemoStore.d().techs || []).map(mgrMail).filter(Boolean))].forEach((m) => demoTechs.push({ email: m, name: 'Projektleiter ' + m.split('@')[0] }));
@@ -1200,6 +1207,24 @@ function pickListHtml(items, sel, attr) {
   <div class="msg-pick pk-list">${items.map((t) => { const on = sel.has(t.id); const info = [t.heute ? 'heute im Einsatz' : t.morgen ? 'morgen im Einsatz' : '', t.push ? '' : '🔕 Mitteilungen aus – bekommt nichts'].filter(Boolean).join(' · ');
     return `<label class="pick ${on ? 'on' : ''} ${t.push ? '' : 'nopush'}"><input type="checkbox" data-${attr}="${t.id}" ${on ? 'checked' : ''}><span class="pk-box">${CHK}</span><span class="pk-name">${esc(t.name)}${info ? `<small>${esc(info)}</small>` : ''}</span></label>`; }).join('')}</div>`;
 }
+/* ---------------- Nachrichten zum Nachlesen ---------------- */
+const msgFrom = (m) => m.sender_role === 'kom' ? 'KOM27 · ' + (m.sender_name || 'Medientechnik') : m.sender_role === 'manager' ? 'Projektleitung · ' + (m.sender_name || '') : (m.sender_name || CFG.senderName || 'Planung');
+const msgSorted = () => (S.msgs || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+const msgSeenKey = () => 'kom27-msg-seen-' + ((S.user && S.user.email) || '');
+const msgUnread = () => { const seen = +(ls.get(msgSeenKey()) || 0); const me = (S.user && S.user.email || '').toLowerCase(); return msgSorted().filter((m) => +m.id > seen && (m.sender_email || '').toLowerCase() !== me); };
+const msgMarkRead = () => { const top = Math.max(0, ...(S.msgs || []).map((m) => +m.id || 0)); if (top > +(ls.get(msgSeenKey()) || 0)) ls.set(msgSeenKey(), top); };
+function msgItemsHtml(list, opts) {
+  opts = opts || {}; const seen = +(ls.get(msgSeenKey()) || 0);
+  const nameOf = (id) => { const t = (S.techs || []).find((x) => x.id === id) || ((S.komMsg || {}).techs || []).find((x) => x.id === id); return t ? t.name.split(' ')[0] : null; };
+  if (!list.length) return `<p class="muted">${esc(opts.empty || 'Noch keine Nachrichten.')}</p>`;
+  return `<div class="mi-list">${list.map((m) => { const to = (m.tech_ids || []).map(nameOf).filter(Boolean);
+    return `<article class="mi ${opts.unread && +m.id > seen ? 'new' : ''} mi-${esc(m.sender_role)}"><div class="mi-h"><b>${esc(msgFrom(m))}</b><small>${esc(ago(m.created_at))}</small></div>${m.title ? `<div class="mi-t">${esc(m.title)}</div>` : ''}<p>${esc(m.body)}</p>${opts.to ? `<small class="mi-to">An ${to.length ? esc(to.join(', ')) : (m.tech_ids || []).length + ' Techniker'}</small>` : ''}${opts.del ? `<button type="button" class="linkbtn mi-del" data-msgdel="${esc(String(m.id))}">Löschen</button>` : ''}</article>`; }).join('')}</div>`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('[data-msgdel]'); if (!b || !S.admin) return;
+  if (!confirm('Diese Nachricht aus der App löschen? (Bereits zugestellte Mitteilungen auf den Handys bleiben.)')) return;
+  try { await store.deleteMessage(+b.dataset.msgdel); await reload(); paint(); toast('Gelöscht'); } catch (x) { toast(x.message || 'Löschen hat nicht geklappt'); }
+});
 /* ---------------- Eigene Push-Nachricht an Techniker ---------------- */
 function msgGroups() {
   const today = todayISO(); const tom = addDays(today, 1);
@@ -1219,6 +1244,7 @@ function msgBoxHtml() {
     <textarea id="msgBody" rows="3" maxlength="300" placeholder="Deine Nachricht, z. B. „Morgen bitte schon um 7:30 da sein – Umbau Saal 2“">${esc((S.msgDraft || {}).body || '')}</textarea>
     <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : 'Keine Empfänger ausgewählt'}</span>
       <button class="btn primary" id="msgSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
+    <details class="mi-hist" ${S.msgHistOpen ? 'open' : ''}><summary>Gesendete Nachrichten <small>${(S.msgs || []).length}</small> – von dir, Projektleitung und KOM27</summary>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, del: true, empty: 'Noch keine Nachrichten gesendet.' })}</details>
   </div>`;
 }
 function wireMsgBox(m) {
@@ -1226,6 +1252,7 @@ function wireMsgBox(m) {
   m.querySelectorAll('[data-msgto]').forEach((b) => (b.onclick = () => { keep(); S.msgTo = b.dataset.msgto; paint('#msgBox'); }));
   m.querySelectorAll('[data-mpick]').forEach((c) => (c.onchange = () => { keep(); const p = S.msgPick || (S.msgPick = new Set()); c.checked ? p.add(c.dataset.mpick) : p.delete(c.dataset.mpick); paint('#msgBox'); }));
   m.querySelectorAll('[data-mpickall]').forEach((b) => (b.onclick = () => { keep(); S.msgPick = new Set(b.dataset.mpickall === '1' ? msgGroups().alle.map((t) => t.id) : []); paint('#msgBox'); }));
+  const hd = m.querySelector('.mi-hist'); if (hd) hd.ontoggle = () => (S.msgHistOpen = hd.open);
   const sendBtn = m.querySelector('#msgSend'); if (!sendBtn) return;
   sendBtn.onclick = async () => {
     const title = $('#msgTitle').value.trim() || `Nachricht von ${CFG.senderName}`; const body = $('#msgBody').value.trim();
@@ -1233,7 +1260,10 @@ function wireMsgBox(m) {
     const list = msgGroups()[S.msgTo || 'alle'];
     if (!confirm(`An ${list.length} Techniker senden?\n\n${title}\n${body}`)) return;
     sendBtn.disabled = true; sendBtn.textContent = 'Sende …';
-    const r = await notify('techs', list.map((t) => t.id), title, body, 'msg-' + Date.now());
+    const rawTitle = $('#msgTitle').value.trim();
+    const r = await notify('techs', list.map((t) => t.id), title, body, 'msg-' + Date.now(), { store: true, sender_name: CFG.senderName, raw_title: rawTitle });
+    if (DEMO) await store.addMessage({ sender_name: CFG.senderName, sender_role: 'master', title: rawTitle, body, tech_ids: list.map((t) => t.id) });
+    if (DEMO || (r && r.saved)) { try { await reload(); } catch (e) {} }
     S.msgDraft = null; paint('#msgBox');
     toast(DEMO ? 'Demo: würde jetzt gesendet' : r && typeof r.sent === 'number' ? `Gesendet ✓ – auf ${r.sent} ${r.sent === 1 ? 'Gerät' : 'Geräten'} angekommen` : 'Senden hat nicht geklappt – bitte nochmal versuchen');
   };
@@ -2179,7 +2209,7 @@ function komMsgHtml() {
     <textarea id="kmBody" rows="4" maxlength="300" placeholder="Deine Nachricht, z. B. „Saal 2 ist schon offen, ihr könnt direkt hoch“">${esc((K.draft || {}).body || '')}</textarea>
     <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : to === 'wahl' ? 'Bitte Techniker auswählen' : 'Niemand im Einsatz'}</span>
       <button class="btn primary" id="kmSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
-    <p class="note km-sent">${K.last ? `Zuletzt gesendet: „${esc(K.last.body.slice(0, 60))}${K.last.body.length > 60 ? '…' : ''}“ an ${K.last.n} Techniker · ${esc(ago(K.last.at))}` : ''}</p>
+    <p class="note km-sent">${K.last && !(S.msgs || []).length ? `Zuletzt gesendet: „${esc(K.last.body.slice(0, 60))}${K.last.body.length > 60 ? '…' : ''}“ an ${K.last.n} Techniker · ${esc(ago(K.last.at))}` : ''}</p>
   </div>`;
 }
 function wireKomMsg(m) {
@@ -2199,7 +2229,9 @@ function wireKomMsg(m) {
     send.disabled = true; send.textContent = 'Sende …';
     let res = null;
     if (!DEMO) { try { const r2 = await store.sb.functions.invoke('notify', { body: { target: 'kom', tech_ids: list.map((t) => t.id), title, body, tag: 'kom-' + Date.now() } }); res = r2.data || null; } catch (e) { res = null; } }
+    if (DEMO) await DemoStore.addMessage({ sender_name: (S.viewers || []).find((x) => x.email === S.user.email)?.name || 'KOM27', sender_role: 'kom', title, body, tech_ids: list.map((t) => t.id) });
     const ok = DEMO || (res && typeof res.sent === 'number');
+    if (ok) { try { await reload(); } catch (e) {} }
     if (ok) { K.last = { body, n: list.length, at: new Date().toISOString() }; K.draft = null; }
     paint();
     toast(DEMO ? 'Demo: würde jetzt gesendet' : ok ? `Gesendet ✓ – auf ${res.sent} ${res.sent === 1 ? 'Gerät' : 'Geräten'} angekommen` : 'Senden hat nicht geklappt – bitte nochmal versuchen');
@@ -2226,7 +2258,7 @@ function renderKom() {
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
   if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
-  if (S.techTab === 'msg') { m.innerHTML = pvBar() + vt + komMsgHtml() + legalFoot(); wire(); wireKomMsg(m); return; }
+  if (S.techTab === 'msg') { m.innerHTML = pvBar() + vt + komMsgHtml() + `<section class="dpanel mi-sent"><h2 class="sec">Bisher vom KOM27 gesendet</h2>${msgItemsHtml(msgSorted().filter((x) => x.sender_role === 'kom').slice(0, 20), { to: true, empty: 'Noch nichts gesendet.' })}</section>` + legalFoot(); wire(); wireKomMsg(m); return; }
   const from = S.komPast ? addDays(today, -60) : today;
   const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
   const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));
@@ -2265,7 +2297,7 @@ function renderKom() {
     ${raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
     </div><aside class="dash-side only-d">${tc}
-      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><b>${d.slots.map((s) => komOf(s.key) ? esc(komOf(s.key).name.split(' ')[0]) : '❗ offen').join(', ') || '<span class="muted">ohne PAM-Techniker</span>'}</b><small>${esc(roomsOf(d.info) || '')}${d.vazeit ? ' · VA ' + esc(d.vazeit) : ''}</small></span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
+      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><span class="kn-who">${d.slots.map((s) => { const k = komOf(s.key); return k ? `<i class="kw-n ${k.status}">${esc(k.name.split(' ')[0])}${k.status === 'angefragt' ? ' ?' : ''}</i>` : '<i class="kw-n offen">offen</i>'; }).join('') || '<i class="kw-n nopam">ohne PAM-Techniker</i>'}</span>${vaListOf(d).map((x) => `<small>${esc(x.rooms.join(', ') || 'Raum ?')}${x.zeit ? ' · VA ' + esc(niceTime(x.zeit)) : ''}${x.pam ? '' : ' · <em>ohne PAM</em>'}</small>`).join('')}</span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
     </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
   wire();
@@ -2329,10 +2361,16 @@ function renderTech() {
   const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} <span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
       ${kind === 'wait' ? `<button class="linkbtn" data-resig="${esc(s.key)}">ändern</button>` : boss ? '' : kind === 'yes' ? (S.asg[s.key].tech_reply === 'absage_wunsch' ? `<span class="cw-pend" title="${esc(CFG.senderName)} entscheidet">⏳ Absage beantragt</span>` : `<button class="linkbtn danger" data-cancelreq="${esc(s.key)}">Absage beantragen</button>`) : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
-  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${S.techTab !== 'kb' ? 'on' : ''}">📋 Meine Einsätze</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 KOM27-Infos <small>${(S.kb || []).length}</small></button></div>`;
+  const nNew = msgUnread().length;
+  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📋 <span class="vt-l">Meine </span>Einsätze</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📨 Nachrichten${nNew ? ` <b class="vt-badge">${nNew}</b>` : ''}</button></div>`;
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
   if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml() + legalFoot(); wireVt(); wireKb(m); return; }
-  m.innerHTML = vt + `
+  if (S.techTab === 'msg') {
+    m.innerHTML = vt + `<section class="dpanel mi-inbox"><h2 class="sec">📨 Nachrichten</h2><p class="note">Nachrichten von ${esc(CFG.senderName)}, deiner Projektleitung und der Medientechnik im KOM27. Sie kommen auch als Mitteilung aufs Handy, wenn du Mitteilungen eingeschaltet hast.</p>${msgItemsHtml(msgSorted(), { unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + legalFoot();
+    wireVt(); msgMarkRead(); const vb = m.querySelector('.vt-badge'); if (vb) vb.remove(); return;
+  }
+  const lastNew = msgUnread()[0];
+  m.innerHTML = vt + (lastNew ? `<button class="msg-banner" data-vt="msg"><span class="mb-i">📨</span><span><b>${nNew === 1 ? 'Neue Nachricht' : nNew + ' neue Nachrichten'}</b> von ${esc(msgFrom(lastNew))}<small>${esc((lastNew.title ? lastNew.title + ': ' : '') + lastNew.body).slice(0, 90)}${(lastNew.title + lastNew.body).length > 90 ? '…' : ''}</small></span><span class="mb-go">Lesen ›</span></button>` : '') + `
     <section class="hello hi-line">
       <h1>Hallo ${esc(t.name.split(' ')[0])} 👋</h1>
       <p>${yes.length} ${yes.length === 1 ? 'Einsatz' : 'Einsätze'} zugesagt · ${String(Math.round(monH * 10) / 10).replace('.', ',')} Std. im ${MON[+mon.slice(5, 7) - 1]}</p>
@@ -2495,9 +2533,9 @@ async function disablePush() {
   const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && (await reg.pushManager.getSubscription());
   if (sub) { try { await store.deletePush(sub.endpoint); } catch (e) {} await sub.unsubscribe(); }
 }
-async function notify(target, tech_ids, title, body, tag) {
+async function notify(target, tech_ids, title, body, tag, extra) {
   if (DEMO) return;
-  try { const r = await store.sb.functions.invoke('notify', { body: { target, tech_ids, title, body, tag } }); return r.data || null; } catch (e) { console.warn('Push fehlgeschlagen', e); return null; }
+  try { const r = await store.sb.functions.invoke('notify', { body: Object.assign({ target, tech_ids, title, body, tag }, extra || {}) }); return r.data || null; } catch (e) { console.warn('Push fehlgeschlagen', e); return null; }
 }
 async function fillPushBox(forMaster) {
   const box = $('#pushBox'); if (!box) return;
@@ -2572,7 +2610,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

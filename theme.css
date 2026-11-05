@@ -964,3 +964,8 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
   .hg-ticks, .hg-lgd { margin-left: 70px; } .hg-l { width: 62px; font-size: 12.5px; }
 }
 .hp .kv-seg { flex-wrap: nowrap; } .hp .kv-seg button { white-space: nowrap; }
+/* Übersicht im Hausplan in den Farben der Legende */
+.hp-sum span.pam b { color: var(--hp-pam); }
+.hp-sum span.nopam b { color: var(--hp-no); }
+.hp-sum em { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+.hp-sum .hp-k { width: 10px; height: 10px; }

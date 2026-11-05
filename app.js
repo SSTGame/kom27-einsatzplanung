@@ -2175,7 +2175,7 @@ function hausplanHtml(today, seg) {
         <div class="hp-mid">
           <div class="hp-plan">${block('Saal 4', 'b4')}${block('Saal 1', 'b1')}<div class="hp-lobby ${(byRoom.Foyer || []).length ? 'used' : ''}"></div>${block('Saal 3', 'b3')}${block('Saal 2', 'b2')}</div>
           ${tile('Saal 4', 's4', 'led')}${tile('Saal 1', 's1', 'led')}
-          <div class="hp-sum"><span><b>${nPam}</b>mit PAM</span><span><b>${nNo}</b>ohne PAM</span></div>
+          <div class="hp-sum"><span class="pam"><b>${nPam}</b><em><i class="hp-k pam"></i>mit PAM</em></span><span class="nopam"><b>${nNo}</b><em><i class="hp-k nopam"></i>ohne PAM</em></span></div>
           ${tile('Foyer', 'fo', 'foy')}${tile('Saal 3', 's3', 'led')}${tile('Saal 2', 's2', 'led')}
         </div>
         ${others.length ? `<div class="hp-sem hp-oth">${others.map((r) => tile(r, '', 'led')).join('')}</div>` : ''}

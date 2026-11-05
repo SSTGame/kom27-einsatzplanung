@@ -2034,6 +2034,23 @@ function openVa(date, va) {
     note: 'Für diese Veranstaltung ist laut VA-Kalender kein PAM-Techniker angefordert.',
     det: { vazeit: (vd && vd.vazeit) || x.zeit || '', einlass: (vd && vd.einlass) || '', buch: (vd && vd.buch) || '', rooms, extras: (vd && vd.extras) || [] } });
 }
+// Feld unter „Heute im Haus“: Veranstaltungen ohne PAM-Techniker am selben Tag
+function komNoPamCard() {
+  const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
+  const hasSl = (dt) => allSlots().some((s) => s.date === dt && !s.day.cancelled);
+  const hasVa = (dt) => allDays().some((d) => d.date === dt && !d.cancelled && (d.vas || []).length);
+  // gleicher Tag wie die Karte „Heute/Morgen im Haus“
+  let dt = today;
+  if (!hasSl(today) && now.getHours() >= 14 && (hasSl(tom) || (!hasVa(today) && hasVa(tom)))) dt = tom;
+  const d = allDays().find((x) => x.date === dt && !x.cancelled);
+  if (!d || !d.slots.length) return ''; // ohne PAM-Einsatz zeigt die Karte darüber die Veranstaltungen schon
+  const list = vaListOf(d).filter((x) => !x.pam);
+  const w = dt === today ? 'Heute' : 'Morgen';
+  return `<section class="dpanel nopam-card"><h2 class="sec">${w} ohne PAM-Techniker${list.length ? ` <span class="np-n">${list.length}</span>` : ''}</h2>
+    ${list.length ? `<div class="np-list">${list.map((x) => `<button class="np-row" data-va="${d.date}|${esc(x.va)}"><span><b>${esc(x.va)}</b><small>${[roomsOf(x.info), x.zeit ? 'VA ' + niceTime(x.zeit) : ''].filter(Boolean).map(esc).join(' · ')}</small></span><span class="jc-more">Details ›</span></button>`).join('')}</div>`
+      : `<p class="muted">${w} gibt es keine Veranstaltung ohne PAM-Techniker.</p>`}
+  </section>`;
+}
 function komTodayCard() {
   const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
   const daySl = (d) => allSlots().filter((s) => s.date === d && !s.day.cancelled);
@@ -2212,7 +2229,7 @@ function renderKom() {
       <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
       ${rows}${extra}</article>`;
   };
-  const tc = komTodayCard();
+  const tc = komTodayCard() + komNoPamCard();
   const raster = (S.komView || 'raster') === 'raster';
   const seg = `<div class="seg kv-seg"><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${raster ? '' : 'on'}">Liste</button></div>`;
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `

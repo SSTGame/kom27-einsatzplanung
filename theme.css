@@ -766,3 +766,16 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 @media (max-width: 560px) { .msg-pick.pk-list { grid-template-columns: 1fr; } }
 .is-dash .viewtabs:has(> button:nth-child(3)) { max-width: 600px; }
 .viewtabs button { white-space: nowrap; }
+
+/* ---------- KOM27: Feld „Heute ohne PAM-Techniker“ ---------- */
+.nopam-card { margin-top: 0; }
+.nopam-card h2.sec { margin-top: 0; }
+.np-n { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); font-size: 13px; font-weight: 700; }
+.np-list { display: grid; gap: 8px; }
+.np-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 10px 14px; border: 1px dashed var(--line-strong); border-radius: 12px; background: var(--panel-2); color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.np-row:hover { border-color: var(--accent); }
+.np-row > span:first-child { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.np-row b { font-size: 16px; }
+.np-row small { color: var(--muted); font-size: 13px; }
+.np-row .jc-more { position: static; color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.only-m .nopam-card { margin-bottom: 16px; }

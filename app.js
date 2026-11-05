@@ -2020,8 +2020,11 @@ function vaListOf(d) {
   return ids.map((va, i) => {
     const s = (d.slots || []).find((x) => x.va === va);
     const pt = (d.parts || []).find((x) => (x.vas || []).includes(va));
-    const zeit = (s && s.det && s.det.vazeit) || (pt && pt.vazeit && !pt.vazeit.includes(' / ') ? pt.vazeit : '') || (parts.length === ids.length ? parts[i] : parts.length === 1 ? parts[0] : '') || '';
-    return { va, zeit, pam: !!s, key: s ? s.key : null, info: pt && (d.parts || []).length > 1 ? pt.info : d.info || '' };
+    // eigene Angaben der Veranstaltung (Räume, VA-Zeit) haben Vorrang vor den Angaben des ganzen Tages
+    const own = (s && s.det) || (d.vaDet && d.vaDet[va]) || null;
+    const ownInfo = own && (own.rooms || []).length ? own.rooms.map((r) => r[0] + ': ' + String(r[1] || '').replace(/\n/g, ' ')).join(' · ') : '';
+    const zeit = (own && own.vazeit) || (pt && pt.vazeit && !pt.vazeit.includes(' / ') ? pt.vazeit : '') || (parts.length === ids.length ? parts[i] : parts.length === 1 ? parts[0] : '') || '';
+    return { va, zeit, pam: !!s, key: s ? s.key : null, info: ownInfo || (pt && (d.parts || []).length > 1 ? pt.info : d.info || '') };
   });
 }
 // Details zu einer Veranstaltung ohne PAM-Techniker (KOM27-Ansicht)

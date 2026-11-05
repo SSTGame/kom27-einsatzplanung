@@ -779,3 +779,21 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 .np-row small { color: var(--muted); font-size: 13px; }
 .np-row .jc-more { position: static; color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .only-m .nopam-card { margin-bottom: 16px; }
+
+/* ---------- KOM27 Wochenraster: Räume mit Veranstaltung und PAM / ohne PAM ---------- */
+.kr-grid tr.kr-rooms td { vertical-align: top; padding-top: 8px; padding-bottom: 8px; }
+.kr-grid tr.kr-rooms td > .kr-room + .kr-room { margin-top: 5px; }
+.kr-room { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 6px 8px; border-radius: 9px; border: 1.5px solid transparent; text-align: left; font: inherit; line-height: 1.25; cursor: pointer; color: var(--ink); }
+.kr-room b { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.kr-room small { font-size: 12px; font-weight: 700; margin-top: 3px; padding-top: 3px; border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); align-self: stretch; }
+.kr-room small.kr-room-va { font-weight: 400; color: var(--muted); font-size: 11px; }
+.kr-room.pam { background: color-mix(in srgb, var(--st-zugesagt) 13%, var(--panel)); border-color: color-mix(in srgb, var(--st-zugesagt) 45%, transparent); }
+.kr-room.pam small:not(.kr-room-va) { color: var(--st-zugesagt); }
+.kr-room.pam-open { background: color-mix(in srgb, var(--st-leer) 10%, var(--panel)); border-color: color-mix(in srgb, var(--st-leer) 45%, transparent); }
+.kr-room.pam-open small:not(.kr-room-va) { color: var(--st-leer); }
+.kr-room.nopam { background: var(--panel); border: 1.5px dashed var(--line-strong); }
+.kr-room.nopam small:not(.kr-room-va) { color: var(--muted); }
+.kr-room:hover { border-color: var(--accent); }
+.lg.pamroom { background: color-mix(in srgb, var(--st-zugesagt) 13%, var(--panel)); border: 1.5px solid color-mix(in srgb, var(--st-zugesagt) 45%, transparent); }
+@media (max-width: 700px) { .kr-room { padding: 5px 6px; } .kr-room b { font-size: 12px; } .kr-room small { font-size: 11px; } }
+@media (max-width: 700px) { .kr-room b { white-space: normal; font-size: 11.5px; } }

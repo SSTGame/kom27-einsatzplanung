@@ -2024,7 +2024,9 @@ function vaListOf(d) {
     const own = (s && s.det) || (d.vaDet && d.vaDet[va]) || null;
     const ownInfo = own && (own.rooms || []).length ? own.rooms.map((r) => r[0] + ': ' + String(r[1] || '').replace(/\n/g, ' ')).join(' · ') : '';
     const zeit = (own && own.vazeit) || (pt && pt.vazeit && !pt.vazeit.includes(' / ') ? pt.vazeit : '') || (parts.length === ids.length ? parts[i] : parts.length === 1 ? parts[0] : '') || '';
-    return { va, zeit, pam: !!s, key: s ? s.key : null, info: ownInfo || (pt && (d.parts || []).length > 1 ? pt.info : d.info || '') };
+    const info = ownInfo || (pt && (d.parts || []).length > 1 ? pt.info : d.info || '');
+    const rooms = own && (own.rooms || []).length ? [...new Set(own.rooms.map((r) => String(r[0] || '').trim()).filter(Boolean))] : roomsOf(info).split(', ').filter(Boolean);
+    return { va, zeit, pam: !!s, key: s ? s.key : null, info, rooms };
   });
 }
 // Details zu einer Veranstaltung ohne PAM-Techniker (KOM27-Ansicht)
@@ -2115,11 +2117,24 @@ function komWeekGrid(today, seg) {
         ${!empty && d && roomsOf(d.info) ? `<small class="kw-r">📍 ${esc(roomsOf(d.info))}${(d.kom || []).length ? ' · 🏢 ' + esc(d.kom.join(', ')) : ''}</small>` : ''}</div>
       ${n ? `<i class="kr-need ${ok < n ? 'open' : ''}">${ok}/${n}</i>` : ''}
     </div>`; }).join('')}</div>`;
-  const rooms = `<tr class="kr-rooms"><th>Räume</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${esc(roomsOf((byDate[dt] || {}).info || '') || '')}</td>`).join('')}</tr>`;
+  // Räume: je Veranstaltung ein Block mit ihren Räumen und wer sie macht (PAM-Techniker oder ohne PAM)
+  const roomCell = (dt) => {
+    const d = byDate[dt]; if (!d || d.cancelled) return '';
+    const ord = (r) => { const m = /^(Saal|Seminar|Foyer)\s*(\d*)/.exec(r); return m ? ['Saal', 'Seminar', 'Foyer'].indexOf(m[1]) * 100 + (+m[2] || 0) : 999; };
+    return vaListOf(d).map((x) => {
+      const rs = (x.rooms.length ? [...x.rooms] : ['Raum ?']).sort((p, q) => ord(p) - ord(q) || p.localeCompare(q, 'de'));
+      const who = x.pam ? sl(dt).filter((s) => s.va === x.va).map((s) => komOf(s.key)) : [];
+      const names = who.filter(Boolean).map((k) => k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : ''));
+      const txt = !x.pam ? 'ohne PAM' : names.length ? names.join(', ') : 'PAM offen';
+      const st = !x.pam ? 'nopam' : who.length && who.every((k) => k && k.status === 'zugesagt') ? 'pam' : 'pam-open';
+      return `<button class="kr-room ${st}" ${x.key ? `data-open="${esc(x.key)}"` : `data-va="${dt}|${esc(x.va)}"`} title="${esc(rs.join(', ') + ' · ' + x.va + (x.zeit ? ' · VA ' + x.zeit : '') + ' · ' + (x.pam ? 'PAM: ' + (names.join(', ') || 'noch offen') : 'ohne PAM-Techniker'))}">${rs.map((r) => `<b>${esc(r)}</b>`).join('')}<small>${esc(txt)}</small></button>`;
+    }).join('');
+  };
+  const rooms = `<tr class="kr-rooms"><th>Räume</th>${dates.map((dt) => `<td class="${dt === today ? 'is-today' : ''}">${roomCell(dt)}</td>`).join('')}</tr>`;
   return `<section class="kr">
     <div class="kr-nav"><button class="btn small" data-kw="-7" aria-label="Woche zurück">‹</button><b>KW ${isoWeek(mon)}</b><button class="btn small" data-kw="7" aria-label="Woche vor">›</button><span class="muted">${fmtDate(mon)} – ${fmtDate(addDays(mon, 6))}</span>${mon !== mondayOf(today) ? '<button class="linkbtn" data-kw="0">diese Woche</button>' : ''}<span class="kr-sp"></span>${seg || ''}</div>
     ${names.length || hasOpen || hasKom || hasVa ? `${agenda}<div class="kr-scroll"><table class="kr-grid"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}${rooms}</tbody></table></div>
-    <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span><i class="lg nopam"></i>ohne PAM-Techniker</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine Veranstaltungen eingetragen.</div>'}
+    <div class="kr-lgd"><span><i class="lg zugesagt"></i>zugesagt</span><span><i class="lg angefragt"></i>angefragt</span><span><i class="lg leer"></i>noch offen</span><span><i class="lg nopam"></i>ohne PAM-Techniker</span><span class="muted">Räume: Name = PAM-Techniker, „?“ = angefragt</span><span class="muted">Antippen = Details</span></div>` : '<div class="empty-msg">In dieser Woche sind keine Veranstaltungen eingetragen.</div>'}
   </section>`;
 }
 const pvBar = () => (S.preview ? `<div class="pv-bar"><span>👁 <b>Vorschau:</b> So sehen Jens & Felix die App</span><button class="btn small" id="pvEnd">Zurück zum Master</button></div>` : '');

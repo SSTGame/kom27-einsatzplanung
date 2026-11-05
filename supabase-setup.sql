@@ -466,3 +466,16 @@ drop policy if exists msg_admin_del on public.messages;
 create policy msg_admin_del on public.messages for delete to authenticated using (is_admin());
 -- Schreiben nur über die Server-Funktion "notify" (Dienstkonto) – keine Insert-Policy für Seitenbesucher
 do $$ begin alter publication supabase_realtime add table public.messages; exception when others then null; end $$;
+-- v17: Techniker können Nachrichten an alle schicken (Techniker, KOM27, Planung)
+alter table public.messages add column if not exists to_all boolean not null default false;
+alter table public.messages drop constraint if exists messages_sender_role_check;
+alter table public.messages add constraint messages_sender_role_check check (sender_role in ('master', 'manager', 'kom', 'tech'));
+drop policy if exists msg_read on public.messages;
+create policy msg_read on public.messages for select to authenticated using (
+  (to_all and (my_tech_id() is not null or is_viewer() or is_admin() or exists (select 1 from my_managed_ids())))
+  or is_admin()
+  or (is_viewer() and sender_role = 'kom')
+  or my_tech_id() = any (tech_ids)
+  or lower(sender_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  or tech_ids && array(select my_managed_ids())
+);

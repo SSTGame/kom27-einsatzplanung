@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
 
     let emails: string[] = [];
     // eigene Nachrichten (nicht automatische Hinweise) werden zusätzlich gespeichert, damit man sie in der App nachlesen kann
-    let store: { sender_name: string; sender_role: string; title: string; tech_ids: string[] } | null = null;
+    let store: { sender_name: string; sender_role: string; title: string; tech_ids: string[]; to_all?: boolean } | null = null;
     const cleanName = (x: unknown) => String(x ?? "").replace(/[<>]/g, "").trim().slice(0, 40);
     if (target === "admins") {
       const { data } = await db.from("admins").select("email");
@@ -143,10 +143,24 @@ Deno.serve(async (req) => {
       const who = v?.name || me.split("@")[0];
       store = { sender_name: who, sender_role: "kom", title, tech_ids: (data ?? []).map((r) => r.id) };
       title = `KOM27 · ${who}: ${title || "Nachricht"}`;
+    } else if (target === "all") {
+      // Techniker -> alle (alle Techniker, KOM27-Zugänge, Planung); höchstens 10 Nachrichten pro Tag
+      const { data: meT } = await db.from("technicians").select("id, name").ilike("email", me).neq("active", false).maybeSingle();
+      if (!meT) return json({ error: "nur für Techniker" }, 403);
+      const since = new Date(Date.now() - 86400000).toISOString();
+      const { count } = await db.from("messages").select("id", { count: "exact", head: true }).eq("sender_email", me).gte("created_at", since);
+      if ((count ?? 0) >= 10) return json({ error: "Heute schon 10 Nachrichten gesendet – bitte morgen wieder" }, 429);
+      const { data: tl } = await db.from("technicians").select("id, email").neq("active", false);
+      const { data: kv } = await db.from("kom_viewers").select("email");
+      const { data: ad } = await db.from("admins").select("email");
+      emails = [...(tl ?? []).map((r) => r.email), ...(kv ?? []).map((r) => r.email), ...(ad ?? []).map((r) => r.email)].filter(Boolean);
+      const who = String(meT.name || me.split("@")[0]).split(" ")[0];
+      store = { sender_name: meT.name || who, sender_role: "tech", title, tech_ids: (tl ?? []).map((r) => r.id), to_all: true };
+      title = `${who} an alle${title ? ": " + title : ""}`;
     } else return json({ error: "unbekanntes Ziel" }, 400);
     let saved = false;
     if (store && body.trim()) {
-      const { error: insErr } = await db.from("messages").insert({ sender_email: me, sender_name: store.sender_name, sender_role: store.sender_role, title: String(store.title || "").slice(0, 80), body: body.trim(), tech_ids: store.tech_ids });
+      const { error: insErr } = await db.from("messages").insert({ sender_email: me, sender_name: store.sender_name, sender_role: store.sender_role, title: String(store.title || "").slice(0, 80), body: body.trim(), tech_ids: store.tech_ids, to_all: !!store.to_all });
       saved = !insErr;
     }
     emails = [...new Set(emails.map((e) => e.toLowerCase()))].filter((e) => e !== me);

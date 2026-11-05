@@ -969,3 +969,10 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 .hp-sum span.nopam b { color: var(--hp-no); }
 .hp-sum em { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
 .hp-sum .hp-k { width: 10px; height: 10px; }
+.mi-all-box { margin-top: 16px; }
+.mi-all-box h2.sec { margin-top: 0; }
+.mi-all-box input, .mi-all-box textarea { width: 100%; margin-bottom: 8px; }
+.mi-to.mi-all { color: var(--accent); font-weight: 600; }
+.mi.mi-tech .mi-h b { color: var(--ink); }
+.mi-all-box summary { cursor: pointer; font-weight: 700; font-size: 16px; padding: 4px 0; min-height: 40px; display: flex; align-items: center; }
+.mi-all-box[open] summary { margin-bottom: 8px; }

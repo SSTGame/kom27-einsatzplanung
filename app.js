@@ -44,7 +44,7 @@ const DemoStore = {
     const kom = Object.values(d.asg || {}).filter((a) => a.tech_id && ['zugesagt', 'angefragt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, status: a.status, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '?' }));
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
     const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
-    const msgs = (d.messages || []).filter((x) => isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
+    const msgs = (d.messages || []).filter((x) => x.to_all || isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
     return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs,
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
@@ -1208,7 +1208,7 @@ function pickListHtml(items, sel, attr) {
     return `<label class="pick ${on ? 'on' : ''} ${t.push ? '' : 'nopush'}"><input type="checkbox" data-${attr}="${t.id}" ${on ? 'checked' : ''}><span class="pk-box">${CHK}</span><span class="pk-name">${esc(t.name)}${info ? `<small>${esc(info)}</small>` : ''}</span></label>`; }).join('')}</div>`;
 }
 /* ---------------- Nachrichten zum Nachlesen ---------------- */
-const msgFrom = (m) => m.sender_role === 'kom' ? 'KOM27 · ' + (m.sender_name || 'Medientechnik') : m.sender_role === 'manager' ? 'Projektleitung · ' + (m.sender_name || '') : (m.sender_name || CFG.senderName || 'Planung');
+const msgFrom = (m) => m.sender_role === 'tech' ? (m.sender_name || 'Techniker') : m.sender_role === 'kom' ? 'KOM27 · ' + (m.sender_name || 'Medientechnik') : m.sender_role === 'manager' ? 'Projektleitung · ' + (m.sender_name || '') : (m.sender_name || CFG.senderName || 'Planung');
 const msgSorted = () => (S.msgs || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 const msgSeenKey = () => 'kom27-msg-seen-' + ((S.user && S.user.email) || '');
 const msgUnread = () => { const seen = +(ls.get(msgSeenKey()) || 0); const me = (S.user && S.user.email || '').toLowerCase(); return msgSorted().filter((m) => +m.id > seen && (m.sender_email || '').toLowerCase() !== me); };
@@ -1218,13 +1218,44 @@ function msgItemsHtml(list, opts) {
   const nameOf = (id) => { const t = (S.techs || []).find((x) => x.id === id) || ((S.komMsg || {}).techs || []).find((x) => x.id === id); return t ? t.name.split(' ')[0] : null; };
   if (!list.length) return `<p class="muted">${esc(opts.empty || 'Noch keine Nachrichten.')}</p>`;
   return `<div class="mi-list">${list.map((m) => { const to = (m.tech_ids || []).map(nameOf).filter(Boolean);
-    return `<article class="mi ${opts.unread && +m.id > seen ? 'new' : ''} mi-${esc(m.sender_role)}"><div class="mi-h"><b>${esc(msgFrom(m))}</b><small>${esc(ago(m.created_at))}</small></div>${m.title ? `<div class="mi-t">${esc(m.title)}</div>` : ''}<p>${esc(m.body)}</p>${opts.to ? `<small class="mi-to">An ${to.length ? esc(to.join(', ')) : (m.tech_ids || []).length + ' Techniker'}</small>` : ''}${opts.del ? `<button type="button" class="linkbtn mi-del" data-msgdel="${esc(String(m.id))}">Löschen</button>` : ''}</article>`; }).join('')}</div>`;
+    return `<article class="mi ${opts.unread && +m.id > seen && (m.sender_email || '').toLowerCase() !== ((S.user && S.user.email) || '').toLowerCase() ? 'new' : ''} mi-${esc(m.sender_role)}"><div class="mi-h"><b>${esc(msgFrom(m))}</b><small>${esc(ago(m.created_at))}</small></div>${m.title ? `<div class="mi-t">${esc(m.title)}</div>` : ''}<p>${esc(m.body)}</p>${m.to_all ? '<small class="mi-to mi-all">An alle</small>' : opts.to ? `<small class="mi-to">An ${to.length ? esc(to.join(', ')) : (m.tech_ids || []).length + ' Techniker'}</small>` : ''}${opts.del ? `<button type="button" class="linkbtn mi-del" data-msgdel="${esc(String(m.id))}">Löschen</button>` : ''}</article>`; }).join('')}</div>`;
 }
 document.addEventListener('click', async (e) => {
   const b = e.target.closest && e.target.closest('[data-msgdel]'); if (!b || !S.admin) return;
   if (!confirm('Diese Nachricht aus der App löschen? (Bereits zugestellte Mitteilungen auf den Handys bleiben.)')) return;
   try { await store.deleteMessage(+b.dataset.msgdel); await reload(); paint(); toast('Gelöscht'); } catch (x) { toast(x.message || 'Löschen hat nicht geklappt'); }
 });
+
+/* Techniker: Nachricht an alle (alle Techniker, KOM27 und Planung) */
+function allMsgBoxHtml() {
+  const D = S.allDraft || {};
+  return `<details class="dpanel msgbox mi-all-box" id="allMsg" ${S.allOpen || (D.body || D.title) ? 'open' : ''}><summary>📣 Nachricht an alle schreiben</summary>
+    <p class="note">Geht an alle Techniker, die Medientechnik im KOM27 und ${esc(CFG.senderName)} – als Mitteilung aufs Handy und hier zum Nachlesen.</p>
+    <input type="text" id="amTitle" maxlength="60" placeholder="Betreff (optional)" value="${esc(D.title || '')}">
+    <textarea id="amBody" rows="3" maxlength="300" placeholder="z. B. „Hat jemand das HDMI-Kabel aus Saal 2 gesehen?“">${esc(D.body || '')}</textarea>
+    <div class="msg-foot"><span class="note">Bitte nur, wenn es wirklich alle betrifft.</span><button class="btn primary" id="amSend">📣 An alle senden</button></div></details>`;
+}
+function wireAllMsg(m) {
+  const keep = () => { const t = $('#amTitle'), b = $('#amBody'); if (t && b) S.allDraft = { title: t.value, body: b.value }; };
+  ['#amTitle', '#amBody'].forEach((sel) => { const el = m.querySelector(sel); if (el) el.oninput = keep; });
+  const dt = m.querySelector('#allMsg'); if (dt) dt.ontoggle = () => (S.allOpen = dt.open);
+  const btn = m.querySelector('#amSend'); if (!btn) return;
+  btn.onclick = async () => {
+    keep(); const title = (S.allDraft.title || '').trim(), body = (S.allDraft.body || '').trim();
+    if (!body) { $('#amBody').focus(); return toast('Bitte eine Nachricht eingeben'); }
+    if (!confirm(`An alle senden (alle Techniker, KOM27 und ${CFG.senderName})?\n\n${title ? title + '\n' : ''}${body}`)) return;
+    btn.disabled = true; btn.textContent = 'Sende …';
+    let ok = false, err = '';
+    if (DEMO) { const t = myTech(); await DemoStore.addMessage({ sender_name: t ? t.name : 'Techniker', sender_role: 'tech', title, body, tech_ids: (DemoStore.d().techs || []).map((x) => x.id), to_all: true }); ok = true; }
+    else {
+      try { const r = await store.sb.functions.invoke('notify', { body: { target: 'all', title, body, tag: 'all-' + Date.now() } });
+        if (r.error) { try { err = (await r.error.context.json()).error || ''; } catch (x) {} } else ok = !!(r.data && r.data.saved); } catch (x) {}
+    }
+    if (ok) { S.allDraft = null; try { await reload(); } catch (x) {} }
+    paint();
+    toast(ok ? (DEMO ? 'Demo: an alle gesendet' : 'An alle gesendet ✓') : err || 'Senden hat nicht geklappt – bitte nochmal versuchen');
+  };
+}
 /* ---------------- Eigene Push-Nachricht an Techniker ---------------- */
 function msgGroups() {
   const today = todayISO(); const tom = addDays(today, 1);
@@ -1244,7 +1275,7 @@ function msgBoxHtml() {
     <textarea id="msgBody" rows="3" maxlength="300" placeholder="Deine Nachricht, z. B. „Morgen bitte schon um 7:30 da sein – Umbau Saal 2“">${esc((S.msgDraft || {}).body || '')}</textarea>
     <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : 'Keine Empfänger ausgewählt'}</span>
       <button class="btn primary" id="msgSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
-    <details class="mi-hist" ${S.msgHistOpen ? 'open' : ''}><summary>Gesendete Nachrichten <small>${(S.msgs || []).length}</small> – von dir, Projektleitung und KOM27</summary>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, del: true, empty: 'Noch keine Nachrichten gesendet.' })}</details>
+    <details class="mi-hist" ${S.msgHistOpen ? 'open' : ''}><summary>Alle Nachrichten <small>${(S.msgs || []).length}</small> – von dir, Projektleitung, KOM27 und Technikern</summary>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, del: true, empty: 'Noch keine Nachrichten gesendet.' })}</details>
   </div>`;
 }
 function wireMsgBox(m) {
@@ -2316,7 +2347,7 @@ function renderKom() {
   $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
-  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht</button></div>`;
+  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht${S.techTab !== 'msg' && msgUnread().length ? ` <b class="vt-badge">${msgUnread().length}</b>` : ''}</button></div>`;
   const wire = () => {
     m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
@@ -2330,7 +2361,7 @@ function renderKom() {
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
   if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
-  if (S.techTab === 'msg') { m.innerHTML = pvBar() + vt + komMsgHtml() + `<section class="dpanel mi-sent"><h2 class="sec">Bisher vom KOM27 gesendet</h2>${msgItemsHtml(msgSorted().filter((x) => x.sender_role === 'kom').slice(0, 20), { to: true, empty: 'Noch nichts gesendet.' })}</section>` + legalFoot(); wire(); wireKomMsg(m); return; }
+  if (S.techTab === 'msg') { setTimeout(msgMarkRead, 0); m.innerHTML = pvBar() + vt + komMsgHtml() + `<section class="dpanel mi-sent"><h2 class="sec">Nachrichten</h2><p class="note">Was das KOM27 gesendet hat und Nachrichten der Techniker an alle.</p>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + legalFoot(); wire(); wireKomMsg(m); return; }
   const from = S.komPast ? addDays(today, -60) : today;
   const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
   const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));
@@ -2438,8 +2469,8 @@ function renderTech() {
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
   if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml() + legalFoot(); wireVt(); wireKb(m); return; }
   if (S.techTab === 'msg') {
-    m.innerHTML = vt + `<section class="dpanel mi-inbox"><h2 class="sec">📨 Nachrichten</h2><p class="note">Nachrichten von ${esc(CFG.senderName)}, deiner Projektleitung und der Medientechnik im KOM27. Sie kommen auch als Mitteilung aufs Handy, wenn du Mitteilungen eingeschaltet hast.</p>${msgItemsHtml(msgSorted(), { unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + legalFoot();
-    wireVt(); msgMarkRead(); const vb = m.querySelector('.vt-badge'); if (vb) vb.remove(); return;
+    m.innerHTML = vt + `<section class="dpanel mi-inbox"><h2 class="sec">📨 Nachrichten</h2><p class="note">Nachrichten von ${esc(CFG.senderName)}, deiner Projektleitung, der Medientechnik im KOM27 und Nachrichten an alle. Sie kommen auch als Mitteilung aufs Handy, wenn du Mitteilungen eingeschaltet hast.</p>${msgItemsHtml(msgSorted(), { unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + allMsgBoxHtml() + legalFoot();
+    wireVt(); wireAllMsg(m); msgMarkRead(); const vb = m.querySelector('.vt-badge'); if (vb) vb.remove(); return;
   }
   const lastNew = msgUnread()[0];
   m.innerHTML = vt + (lastNew ? `<button class="msg-banner" data-vt="msg"><span class="mb-i">📨</span><span><b>${nNew === 1 ? 'Neue Nachricht' : nNew + ' neue Nachrichten'}</b> von ${esc(msgFrom(lastNew))}<small>${esc((lastNew.title ? lastNew.title + ': ' : '') + lastNew.body).slice(0, 90)}${(lastNew.title + lastNew.body).length > 90 ? '…' : ''}</small></span><span class="mb-go">Lesen ›</span></button>` : '') + `

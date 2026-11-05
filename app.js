@@ -2113,6 +2113,77 @@ function komTodayCard() {
     <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
   </section>`;
 }
+
+/* ---------------- Hausplan (KOM27): Räume wie auf dem Touchpanel, farbig nach Belegung ---------------- */
+const HP_ROOMS = ['Seminar 1', 'Seminar 2', 'Seminar 3', 'Saal 4', 'Saal 1', 'Foyer', 'Saal 3', 'Saal 2'];
+function hpDay(dt) {
+  const d = allDays().find((x) => x.date === dt);
+  const now = new Date(); const isToday = dt === todayISO(); const h = now.getHours() + now.getMinutes() / 60;
+  const byRoom = {};
+  if (d && !d.cancelled) vaListOf(d).forEach((x) => {
+    const s = (d.slots || []).find((y) => y.va === x.va);
+    const own = (s && s.det) || (d.vaDet || {})[x.va] || {};
+    const who = x.pam ? (d.slots || []).filter((y) => y.va === x.va).map((y) => komOf(y.key)) : [];
+    const names = who.filter(Boolean).map((k) => k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : ''));
+    const st = !x.pam ? 'nopam' : who.length && who.every((k) => k && k.status === 'zugesagt') ? 'pam' : 'pam-open';
+    const va = parseSpan(x.zeit), buch = parseSpan(own.buch || '') || va;
+    const live = isToday && buch && h >= buch[0] && h < buch[1], soon = isToday && buch && h < buch[0] && buch[0] - h <= 1;
+    const vaNow = isToday && va && h >= va[0] && h < va[1];
+    const e = { x, st, names, va, buch, live, soon, vaNow, open: x.key ? `data-open="${esc(x.key)}"` : `data-va="${dt}|${esc(x.va)}"` };
+    (x.rooms.length ? x.rooms : ['Raum ?']).forEach((r) => (byRoom[r] = byRoom[r] || []).push(e));
+  });
+  // zuerst, was gerade als Veranstaltung läuft, dann was gebucht ist, dann nach Uhrzeit
+  const rank = (e) => (e.vaNow ? 0 : e.live ? 1 : 2);
+  Object.values(byRoom).forEach((l) => l.sort((a, b) => rank(a) - rank(b) || ((a.va || a.buch || [99])[0] - (b.va || b.buch || [99])[0])));
+  return { d, byRoom, isToday, h };
+}
+function hausplanHtml(today, seg) {
+  const dt = S.hpDate || today; const { byRoom, isToday, h } = hpDay(dt);
+  const hm = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
+  const stTxt = (e) => e.st === 'nopam' ? 'ohne PAM' : e.names.length ? e.names.join(', ') : 'PAM offen';
+  // Symbole wie auf dem Raum-Panel
+  const IC = {
+    led: '<svg viewBox="0 0 40 30" class="hp-ic"><rect x="2" y="2" width="36" height="22" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.4"/><text x="20" y="17.5" text-anchor="middle" font-size="11" font-weight="700" font-family="Arial, sans-serif" fill="currentColor">LED</text><path d="M7 27.5h26" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg>',
+    sem: '<svg viewBox="0 0 44 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="5" r="3"/><circle cx="22" cy="4" r="3"/><circle cx="33" cy="5" r="3"/><path d="M5 22v-7a3 3 0 0 1 6 0v3h5M39 22v-7a3 3 0 0 0-6 0v3h-5M16 18v-5a6 6 0 0 1 12 0v5"/><path d="M14 18h16v5H14zM8 22v7M36 22v7M18 23v6M26 23v6"/></g></svg>',
+    foy: '<svg viewBox="0 0 40 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="5" r="3"/><circle cx="26" cy="5" r="3"/><path d="M5 30V14a5 5 0 0 1 10 0v6M21 30V14a5 5 0 0 1 10 0"/><path d="M17 20h14v10H17zM31 24h6"/></g></svg>',
+  };
+  const tile = (r, cls, ic) => {
+    const l = byRoom[r] || []; const e = l[0]; const nx = l[1];
+    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `<span class="hp-who">${esc(stTxt(e))}</span><small>${e.va ? hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}` : '<small class="hp-free">frei</small>'}`;
+    return e ? `<button class="hp-t ${e.st} ${e.live ? 'hp-on' : ''} ${cls}" ${e.open} title="${esc(r + ' · ' + e.x.va + ' · ' + stTxt(e))}">${inner}</button>` : `<div class="hp-t free ${cls}">${inner}</div>`;
+  };
+  const block = (r, c) => { const e = (byRoom[r] || [])[0]; return `<${e ? `button ${e.open}` : 'div'} class="hp-b ${c} ${e ? e.st : 'free'} ${e && e.live ? 'hp-on' : ''}" aria-label="${esc(r)}"></${e ? 'button' : 'div'}>`; };
+  const others = Object.keys(byRoom).filter((r) => !HP_ROOMS.includes(r));
+  const usedE = Object.values(byRoom).map((l) => l[0]);
+  const nPam = usedE.filter((e) => e.st !== 'nopam').length, nNo = usedE.filter((e) => e.st === 'nopam').length;
+  // Tagesablauf
+  const used = [...HP_ROOMS, ...others].filter((r) => byRoom[r]);
+  const all = used.flatMap((r) => byRoom[r]).filter((e) => e.buch);
+  const a = all.length ? Math.max(0, Math.floor(Math.min(...all.map((e) => e.buch[0])))) : 8, b = all.length ? Math.min(24, Math.ceil(Math.max(...all.map((e) => e.buch[1])))) : 18;
+  const pc = (x) => (((x - a) / Math.max(1, b - a)) * 100).toFixed(2);
+  const lanesOf = (l) => { if (l._lanes) return l._lanes; const ends = []; l.filter((e) => e.buch).slice().sort((p, q) => p.buch[0] - q.buch[0]).forEach((e) => { let i = ends.findIndex((t) => t <= e.buch[0]); if (i < 0) i = Math.min(ends.length, 1); ends[i] = Math.max(ends[i] || 0, e.buch[1]); e.lane = i; }); return (l._lanes = Math.max(1, ends.length)); };
+  const ticks = []; for (let t = a; t <= b; t += (b - a > 10 ? 2 : 1)) ticks.push(t);
+  const gantt = used.length ? `<div class="hp-gantt"><h3>Tagesablauf</h3><div class="hg-ticks">${ticks.map((t) => `<i style="left:${pc(t)}%">${pad(t)}</i>`).join('')}</div>
+    ${used.map((r) => `<div class="hg-row"><span class="hg-l">${esc(r)}</span><div class="hg-bar ${lanesOf(byRoom[r]) > 1 ? 'two' : ''}">${byRoom[r].filter((e) => e.buch).map((e) => `<button class="hg-e ${e.st} ${lanesOf(byRoom[r]) > 1 ? 'ln' + e.lane : ''}" ${e.open} style="left:${pc(e.buch[0])}%;width:${pc(e.buch[1]) - pc(e.buch[0])}%" title="${esc(e.x.va + ' · gebucht ' + hm(e.buch[0]) + '–' + hm(e.buch[1]) + (e.va ? ' · VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : '') + ' · ' + stTxt(e))}">${e.va ? `<i class="hg-va" style="left:${((e.va[0] - e.buch[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%;width:${((e.va[1] - e.va[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%"></i>` : ''}<span>${esc(stTxt(e))}</span></button>`).join('')}${isToday && h > a && h < b ? `<i class="hg-now" style="left:${pc(h)}%"></i>` : ''}</div></div>`).join('')}
+    <p class="hg-lgd"><span><i class="hg-k book"></i>Raum gebucht</span><span><i class="hg-k va"></i>Veranstaltung</span>${isToday ? '<span><i class="hg-k now"></i>jetzt</span>' : ''}</p></div>` : '';
+  const dd = new Date(dt + 'T12:00:00');
+  return `<div class="kr hp"><div class="kr-nav"><button class="btn small" data-hpd="-1" aria-label="Vortag">‹</button><b>${dt === today ? 'Heute' : dt === addDays(today, 1) ? 'Morgen' : WD[dd.getDay()]}</b><span class="kr-range">${esc(longDate(dt))}</span><button class="btn small" data-hpd="1" aria-label="Nächster Tag">›</button>${dt !== today ? '<button class="btn small" data-hpd="0">Heute</button>' : ''}<span class="kr-sp"></span>${seg}</div>
+    <div class="hp-panel">
+      <div class="hp-head"><b>Konferenzzone</b><span>in Mauerstraße · ${esc(longDate(dt))}</span></div>
+      <div class="hp-body">
+        <div class="hp-sem">${tile('Seminar 1', '', 'sem')}${tile('Seminar 2', '', 'sem')}${tile('Seminar 3', '', 'sem')}</div>
+        <div class="hp-mid">
+          <div class="hp-plan">${block('Saal 4', 'b4')}${block('Saal 1', 'b1')}${tile('Foyer', 'fo', 'foy')}${block('Saal 3', 'b3')}${block('Saal 2', 'b2')}</div>
+          ${tile('Saal 4', 's4', 'led')}${tile('Saal 1', 's1', 'led')}
+          ${tile('Saal 3', 's3', 'led')}${tile('Saal 2', 's2', 'led')}
+        </div>
+        ${others.length ? `<div class="hp-sem hp-oth">${others.map((r) => tile(r, '', 'led')).join('')}</div>` : ''}
+        <div class="hp-foot"><small>${dt === today ? 'Heute' : 'An diesem Tag'} belegt: <b>${nPam}</b> ${nPam === 1 ? 'Raum' : 'Räume'} mit PAM · <b>${nNo}</b> ohne PAM</small><span><i class="hp-k pam"></i>PAM zugesagt</span><span><i class="hp-k pam-open"></i>PAM offen</span><span><i class="hp-k nopam"></i>ohne PAM</span><span><i class="hp-k free"></i>frei</span></div>
+      </div>
+    </div>
+    ${gantt}</div>`;
+}
+document.addEventListener('click', (ev) => { const b = ev.target.closest && ev.target.closest('[data-hpd]'); if (!b) return; const n = +b.dataset.hpd; S.hpDate = n ? addDays(S.hpDate || todayISO(), n) : todayISO(); paint(); });
 // Wochenraster für KOM27: Spalten = Tage, Zeilen = wer da ist
 const mondayOf = (iso) => { const d = new Date(iso + 'T12:00:00'); return addDays(iso, -((d.getDay() + 6) % 7)); };
 function komWeekGrid(today, seg) {
@@ -2280,8 +2351,8 @@ function renderKom() {
       ${rows}${extra}</article>`;
   };
   const tc = komTodayCard() + komNoPamCard();
-  const raster = (S.komView || 'raster') === 'raster';
-  const seg = `<div class="seg kv-seg"><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${raster ? '' : 'on'}">Liste</button></div>`;
+  const kv = S.komView || 'haus'; const raster = kv === 'raster';
+  const seg = `<div class="seg kv-seg"><button data-kv="haus" class="${kv === 'haus' ? 'on' : ''}">Hausplan</button><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${kv === 'liste' ? 'on' : ''}">Liste</button></div>`;
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
     <section class="hello hi-kom">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
@@ -2294,7 +2365,7 @@ function renderKom() {
       </div>
     </section>
     <div class="dash kom-dash"><div class="dash-main">
-    ${raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
+    ${kv === 'haus' ? hausplanHtml(today, seg) : raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
     </div><aside class="dash-side only-d">${tc}
       <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><span class="kn-who">${d.slots.map((s) => { const k = komOf(s.key); return k ? `<i class="kw-n ${k.status}">${esc(k.name.split(' ')[0])}${k.status === 'angefragt' ? ' ?' : ''}</i>` : '<i class="kw-n offen">offen</i>'; }).join('') || '<i class="kw-n nopam">ohne PAM-Techniker</i>'}</span>${vaListOf(d).map((x) => `<small>${esc(x.rooms.join(', ') || 'Raum ?')}${x.zeit ? ' · VA ' + esc(niceTime(x.zeit)) : ''}${x.pam ? '' : ' · <em>ohne PAM</em>'}</small>`).join('')}</span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>

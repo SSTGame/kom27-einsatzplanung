@@ -91,8 +91,29 @@ Deno.serve(async (req) => {
     if (input.action === "key") return json({ publicKey: keys.public_key });
     if (input.action === "remind") { if (!isAdmin) return json({ error: "nur Master" }, 403); return json(await runReminders(db, true)); }
 
-    const { target, tech_ids = [], title, body, tag } = input;
     const me = (u.user.email ?? "").toLowerCase();
+    // KOM27-Zugänge (Medientechnik vor Ort): Empfängerliste für eigene Nachrichten
+    const { data: isViewer } = await asUser.rpc("is_viewer");
+    if (input.action === "kom_list") {
+      if (!isViewer && !isAdmin) return json({ error: "nicht erlaubt" }, 403);
+      const { data: tl } = await db.from("technicians").select("id, name, email, active").neq("active", false);
+      const list = (tl ?? []).filter((t) => t.email);
+      const { data: subs } = await db.from("push_subscriptions").select("email");
+      const pushSet = new Set((subs ?? []).map((x) => String(x.email).toLowerCase()));
+      const { data: p } = await db.from("plan").select("data").eq("id", 1).maybeSingle();
+      const cancelled = new Set((p?.data?.days ?? []).filter((d: { cancelled?: boolean }) => d.cancelled).map((d: { date: string }) => d.date));
+      const on = async (day: string) => {
+        if (cancelled.has(day)) return new Set<string>();
+        const { data } = await db.from("assignments").select("tech_id").like("slot_key", day + "#%").in("status", ["zugesagt", "angefragt"]);
+        return new Set((data ?? []).map((a) => a.tech_id));
+      };
+      const h = await on(berlinDate(0)), m = await on(berlinDate(1));
+      return json({ techs: list.map((t) => ({ id: t.id, name: t.name, push: pushSet.has(t.email.toLowerCase()), heute: h.has(t.id), morgen: m.has(t.id) })).sort((a, b) => a.name.localeCompare(b.name, "de")) });
+    }
+
+    const { target, tech_ids = [], tag } = input;
+    let { title, body } = input;
+    title = String(title ?? "").slice(0, 80); body = String(body ?? "").slice(0, 400);
 
     let emails: string[] = [];
     if (target === "admins") {
@@ -108,6 +129,15 @@ Deno.serve(async (req) => {
       if (!rows.length) return json({ error: "keine Berechtigung" }, 403);
       // bei Technikern mit eigenem Chef geht die Mitteilung auch an den Projektleiter
       emails = rows.flatMap((r) => [r.email, isAdmin ? r.manager_email : null]).filter(Boolean);
+    } else if (target === "kom") {
+      // KOM27-Zugang -> ausgewählte Techniker, der Master bekommt immer eine Kopie
+      if (!isViewer) return json({ error: "nur KOM27-Zugang" }, 403);
+      const { data } = await db.from("technicians").select("email").in("id", Array.isArray(tech_ids) ? tech_ids.slice(0, 200) : []).neq("active", false);
+      const { data: ad } = await db.from("admins").select("email");
+      emails = [...(data ?? []).map((r) => r.email), ...(ad ?? []).map((r) => r.email)].filter(Boolean);
+      const { data: v } = await db.from("kom_viewers").select("name").eq("email", me).maybeSingle();
+      const who = v?.name || me.split("@")[0];
+      title = `KOM27 · ${who}: ${title || "Nachricht"}`;
     } else return json({ error: "unbekanntes Ziel" }, 400);
     emails = [...new Set(emails.map((e) => e.toLowerCase()))].filter((e) => e !== me);
     if (!emails.length) return json({ sent: 0 });

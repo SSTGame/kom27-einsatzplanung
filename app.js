@@ -2094,13 +2094,80 @@ function komWeekGrid(today, seg) {
   </section>`;
 }
 const pvBar = () => (S.preview ? `<div class="pv-bar"><span>👁 <b>Vorschau:</b> So sehen Jens & Felix die App</span><button class="btn small" id="pvEnd">Zurück zum Master</button></div>` : '');
+/* ---------------- Nachricht vom KOM27 an Techniker (Kopie an den Master) ---------------- */
+async function komMsgLoad() {
+  const K = S.komMsg || (S.komMsg = { to: 'heute', pick: new Set() });
+  K.loading = true; K.err = '';
+  try {
+    if (DEMO || S.preview) {
+      // Vorschau/Demo: wie die Server-Liste, aus den lokal vorhandenen Daten
+      const src = S.preview ? { techs: S.techs, asg: S.asg } : DemoStore.d();
+      const today = todayISO(), tom = addDays(today, 1);
+      const off = new Set(allDays().filter((d) => d.cancelled).map((d) => d.date));
+      const on = (day, id) => !off.has(day) && Object.values(src.asg || {}).some((a) => a.tech_id === id && a.slot_key.startsWith(day + '#') && ['zugesagt', 'angefragt'].includes(a.status));
+      K.techs = (src.techs || []).filter((t) => t.active !== false && t.email).map((t) => ({ id: t.id, name: t.name, push: !!(S.pushEmails && S.pushEmails.has((t.email || '').toLowerCase())), heute: on(today, t.id), morgen: on(tom, t.id) })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    } else {
+      const { data, error } = await store.sb.functions.invoke('notify', { body: { action: 'kom_list' } });
+      if (error || !data || !data.techs) throw error || new Error('keine Daten');
+      K.techs = data.techs;
+    }
+  } catch (e) { K.err = 'Die Liste der Techniker konnte nicht geladen werden. Bitte später nochmal versuchen.'; K.techs = null; }
+  K.loading = false;
+  if (S.viewer && S.techTab === 'msg') paint();
+}
+function komMsgList() {
+  const K = S.komMsg || {}; const all = K.techs || [];
+  return { alle: all, heute: all.filter((t) => t.heute), morgen: all.filter((t) => t.morgen), wahl: all.filter((t) => (K.pick || new Set()).has(t.id)) };
+}
+function komMsgHtml() {
+  const K = S.komMsg || (S.komMsg = { to: 'heute', pick: new Set() });
+  if (!K.techs && !K.loading && !K.err) { K.loading = true; setTimeout(komMsgLoad, 0); }
+  const head = `<div class="card msgbox" id="komMsg"><h3>📲 Nachricht an die Techniker</h3><p class="note">Kommt als Mitteilung aufs Handy der Techniker. ${esc(CFG.senderName)} bekommt jede Nachricht als Kopie.</p>`;
+  if (K.loading) return head + '<p class="muted">Lade Techniker …</p></div>';
+  if (K.err) return head + `<p class="hint warn">${esc(K.err)}</p><div class="row"><button class="btn" id="kmRetry">Nochmal laden</button></div></div>`;
+  const g = komMsgList(); const to = K.to || 'heute'; const list = g[to];
+  const nPush = list.filter((t) => t.push).length;
+  const opt = (k, l) => `<button class="chip ${to === k ? 'on' : ''}" data-kmto="${k}">${l}${k !== 'wahl' ? ` <b>${g[k].length}</b>` : ''}</button>`;
+  return head + `<div class="chips">${opt('heute', 'Heute im Einsatz')}${opt('morgen', 'Morgen im Einsatz')}${opt('alle', 'Alle')}${opt('wahl', 'Auswählen …')}</div>
+    ${to === 'wahl' ? `<div class="msg-pick">${g.alle.map((t) => `<label class="pick ${K.pick.has(t.id) ? 'on' : ''}"><input type="checkbox" data-kmpick="${t.id}" ${K.pick.has(t.id) ? 'checked' : ''}> <span>${esc(t.name)}</span><span title="${t.push ? 'Mitteilungen an' : 'Mitteilungen nicht eingeschaltet'}">${t.push ? '🔔' : '🔕'}</span></label>`).join('')}</div>`
+      : list.length ? `<p class="note km-who">${list.map((t) => esc(t.name) + (t.push ? '' : ' 🔕')).join(', ')}</p>` : ''}
+    <input type="text" id="kmTitle" maxlength="60" placeholder="Betreff (optional)" value="${esc((K.draft || {}).title || '')}">
+    <textarea id="kmBody" rows="4" maxlength="300" placeholder="Deine Nachricht, z. B. „Saal 2 ist schon offen, ihr könnt direkt hoch“">${esc((K.draft || {}).body || '')}</textarea>
+    <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : to === 'wahl' ? 'Bitte Techniker auswählen' : 'Niemand im Einsatz'}</span>
+      <button class="btn primary" id="kmSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
+    <p class="note km-sent">${K.last ? `Zuletzt gesendet: „${esc(K.last.body.slice(0, 60))}${K.last.body.length > 60 ? '…' : ''}“ an ${K.last.n} Techniker · ${esc(ago(K.last.at))}` : ''}</p>
+  </div>`;
+}
+function wireKomMsg(m) {
+  const K = S.komMsg;
+  const keep = () => { const t = $('#kmTitle'), b = $('#kmBody'); if (t && b) K.draft = { title: t.value, body: b.value }; };
+  const r = m.querySelector('#kmRetry'); if (r) r.onclick = () => { K.err = ''; K.techs = null; paint(); };
+  m.querySelectorAll('[data-kmto]').forEach((b) => (b.onclick = () => { keep(); K.to = b.dataset.kmto; paint(); }));
+  m.querySelectorAll('[data-kmpick]').forEach((c) => (c.onchange = () => { keep(); c.checked ? K.pick.add(c.dataset.kmpick) : K.pick.delete(c.dataset.kmpick); paint(); }));
+  const send = m.querySelector('#kmSend'); if (!send) return;
+  send.onclick = async () => {
+    keep(); const title = ((K.draft || {}).title || '').trim(); const body = ((K.draft || {}).body || '').trim();
+    if (!body) { $('#kmBody').focus(); return toast('Bitte eine Nachricht eingeben'); }
+    const list = komMsgList()[K.to || 'heute'];
+    if (!confirm(`An ${list.length} Techniker senden (Kopie an ${CFG.senderName})?\n\n${title ? title + '\n' : ''}${body}`)) return;
+    if (S.preview) return toast('Vorschau: hier wird nichts gesendet');
+    send.disabled = true; send.textContent = 'Sende …';
+    let res = null;
+    if (!DEMO) { try { const r2 = await store.sb.functions.invoke('notify', { body: { target: 'kom', tech_ids: list.map((t) => t.id), title, body, tag: 'kom-' + Date.now() } }); res = r2.data || null; } catch (e) { res = null; } }
+    const ok = DEMO || (res && typeof res.sent === 'number');
+    if (ok) { K.last = { body, n: list.length, at: new Date().toISOString() }; K.draft = null; }
+    paint();
+    toast(DEMO ? 'Demo: würde jetzt gesendet' : ok ? `Gesendet ✓ – auf ${res.sent} ${res.sent === 1 ? 'Gerät' : 'Geräten'} angekommen` : 'Senden hat nicht geklappt – bitte nochmal versuchen');
+  };
+}
+
 function renderKom() {
   document.body.classList.remove('is-master'); privacyNote();
   const today = todayISO();
   $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
-  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${S.techTab !== 'kb' ? 'on' : ''}">📅 Alle Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 KOM27-Infos <small>${(S.kb || []).length}</small></button></div>`;
+  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht</button></div>`;
   const wire = () => {
     m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
@@ -2114,6 +2181,7 @@ function renderKom() {
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
   if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
+  if (S.techTab === 'msg') { m.innerHTML = pvBar() + vt + komMsgHtml() + legalFoot(); wire(); wireKomMsg(m); return; }
   const from = S.komPast ? addDays(today, -60) : today;
   const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
   const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));

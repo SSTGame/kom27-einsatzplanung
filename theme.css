@@ -741,3 +741,8 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
   body.is-master .theme-tg .tt-l { display: inline; }
 }
 @media (max-width: 440px) { header.top .clock small { display: none; } .top-inner { gap: 8px; } .theme-tg { width: 38px; height: 38px; } }
+.km-who { margin: 2px 0 10px; }
+.km-sent:empty { display: none; }
+@media (max-width: 480px) { .mine .viewtabs button { font-size: 14px; padding-left: 2px; padding-right: 2px; } .mine .viewtabs button small { display: none; } }
+@media (max-width: 480px) { .mine .viewtabs .vt-l { display: none; } }
+#komMsg .chips { flex-wrap: wrap; overflow: visible; }

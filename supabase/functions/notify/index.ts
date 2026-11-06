@@ -95,7 +95,9 @@ Deno.serve(async (req) => {
     // KOM27-Zugänge (Medientechnik vor Ort): Empfängerliste für eigene Nachrichten
     const { data: isViewer } = await asUser.rpc("is_viewer");
     if (input.action === "kom_list") {
-      if (!isViewer && !isAdmin) return json({ error: "nicht erlaubt" }, 403);
+      let isTech = false;
+      if (!isViewer && !isAdmin) { const { data: mt } = await db.from("technicians").select("id").ilike("email", me).neq("active", false).maybeSingle(); isTech = !!mt; }
+      if (!isViewer && !isAdmin && !isTech) return json({ error: "nicht erlaubt" }, 403);
       const { data: tl } = await db.from("technicians").select("id, name, email, active").neq("active", false);
       const list = (tl ?? []).filter((t) => t.email);
       const { data: subs } = await db.from("push_subscriptions").select("email");
@@ -143,13 +145,23 @@ Deno.serve(async (req) => {
       const who = v?.name || me.split("@")[0];
       store = { sender_name: who, sender_role: "kom", title, tech_ids: (data ?? []).map((r) => r.id) };
       title = `KOM27 · ${who}: ${title || "Nachricht"}`;
-    } else if (target === "all") {
-      // Techniker -> alle (alle Techniker, KOM27-Zugänge, Planung); höchstens 10 Nachrichten pro Tag
+    } else if (target === "all" || target === "peer") {
+      // Techniker -> alle (alle Techniker, KOM27-Zugänge, Planung) oder an ausgewählte Techniker; höchstens 20 Nachrichten pro Tag
       const { data: meT } = await db.from("technicians").select("id, name").ilike("email", me).neq("active", false).maybeSingle();
       if (!meT) return json({ error: "nur für Techniker" }, 403);
       const since = new Date(Date.now() - 86400000).toISOString();
       const { count } = await db.from("messages").select("id", { count: "exact", head: true }).eq("sender_email", me).gte("created_at", since);
-      if ((count ?? 0) >= 10) return json({ error: "Heute schon 10 Nachrichten gesendet – bitte morgen wieder" }, 429);
+      if ((count ?? 0) >= 20) return json({ error: "Heute schon 20 Nachrichten gesendet – bitte morgen wieder" }, 429);
+      if (target === "peer") {
+        // an ausgewählte Techniker, Kopie an die Planung
+        const { data: tl } = await db.from("technicians").select("id, email").in("id", Array.isArray(tech_ids) ? tech_ids.slice(0, 200) : []).neq("active", false);
+        if (!(tl ?? []).length) return json({ error: "Bitte Empfänger auswählen" }, 400);
+        const { data: ad } = await db.from("admins").select("email");
+        emails = [...(tl ?? []).map((r) => r.email), ...(ad ?? []).map((r) => r.email)].filter(Boolean);
+        const who = String(meT.name || me.split("@")[0]).split(" ")[0];
+        store = { sender_name: meT.name || who, sender_role: "tech", title, tech_ids: (tl ?? []).map((r) => r.id) };
+        title = `${who}${title ? ": " + title : ""}`;
+      } else {
       const { data: tl } = await db.from("technicians").select("id, email").neq("active", false);
       const { data: kv } = await db.from("kom_viewers").select("email");
       const { data: ad } = await db.from("admins").select("email");
@@ -157,6 +169,7 @@ Deno.serve(async (req) => {
       const who = String(meT.name || me.split("@")[0]).split(" ")[0];
       store = { sender_name: meT.name || who, sender_role: "tech", title, tech_ids: (tl ?? []).map((r) => r.id), to_all: true };
       title = `${who} an alle${title ? ": " + title : ""}`;
+      }
     } else return json({ error: "unbekanntes Ziel" }, 400);
     let saved = false;
     if (store && body.trim()) {

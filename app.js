@@ -472,6 +472,8 @@ function decideCancel(key, ok, after) {
     if (after) after();
   }, null, () => (S.asg[key] = prev));
 }
+// Abwesenheit gilt sofort – nur bei einem zugesagten Einsatz an dem Tag muss der Master bestätigen
+const unavAuto = (tid, day) => !allSlots().some((x) => x.date === day && S.asg[x.key] && S.asg[x.key].tech_id === tid && S.asg[x.key].status === 'zugesagt');
 // Alles, was der Master bestätigen muss
 function pendingItems() {
   const today = todayISO(); const out = [];
@@ -498,7 +500,7 @@ function openBell() {
   }).join('') : '<p class="muted bl-empty">✓ Nichts zu bestätigen.</p>';
   const html = `<div class="sheet-bg" id="sheet"><div class="sheet bl-sheet" role="dialog" aria-modal="true" aria-label="Zu bestätigen">
     <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><span class="pill">${items.length ? items.length + ' zu bestätigen' : 'Alles erledigt'}</span></div>
-    <h2 class="bl-h">Zu bestätigen</h2><p class="note">„Kann nicht“-Einträge und Absagen der Techniker gelten erst, wenn du sie bestätigst.</p>${body}</div></div>`;
+    <h2 class="bl-h">Zu bestätigen</h2><p class="note">Absagen zugesagter Einsätze und „kann nicht“ an Tagen mit zugesagtem Einsatz gelten erst, wenn du sie bestätigst. Andere Abwesenheiten gelten sofort.</p>${body}</div></div>`;
   const old = $('#sheet'); if (old) old.remove();
   document.body.insertAdjacentHTML('beforeend', html); document.body.classList.add('noscroll');
   const box = $('#sheet'); const close = () => { box.remove(); document.body.classList.remove('noscroll'); };
@@ -629,14 +631,14 @@ function header(extra) {
 
 function renderMaster() {
   const nInt = (S.interest || []).filter((i) => offerOf(i.slot_key)).length;
-  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker'], ['kb', 'Infos']];
-  const IC = { plan: '📋', req: '📨', hours: '⏱', techs: '👥', kb: '📘' };
+  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['haus', 'Haus'], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker'], ['kb', 'Infos']];
+  const IC = { plan: '📋', haus: '🏢', req: '📨', hours: '⏱', techs: '👥', kb: '📘' };
   const nav = `<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}"><i class="tic">${IC[k]}</i><span>${l}</span></button>`).join('')}</nav>`;
   $('#app').innerHTML = header(nav) + `<main id="main"></main>`;
   document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { const same = S.tab === b.dataset.tab; S.tab = b.dataset.tab; renderMaster(); if (!same) window.scrollTo(0, 0); }));
   document.body.classList.add('is-master');
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
-  ({ plan: renderPlan, req: renderReq, hours: renderHours, techs: renderTechs, kb: () => { $('#main').innerHTML = kbHtml(); wireKb($('#main')); } })[S.tab]();
+  ({ plan: renderPlan, haus: () => { const td = todayISO(); $('#main').innerHTML = `<div class="haus-wrap">${houseViewsHtml(td)}</div>`; wireHouseViews($('#main'), td); }, req: renderReq, hours: renderHours, techs: renderTechs, kb: () => { $('#main').innerHTML = kbHtml(); wireKb($('#main')); } })[S.tab]();
   $('#main').insertAdjacentHTML('beforeend', legalFoot());
   privacyNote();
 }
@@ -1204,7 +1206,7 @@ function pickListHtml(items, sel, attr) {
   const n = items.filter((t) => sel.has(t.id)).length;
   const CHK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
   return `<div class="pk-head"><span><b>${n}</b> von ${items.length} ausgewählt</span><button type="button" class="btn small" data-${attr}all="1">Alle</button><button type="button" class="btn small" data-${attr}all="0" ${n ? '' : 'disabled'}>Keine</button></div>
-  <div class="msg-pick pk-list">${items.map((t) => { const on = sel.has(t.id); const info = [t.heute ? 'heute im Einsatz' : t.morgen ? 'morgen im Einsatz' : '', t.push ? '' : '🔕 Mitteilungen aus – bekommt nichts'].filter(Boolean).join(' · ');
+  <div class="msg-pick pk-list">${items.map((t) => { const on = sel.has(t.id); const info = [t.heute ? 'heute im Einsatz' : t.morgen ? 'morgen im Einsatz' : '', t.push ? '' : '🔕 nur in der App'].filter(Boolean).join(' · ');
     return `<label class="pick ${on ? 'on' : ''} ${t.push ? '' : 'nopush'}"><input type="checkbox" data-${attr}="${t.id}" ${on ? 'checked' : ''}><span class="pk-box">${CHK}</span><span class="pk-name">${esc(t.name)}${info ? `<small>${esc(info)}</small>` : ''}</span></label>`; }).join('')}</div>`;
 }
 /* ---------------- Nachrichten zum Nachlesen ---------------- */
@@ -1226,34 +1228,53 @@ document.addEventListener('click', async (e) => {
   try { await store.deleteMessage(+b.dataset.msgdel); await reload(); paint(); toast('Gelöscht'); } catch (x) { toast(x.message || 'Löschen hat nicht geklappt'); }
 });
 
-/* Techniker: Nachricht an alle (alle Techniker, KOM27 und Planung) */
+/* Techniker: Nachricht an alle oder an ausgewählte Techniker */
 function allMsgBoxHtml() {
-  const D = S.allDraft || {};
-  return `<details class="dpanel msgbox mi-all-box" id="allMsg" ${S.allOpen || (D.body || D.title) ? 'open' : ''}><summary>📣 Nachricht an alle schreiben</summary>
-    <p class="note">Geht an alle Techniker, die Medientechnik im KOM27 und ${esc(CFG.senderName)} – als Mitteilung aufs Handy und hier zum Nachlesen.</p>
+  const D = S.allDraft || {}; const to = S.allTo || 'alle';
+  const K = S.komMsg || (S.komMsg = { to: 'heute', pick: new Set() });
+  const meId = (myTech() || {}).id;
+  if (to !== 'alle' && !K.techs && !K.loading && !K.err) { K.loading = true; setTimeout(komMsgLoad, 0); }
+  const others = (K.techs || []).filter((t) => t.id !== meId);
+  const pick = S.tPick || (S.tPick = new Set());
+  const list = to === 'heute' ? others.filter((t) => t.heute) : others.filter((t) => pick.has(t.id));
+  const opt = (k, l) => `<button type="button" class="chip ${to === k ? 'on' : ''}" data-amto="${k}">${l}</button>`;
+  const recip = to === 'alle' ? `<p class="note">Geht an alle Techniker, die Medientechnik im KOM27 und ${esc(CFG.senderName)}.</p>`
+    : K.loading ? '<p class="muted">Lade Techniker …</p>' : K.err ? `<p class="hint warn">${esc(K.err)}</p>`
+    : to === 'heute' ? `<p class="note km-who">${list.length ? list.map((t) => esc(t.name)).join(', ') : 'Heute ist sonst niemand im Einsatz.'}</p>`
+    : pickListHtml(others, pick, 'tpick');
+  return `<details class="dpanel msgbox mi-all-box" id="allMsg" ${S.allOpen || (D.body || D.title) ? 'open' : ''}><summary>✉️ Nachricht schreiben</summary>
+    <div class="chips">${opt('alle', '📣 An alle')}${opt('heute', 'Heute im Einsatz')}${opt('wahl', 'Auswählen …')}</div>
+    ${recip}
     <input type="text" id="amTitle" maxlength="60" placeholder="Betreff (optional)" value="${esc(D.title || '')}">
     <textarea id="amBody" rows="3" maxlength="300" placeholder="z. B. „Hat jemand das HDMI-Kabel aus Saal 2 gesehen?“">${esc(D.body || '')}</textarea>
-    <div class="msg-foot"><span class="note">Bitte nur, wenn es wirklich alle betrifft.</span><button class="btn primary" id="amSend">📣 An alle senden</button></div></details>`;
+    <div class="msg-foot"><span class="note">${to === 'alle' ? 'Bitte nur, wenn es wirklich alle betrifft.' : `${list.length} ${list.length === 1 ? 'Empfänger' : 'Empfänger'} · ${esc(CFG.senderName)} bekommt eine Kopie`}</span><button class="btn primary" id="amSend" ${to !== 'alle' && !list.length ? 'disabled' : ''}>${to === 'alle' ? '📣 An alle senden' : '✉️ Senden'}</button></div></details>`;
 }
 function wireAllMsg(m) {
   const keep = () => { const t = $('#amTitle'), b = $('#amBody'); if (t && b) S.allDraft = { title: t.value, body: b.value }; };
   ['#amTitle', '#amBody'].forEach((sel) => { const el = m.querySelector(sel); if (el) el.oninput = keep; });
   const dt = m.querySelector('#allMsg'); if (dt) dt.ontoggle = () => (S.allOpen = dt.open);
+  m.querySelectorAll('[data-amto]').forEach((b) => (b.onclick = () => { keep(); S.allOpen = true; S.allTo = b.dataset.amto; paint(); }));
+  m.querySelectorAll('[data-tpick]').forEach((c) => (c.onchange = () => { keep(); S.allOpen = true; c.checked ? S.tPick.add(c.dataset.tpick) : S.tPick.delete(c.dataset.tpick); paint(); }));
+  m.querySelectorAll('[data-tpickall]').forEach((b) => (b.onclick = () => { keep(); S.allOpen = true; const meId = (myTech() || {}).id; S.tPick = new Set(b.dataset.tpickall === '1' ? ((S.komMsg || {}).techs || []).filter((t) => t.id !== meId).map((t) => t.id) : []); paint(); }));
   const btn = m.querySelector('#amSend'); if (!btn) return;
   btn.onclick = async () => {
-    keep(); const title = (S.allDraft.title || '').trim(), body = (S.allDraft.body || '').trim();
+    keep(); const title = ((S.allDraft || {}).title || '').trim(), body = ((S.allDraft || {}).body || '').trim();
     if (!body) { $('#amBody').focus(); return toast('Bitte eine Nachricht eingeben'); }
-    if (!confirm(`An alle senden (alle Techniker, KOM27 und ${CFG.senderName})?\n\n${title ? title + '\n' : ''}${body}`)) return;
+    const to = S.allTo || 'alle'; const meId = (myTech() || {}).id;
+    const others = ((S.komMsg || {}).techs || []).filter((t) => t.id !== meId);
+    const list = to === 'heute' ? others.filter((t) => t.heute) : others.filter((t) => (S.tPick || new Set()).has(t.id));
+    if (to !== 'alle' && !list.length) return toast('Bitte Empfänger auswählen');
+    if (!confirm(to === 'alle' ? `An alle senden (alle Techniker, KOM27 und ${CFG.senderName})?\n\n${title ? title + '\n' : ''}${body}` : `An ${list.map((t) => t.name.split(' ')[0]).join(', ')} senden (Kopie an ${CFG.senderName})?\n\n${title ? title + '\n' : ''}${body}`)) return;
     btn.disabled = true; btn.textContent = 'Sende …';
     let ok = false, err = '';
-    if (DEMO) { const t = myTech(); await DemoStore.addMessage({ sender_name: t ? t.name : 'Techniker', sender_role: 'tech', title, body, tech_ids: (DemoStore.d().techs || []).map((x) => x.id), to_all: true }); ok = true; }
+    if (DEMO) { const t = myTech(); await DemoStore.addMessage({ sender_name: t ? t.name : 'Techniker', sender_role: 'tech', title, body, tech_ids: to === 'alle' ? (DemoStore.d().techs || []).map((x) => x.id) : list.map((x) => x.id), to_all: to === 'alle' }); ok = true; }
     else {
-      try { const r = await store.sb.functions.invoke('notify', { body: { target: 'all', title, body, tag: 'all-' + Date.now() } });
+      try { const r = await store.sb.functions.invoke('notify', { body: to === 'alle' ? { target: 'all', title, body, tag: 'all-' + Date.now() } : { target: 'peer', tech_ids: list.map((x) => x.id), title, body, tag: 'peer-' + Date.now() } });
         if (r.error) { try { err = (await r.error.context.json()).error || ''; } catch (x) {} } else ok = !!(r.data && r.data.saved); } catch (x) {}
     }
-    if (ok) { S.allDraft = null; try { await reload(); } catch (x) {} }
+    if (ok) { S.allDraft = null; S.allOpen = false; try { await reload(); } catch (x) {} }
     paint();
-    toast(ok ? (DEMO ? 'Demo: an alle gesendet' : 'An alle gesendet ✓') : err || 'Senden hat nicht geklappt – bitte nochmal versuchen');
+    toast(ok ? (DEMO ? 'Demo: gesendet' : 'Gesendet ✓') : err || 'Senden hat nicht geklappt – bitte nochmal versuchen');
   };
 }
 /* ---------------- Eigene Push-Nachricht an Techniker ---------------- */
@@ -1273,8 +1294,8 @@ function msgBoxHtml() {
     ${to === 'wahl' ? pickListHtml((() => { const h = new Set(g.heute.map((t) => t.id)), mo = new Set(g.morgen.map((t) => t.id)); return g.alle.map((t) => ({ id: t.id, name: t.name, push: push(t), heute: h.has(t.id), morgen: mo.has(t.id) })); })(), S.msgPick || (S.msgPick = new Set()), 'mpick') : ''}
     <input type="text" id="msgTitle" maxlength="60" placeholder="Betreff (optional) – sonst „Nachricht von ${esc(CFG.senderName)}“" value="${esc((S.msgDraft || {}).title || '')}">
     <textarea id="msgBody" rows="3" maxlength="300" placeholder="Deine Nachricht, z. B. „Morgen bitte schon um 7:30 da sein – Umbau Saal 2“">${esc((S.msgDraft || {}).body || '')}</textarea>
-    <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : 'Keine Empfänger ausgewählt'}</span>
-      <button class="btn primary" id="msgSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
+    <div class="msg-foot"><span class="note">${list.length ? `🔔 aufs Handy bei <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – die anderen sehen es in der App unter Nachrichten` : ''}` : 'Keine Empfänger ausgewählt'}</span>
+      <button class="btn primary" id="msgSend" ${list.length ? '' : 'disabled'}>📲 Senden</button></div>
     <details class="mi-hist" ${S.msgHistOpen ? 'open' : ''}><summary>Alle Nachrichten <small>${(S.msgs || []).length}</small> – von dir, Projektleitung, KOM27 und Technikern</summary>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, del: true, empty: 'Noch keine Nachrichten gesendet.' })}</details>
   </div>`;
 }
@@ -1493,10 +1514,11 @@ function wireTechCal(t) {
     if (clash.length && !confirm(`In diesem Zeitraum hast du ${clash.length === 1 ? 'einen Einsatz' : clash.length + ' Einsätze'} schon zugesagt.\n\nTrotzdem eintragen? Dann geht automatisch ein Absage-Wunsch an ${CFG.senderName}. Bis er freigibt, bleibst du eingeteilt.`)) return;
     const btn = $('#rAdd'); btn.disabled = true;
     try {
-      await store.setUnavMany(t.id, days, note, false);
+      await store.setUnavMany(t.id, days, note, false); // der Server setzt „bestätigt“ selbst (ohne Konflikt sofort)
+      if (DEMO) for (const day of days) if (unavAuto(t.id, day)) await DemoStore.confirmUnav(t.id, [day]);
       await autoCancelReq(t, clash, note);
       notify('admins', [], `${firstName(t)} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''}`, 'unav-' + t.id);
-      const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))).concat(days.map((day) => ({ tech_id: t.id, day, note, confirmed: false })));
+      const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && set.has(u.day))).concat(days.map((day) => ({ tech_id: t.id, day, note, confirmed: unavAuto(t.id, day) })));
       S.rFrom = S.rTo = S.rNote = ''; S.calMonth = from.slice(0, 7);
       toast(`${days.length} Tag${days.length > 1 ? 'e' : ''} eingetragen (${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''})`);
       redraw();
@@ -1513,7 +1535,7 @@ function wireTechCal(t) {
     b.disabled = true;
     try {
       if (had) { await store.clearUnav(t.id, day); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && u.day === day)); }
-      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note, false); S.unav.push({ tech_id: t.id, day, note, confirmed: false }); await autoCancelReq(t, allSlots().filter((x) => x.date === day && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status === 'zugesagt'), note); notify('admins', [], `${firstName(t)} kann nicht`, fmtDate(day, true) + (note ? ' (' + note + ')' : ''), 'unav-' + t.id); }
+      else { const note = (S.unavNote || '').trim(); await store.setUnav(t.id, day, note, false); if (DEMO && unavAuto(t.id, day)) await DemoStore.confirmUnav(t.id, [day]); S.unav.push({ tech_id: t.id, day, note, confirmed: unavAuto(t.id, day) }); await autoCancelReq(t, allSlots().filter((x) => x.date === day && S.asg[x.key] && S.asg[x.key].tech_id === t.id && S.asg[x.key].status === 'zugesagt'), note); notify('admins', [], `${firstName(t)} kann nicht`, fmtDate(day, true) + (note ? ' (' + note + ')' : ''), 'unav-' + t.id); }
       redraw();
     } catch (e) { b.disabled = false; toast(e.message); }
   }));
@@ -1911,8 +1933,8 @@ function renderManager(team, me) {
     const clashM = allSlots().filter((x) => days.includes(x.date) && S.asg[x.key] && S.asg[x.key].tech_id === tid && S.asg[x.key].status === 'zugesagt');
     if (clashM.length && !confirm(`${(techById(tid) || {}).name} hat in diesem Zeitraum ${clashM.length === 1 ? 'einen zugesagten Einsatz' : clashM.length + ' zugesagte Einsätze'}.\n\nTrotzdem eintragen? Dann geht automatisch ein Absage-Wunsch an ${CFG.senderName}.`)) return;
     const prev = S.unav; S.absOpen = false;
-    const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO(), confirmed: !!S.admin }))); },
-      () => store.setUnavMany(tid, days, note, !!S.admin), null, () => (S.unav = prev));
+    const ok = await optimistic(() => { const set = new Set(days); S.unav = S.unav.filter((u) => !(u.tech_id === tid && set.has(u.day))).concat(days.map((day) => ({ tech_id: tid, day, note, created_at: nowISO(), confirmed: !!S.admin || unavAuto(tid, day) }))); },
+      async () => { await store.setUnavMany(tid, days, note, !!S.admin); if (DEMO && !S.admin) for (const day of days) if (unavAuto(tid, day)) await DemoStore.confirmUnav(tid, [day]); }, null, () => (S.unav = prev));
     if (ok && clashM.length) { await autoCancelReq(techById(tid), clashM, note); paint(); }
     if (ok) { notify('admins', [], `${(techById(tid) || {}).name || 'Techniker'} kann nicht`, `${shortDate(from)}${from !== to ? ' – ' + shortDate(to) : ''}${note ? ' (' + note + ')' : ''} · eingetragen vom Projektleiter`, 'unav-' + tid); toast('Eingetragen'); }
   };
@@ -2154,13 +2176,16 @@ function hpDay(dt) {
   if (d && !d.cancelled) vaListOf(d).forEach((x) => {
     const s = (d.slots || []).find((y) => y.va === x.va);
     const own = (s && s.det) || (d.vaDet || {})[x.va] || {};
-    const who = x.pam ? (d.slots || []).filter((y) => y.va === x.va).map((y) => komOf(y.key)) : [];
+    const crewSl = x.pam ? (d.slots || []).filter((y) => y.va === x.va) : [];
+    const who = crewSl.map((y) => komOf(y.key));
+    // jeder Techniker mit seiner eigenen Einsatzzeit (z. B. Früh- und Spätschicht)
+    const crew = crewSl.map((y) => { const k = komOf(y.key); return { name: k ? k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : '') : 'offen', st: k ? k.status : 'leer', zeit: parseSpan(y.zeit) }; });
     const names = who.filter(Boolean).map((k) => k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : ''));
     const st = !x.pam ? 'nopam' : who.length && who.every((k) => k && k.status === 'zugesagt') ? 'pam' : 'pam-open';
     const va = parseSpan(x.zeit), buch = parseSpan(own.buch || '') || va;
     const live = isToday && buch && h >= buch[0] && h < buch[1], soon = isToday && buch && h < buch[0] && buch[0] - h <= 1;
     const vaNow = isToday && va && h >= va[0] && h < va[1];
-    const e = { x, st, names, va, buch, live, soon, vaNow, open: x.key ? `data-open="${esc(x.key)}"` : `data-va="${dt}|${esc(x.va)}"` };
+    const e = { x, st, names, crew, va, buch, live, soon, vaNow, open: x.key ? `data-open="${esc(x.key)}"` : `data-va="${dt}|${esc(x.va)}"` };
     (x.rooms.length ? x.rooms : ['Raum ?']).forEach((r) => (byRoom[r] = byRoom[r] || []).push(e));
   });
   // zuerst, was gerade als Veranstaltung läuft, dann was gebucht ist, dann nach Uhrzeit
@@ -2180,7 +2205,11 @@ function hausplanHtml(today, seg) {
   };
   const tile = (r, cls, ic) => {
     const l = byRoom[r] || []; const e = l[0]; const nx = l[1];
-    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `<span class="hp-who">${esc(stTxt(e))}</span><small>${e.va ? hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}` : '<small class="hp-free">frei</small>'}`;
+    const hs = (x) => { const m = Math.round((x % 24) * 60); return m % 60 ? hm(x) : String(Math.floor(m / 60)); }; // kurz: 10–19 statt 10:00–19:00
+    const whoHtml = (e) => e.st === 'nopam' || !e.crew.length ? `<span class="hp-who">${esc(stTxt(e))}</span>`
+      : e.crew.length === 1 && !e.crew[0].zeit ? `<span class="hp-who">${esc(e.crew[0].name)}</span>`
+      : `<span class="hp-crew">${e.crew.map((c) => `<span class="hp-who c-${c.st}">${esc(c.name)}${c.zeit ? ` <em>${hs(c.zeit[0])}–${hs(c.zeit[1])}</em>` : ''}</span>`).join('')}</span>`;
+    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `${whoHtml(e)}<small>${e.va ? 'VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}` : '<small class="hp-free">frei</small>'}`;
     return e ? `<button class="hp-t ${e.st} ${e.live ? 'hp-on' : ''} ${cls}" ${e.open} title="${esc(r + ' · ' + e.x.va + ' · ' + stTxt(e))}">${inner}</button>` : `<div class="hp-t free ${cls}">${inner}</div>`;
   };
   const block = (r, c) => { const e = (byRoom[r] || [])[0]; return `<${e ? `button ${e.open}` : 'div'} class="hp-b ${c} ${e ? e.st : 'free'} ${e && e.live ? 'hp-on' : ''}" aria-label="${esc(r)}"></${e ? 'button' : 'div'}>`; };
@@ -2290,7 +2319,7 @@ async function komMsgLoad() {
     }
   } catch (e) { K.err = 'Die Liste der Techniker konnte nicht geladen werden. Bitte später nochmal versuchen.'; K.techs = null; }
   K.loading = false;
-  if (S.viewer && S.techTab === 'msg') paint();
+  if (S.techTab === 'msg') paint();
 }
 function komMsgList() {
   const K = S.komMsg || {}; const all = K.techs || [];
@@ -2310,8 +2339,8 @@ function komMsgHtml() {
       : list.length ? `<p class="note km-who">${list.map((t) => esc(t.name) + (t.push ? '' : ' 🔕')).join(', ')}</p>` : ''}
     <input type="text" id="kmTitle" maxlength="60" placeholder="Betreff (optional)" value="${esc((K.draft || {}).title || '')}">
     <textarea id="kmBody" rows="4" maxlength="300" placeholder="Deine Nachricht, z. B. „Saal 2 ist schon offen, ihr könnt direkt hoch“">${esc((K.draft || {}).body || '')}</textarea>
-    <div class="msg-foot"><span class="note">${list.length ? `🔔 erreicht <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – ${list.length - nPush} ${list.length - nPush === 1 ? 'hat' : 'haben'} Mitteilungen noch nicht eingeschaltet` : ''}` : to === 'wahl' ? 'Bitte Techniker auswählen' : 'Niemand im Einsatz'}</span>
-      <button class="btn primary" id="kmSend" ${nPush ? '' : 'disabled'}>📲 Senden</button></div>
+    <div class="msg-foot"><span class="note">${list.length ? `🔔 aufs Handy bei <b>${nPush} von ${list.length}</b>${nPush < list.length ? ` – die anderen sehen es in der App unter Nachrichten` : ''}` : to === 'wahl' ? 'Bitte Techniker auswählen' : 'Niemand im Einsatz'}</span>
+      <button class="btn primary" id="kmSend" ${list.length ? '' : 'disabled'}>📲 Senden</button></div>
     <p class="note km-sent">${K.last && !(S.msgs || []).length ? `Zuletzt gesendet: „${esc(K.last.body.slice(0, 60))}${K.last.body.length > 60 ? '…' : ''}“ an ${K.last.n} Techniker · ${esc(ago(K.last.at))}` : ''}</p>
   </div>`;
 }
@@ -2341,35 +2370,10 @@ function wireKomMsg(m) {
   };
 }
 
-function renderKom() {
-  document.body.classList.remove('is-master'); privacyNote();
-  const today = todayISO();
-  $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
-  $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
-  const m = $('#main');
-  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht${S.techTab !== 'msg' && msgUnread().length ? ` <b class="vt-badge">${msgUnread().length}</b>` : ''}</button></div>`;
-  const wire = () => {
-    m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
-    m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
-    m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJob(b.dataset.open)));
-    m.querySelectorAll('[data-va]').forEach((b) => (b.onclick = () => { const [dt, va] = b.dataset.va.split('|'); openVa(dt, va); }));
-    const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
-    m.querySelectorAll('[data-kv]').forEach((b) => (b.onclick = () => { S.komView = b.dataset.kv; paint(); }));
-    m.querySelectorAll('[data-kw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.kw; S.komWeek = n ? addDays(S.komWeek || mondayOf(today), n) : mondayOf(today); paint(); }));
-    const ks = m.querySelector('.kr-scroll'); const tdc = ks && ks.querySelector('thead th.is-today');
-    if (ks && tdc && ks.scrollWidth > ks.clientWidth) ks.scrollLeft = Math.max(0, tdc.offsetLeft - ((ks.querySelector('tbody th') || {}).offsetWidth || 0));
-    const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
-  };
-  if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
-  if (S.techTab === 'msg') { setTimeout(msgMarkRead, 0); m.innerHTML = pvBar() + vt + komMsgHtml() + `<section class="dpanel mi-sent"><h2 class="sec">Nachrichten</h2><p class="note">Was das KOM27 gesendet hat und Nachrichten der Techniker an alle.</p>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + legalFoot(); wire(); wireKomMsg(m); return; }
+// Hausplan / Woche / Liste – gemeinsam für KOM27, Techniker und Master
+function houseViewsHtml(today) {
   const from = S.komPast ? addDays(today, -60) : today;
   const days = allDays().filter((d) => d.date >= from && (d.slots.length || (d.vas || []).length) && !d.free);
-  const week = days.filter((d) => d.date >= today && d.date <= addDays(today, 6));
-  const wSl = week.flatMap((d) => d.slots);
-  const wOk = wSl.filter((s) => komOf(s.key) && komOf(s.key).status === 'zugesagt').length;
-  const wOpen = wSl.filter((s) => !komOf(s.key)).length;
-  const me = (S.user.email || '').split('@')[0];
-  const v = S.preview ? ((S.viewers || [])[0] || { name: 'Jens' }) : (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
   let lastMon = '';
   const dayCard = (d) => {
     const mon = d.date.slice(0, 7); const head = mon !== lastMon ? `<h2 class="sec">${MON[+mon.slice(5, 7) - 1]} ${mon.slice(0, 4)}</h2>` : ''; lastMon = mon;
@@ -2382,9 +2386,50 @@ function renderKom() {
       <div class="kd-head">${dateBox(d.date)}<div><b>${esc(longDate(d.date))}</b> <span class="until">${untilTxt(d.date)}</span><small>${[roomsOf(d.info), d.vazeit ? 'VA ' + d.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ')}${d.cancelled ? ' · <b class="warn">abgesagt</b>' : ''}</small></div></div>
       ${rows}${extra}</article>`;
   };
-  const tc = komTodayCard() + komNoPamCard();
   const kv = S.komView || 'haus'; const raster = kv === 'raster';
   const seg = `<div class="seg kv-seg"><button data-kv="haus" class="${kv === 'haus' ? 'on' : ''}">Hausplan</button><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${kv === 'liste' ? 'on' : ''}">Liste</button></div>`;
+  return `${kv === 'haus' ? hausplanHtml(today, seg) : raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
+    ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}`;
+}
+// fremde Einsätze sehen Techniker nur zum Lesen (wie das KOM27) – ohne Zusage-Knöpfe
+function openJobRO(key) {
+  const a = (S.asg || {})[key]; const me = (myTech() || {}).id;
+  if (S.admin || S.viewer || (a && me && a.tech_id === me)) return openJob(key);
+  const v = S.viewer; S.viewer = true; S.roOpen = true; try { openJob(key); } finally { S.viewer = v; S.roOpen = false; }
+  document.querySelectorAll('#sheet [data-eedit]').forEach((b) => b.remove());
+}
+function wireHouseViews(m, today) {
+  m.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openJobRO(b.dataset.open)));
+  m.querySelectorAll('[data-va]').forEach((b) => (b.onclick = () => { const [dt, va] = b.dataset.va.split('|'); openVa(dt, va); }));
+  const sp = m.querySelector('#komPast'); if (sp) sp.onchange = () => { S.komPast = sp.checked; paint(); };
+  m.querySelectorAll('[data-kv]').forEach((b) => (b.onclick = () => { S.komView = b.dataset.kv; paint(); }));
+  m.querySelectorAll('[data-kw]').forEach((b) => (b.onclick = () => { const n = +b.dataset.kw; S.komWeek = n ? addDays(S.komWeek || mondayOf(today), n) : mondayOf(today); paint(); }));
+  const ks = m.querySelector('.kr-scroll'); const tdc = ks && ks.querySelector('thead th.is-today');
+  if (ks && tdc && ks.scrollWidth > ks.clientWidth) ks.scrollLeft = Math.max(0, tdc.offsetLeft - ((ks.querySelector('tbody th') || {}).offsetWidth || 0));
+}
+
+function renderKom() {
+  document.body.classList.remove('is-master'); privacyNote();
+  const today = todayISO();
+  $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
+  $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
+  const m = $('#main');
+  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht${S.techTab !== 'msg' && msgUnread().length ? ` <b class="vt-badge">${msgUnread().length}</b>` : ''}</button></div>`;
+  const wire = () => {
+    m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
+    m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
+    wireHouseViews(m, today);
+    const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
+  };
+  if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
+  if (S.techTab === 'msg') { setTimeout(msgMarkRead, 0); m.innerHTML = pvBar() + vt + komMsgHtml() + `<section class="dpanel mi-sent"><h2 class="sec">Nachrichten</h2><p class="note">Was das KOM27 gesendet hat und Nachrichten der Techniker an alle.</p>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + legalFoot(); wire(); wireKomMsg(m); return; }
+  const week = allDays().filter((d) => d.date >= today && d.date <= addDays(today, 6) && (d.slots.length || (d.vas || []).length) && !d.free);
+  const wSl = week.flatMap((d) => d.slots);
+  const wOk = wSl.filter((s) => komOf(s.key) && komOf(s.key).status === 'zugesagt').length;
+  const wOpen = wSl.filter((s) => !komOf(s.key)).length;
+  const me = (S.user.email || '').split('@')[0];
+  const v = S.preview ? ((S.viewers || [])[0] || { name: 'Jens' }) : (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
+  const tc = komTodayCard() + komNoPamCard();
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
     <section class="hello hi-kom">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
@@ -2397,9 +2442,8 @@ function renderKom() {
       </div>
     </section>
     <div class="dash kom-dash"><div class="dash-main">
-    ${kv === 'haus' ? hausplanHtml(today, seg) : raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
-    ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}
-    </div><aside class="dash-side only-d">${tc}
+    ${houseViewsHtml(today)}
+    </div><aside class="dash-side only-d ds-today">${tc}</aside><aside class="dash-side only-d ds-week">
       <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><span class="kn-who">${d.slots.map((s) => { const k = komOf(s.key); return k ? `<i class="kw-n ${k.status}">${esc(k.name.split(' ')[0])}${k.status === 'angefragt' ? ' ?' : ''}</i>` : '<i class="kw-n offen">offen</i>'; }).join('') || '<i class="kw-n nopam">ohne PAM-Techniker</i>'}</span>${vaListOf(d).map((x) => `<small>${esc(x.rooms.join(', ') || 'Raum ?')}${x.zeit ? ' · VA ' + esc(niceTime(x.zeit)) : ''}${x.pam ? '' : ' · <em>ohne PAM</em>'}</small>`).join('')}</span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
     </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
@@ -2465,9 +2509,10 @@ function renderTech() {
       ${kind === 'wait' ? `<button class="linkbtn" data-resig="${esc(s.key)}">ändern</button>` : boss ? '' : kind === 'yes' ? (S.asg[s.key].tech_reply === 'absage_wunsch' ? `<span class="cw-pend" title="${esc(CFG.senderName)} entscheidet">⏳ Absage beantragt</span>` : `<button class="linkbtn danger" data-cancelreq="${esc(s.key)}">Absage beantragen</button>`) : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
   const nNew = msgUnread().length;
-  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📋 <span class="vt-l">Meine </span>Einsätze</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📨 Nachrichten${nNew ? ` <b class="vt-badge">${nNew}</b>` : ''}</button></div>`;
+  const vt = `<div class="viewtabs vt4" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg', 'haus'].includes(S.techTab) ? 'on' : ''}">📋 <span class="vt-l">Meine </span>Einsätze</button><button data-vt="haus" class="${S.techTab === 'haus' ? 'on' : ''}">🏢 Haus<span class="vt-l">plan</span></button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📨 <span class="vt-full">Nachrichten</span><span class="vt-short">Post</span>${nNew ? ` <b class="vt-badge">${nNew}</b>` : ''}</button></div>`;
   const wireVt = () => m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
   if (S.techTab === 'kb') { m.innerHTML = vt + kbHtml() + legalFoot(); wireVt(); wireKb(m); return; }
+  if (S.techTab === 'haus') { m.innerHTML = vt + houseViewsHtml(today) + legalFoot(); wireVt(); wireHouseViews(m, today); return; }
   if (S.techTab === 'msg') {
     m.innerHTML = vt + `<section class="dpanel mi-inbox"><h2 class="sec">📨 Nachrichten</h2><p class="note">Nachrichten von ${esc(CFG.senderName)}, deiner Projektleitung, der Medientechnik im KOM27 und Nachrichten an alle. Sie kommen auch als Mitteilung aufs Handy, wenn du Mitteilungen eingeschaltet hast.</p>${msgItemsHtml(msgSorted(), { unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + allMsgBoxHtml() + legalFoot();
     wireVt(); wireAllMsg(m); msgMarkRead(); const vb = m.querySelector('.vt-badge'); if (vb) vb.remove(); return;

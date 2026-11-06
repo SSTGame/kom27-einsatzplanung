@@ -976,3 +976,95 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 .mi.mi-tech .mi-h b { color: var(--ink); }
 .mi-all-box summary { cursor: pointer; font-weight: 700; font-size: 16px; padding: 4px 0; min-height: 40px; display: flex; align-items: center; }
 .mi-all-box[open] summary { margin-bottom: 8px; }
+/* Hausplan: mehrere Techniker mit eigener Zeit */
+.hp-crew { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.hp-crew .hp-who { font-size: 13.5px; white-space: nowrap; }
+.hp-crew .hp-who em { font-style: normal; font-weight: 600; opacity: .85; font-variant-numeric: tabular-nums; }
+.hp-crew .hp-who.c-leer { color: var(--hp-open); }
+
+/* Hausplan: Seminarräume sichtbar getrennt */
+.hp-sem { gap: 16px; }
+.hp-sem .hp-t:not(:first-child)::before { content: ''; position: absolute; left: -9px; top: 10%; bottom: 10%; width: 2px; border-radius: 2px; background: color-mix(in srgb, var(--muted) 45%, transparent); }
+/* unten nichts verdeckt von der schwebenden Leiste */
+@media (max-width: 1099px) { .mine { padding-bottom: calc(130px + env(safe-area-inset-bottom)); } }
+/* iPad: Hausplan etwas kompakter */
+@media (min-width: 701px) and (max-width: 1099px) {
+  .hp-head { padding: 12px 18px 10px; } .hp-head b { font-size: 24px; }
+  .hp-body { padding: 12px; gap: 12px; }
+  .hp-t { min-height: 88px; padding: 10px 8px 8px; }
+  .hp-n { font-size: 17px; } .hp-who { font-size: 13.5px; } .hp-t small { font-size: 12px; }
+  .hp-t .hp-ic { width: 34px; height: 24px; }
+  .hp-plan { min-height: 300px; }
+  .hp-mid { gap: 12px 12px; padding: 0 2%; }
+}
+/* Handy: alles einen Tick kleiner, nichts gequetscht */
+@media (max-width: 700px) {
+  .hp-sem { gap: 12px; padding: 6px; }
+  .hp-sem .hp-t:not(:first-child)::before { left: -7px; }
+  .hp-sem .hp-t { min-height: 84px; padding: 8px 2px 6px; }
+  .hp-sem .hp-n { font-size: 13px; } .hp-sem .hp-who { font-size: 12px; }
+  .hp-sem .hp-t .hp-ic { width: 28px; height: 20px; }
+  .hp-mid { grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr); gap: 8px 8px; }
+  .hp-t { min-height: 86px; padding: 8px 4px 6px; border-radius: 12px; }
+  .hp-n { font-size: 14.5px; } .hp-who { font-size: 12.5px; } .hp-t small { font-size: 11px; line-height: 1.3; }
+  .hp-t .hp-ic { width: 30px; height: 21px; }
+  .hp-crew .hp-who { font-size: 12px; }
+  .hp-plan { min-height: 280px; }
+  .hp-dot { width: 11px; height: 11px; top: 7px; right: 7px; }
+  .hp-sum b { font-size: 17px; } .hp-sum span { font-size: 11px; }
+  .hp-foot { font-size: 12.5px; padding: 10px; gap: 6px 12px; }
+  .hp-head b { font-size: 21px; } .hp-head span { font-size: 13px; }
+}
+.vt-short { display: none; }
+@media (max-width: 480px) { .vt4 .vt-full { display: none; } .vt4 .vt-short { display: inline; } .mine .vt4 button { font-size: 13.5px; } }
+.vt-badge { animation: vtPop .4s ease-out; }
+@keyframes vtPop { from { transform: scale(.4); } to { transform: none; } }
+.haus-wrap { max-width: 1200px; margin: 0 auto; }
+
+/* ---------- KOM27 am Laptop: Hausplan | Heute im Haus + ohne PAM | Nächste 7 Tage – nebeneinander ---------- */
+@media (min-width: 1100px) {
+  .is-dash .kom-dash { grid-template-columns: minmax(0, 1fr) 330px; }
+  .is-dash .kom-dash .ds-week { grid-column: 2; }
+  .is-dash .kom-dash .ds-today, .is-dash .kom-dash .ds-week { position: static; }
+}
+@media (min-width: 1280px) {
+  .is-dash .kom-dash { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) minmax(260px, 300px); gap: 20px; align-items: start; }
+  .is-dash .kom-dash .ds-week { grid-column: 3; grid-row: 1; }
+  .is-dash .kom-dash .ds-today { grid-column: 2; grid-row: 1; }
+  .is-dash .kom-dash .dash-main { grid-column: 1; grid-row: 1; }
+  .is-dash .kom-dash .dash-side { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; }
+  .is-dash .kom-dash .ds-week .dpanel { margin: 0; }
+  .is-dash .kom-dash .kn-row { padding-top: 8px; padding-bottom: 8px; }
+  main.is-dash:has(.kom-dash) { max-width: 1680px; }
+  /* Begrüßung kurz halten */
+  .is-dash .hello.hi-kom { padding-bottom: 10px; }
+  .is-dash .hello.hi-kom .hk-long { display: none; }
+  .is-dash .hello.hi-kom .sumrow .sumbox { padding: 8px 14px; }
+  /* Hausplan kompakter, damit alles ohne Scrollen passt */
+  .kom-dash .hp-head { padding: 12px 20px 10px; } .kom-dash .hp-head b { font-size: 24px; }
+  .kom-dash .hp-body { padding: 12px; gap: 12px; }
+  .kom-dash .hp-t { min-height: 86px; padding: 9px 8px 7px; }
+  .kom-dash .hp-n { font-size: 17px; }
+  .kom-dash .hp-t .hp-ic { width: 32px; height: 22px; }
+  .kom-dash .hp-plan { min-height: 290px; }
+  .kom-dash .hp-mid { gap: 12px; padding: 0 2%; }
+  .kom-dash .hp-foot { padding: 8px 12px; }
+}
+@media (min-width: 1280px) {
+  .is-dash .hello.hi-kom { display: flex; align-items: baseline; gap: 18px; padding: 0 0 12px; }
+  .is-dash .hello.hi-kom h1 { font-size: 26px; margin: 0; }
+  .is-dash .hello.hi-kom .sumrow { display: none; }
+  .is-dash .hello.hi-kom .hk-short { display: block; margin: 0; color: var(--muted); font-size: 15px; }
+  .is-dash .hello.hi-kom .hk-short b { color: var(--ink); }
+  .is-dash .kom-dash .viewtabs, .is-dash:has(.kom-dash) .viewtabs { margin-bottom: 14px; }
+  .kom-dash .hp-t { min-height: 80px; }
+  .kom-dash .hp-plan { min-height: 270px; }
+  .kom-dash .hp-sem { padding: 6px; }
+}
+@media (max-width: 700px) {
+  .hp-crew .hp-who { white-space: normal; line-height: 1.15; }
+  .hp-sem .hp-crew .hp-who { font-size: 11.5px; }
+  .hp-sem .hp-crew .hp-who em { display: block; }
+}
+.hp-sum em { white-space: nowrap; }
+@media (max-width: 1099px) { .hp-sum { flex-direction: column; align-items: center; } }

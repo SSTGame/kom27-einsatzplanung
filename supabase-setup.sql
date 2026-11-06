@@ -479,3 +479,26 @@ create policy msg_read on public.messages for select to authenticated using (
   or lower(sender_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
   or tech_ids && array(select my_managed_ids())
 );
+-- v18: Abwesenheiten gelten sofort; nur bei zugesagtem Einsatz am selben Tag bestätigt der Master
+create or replace function public.unav_confirm_guard() returns trigger language plpgsql security definer set search_path to 'public' as $$
+begin
+  if not public.is_admin() then
+    new.confirmed := not exists (
+      select 1 from assignments a
+      where a.tech_id = new.tech_id and a.status = 'zugesagt' and a.slot_key like to_char(new.day, 'YYYY-MM-DD') || '#%');
+  end if;
+  return new;
+end; $$;
+update public.unavailability u set confirmed = true
+where confirmed is not true and not exists (
+  select 1 from assignments a where a.tech_id = u.tech_id and a.status = 'zugesagt' and a.slot_key like to_char(u.day, 'YYYY-MM-DD') || '#%');
+-- v19: kom_overview (wer ist wo eingeteilt) auch für Techniker und Projektleitung – für Hausplan/Woche
+create or replace function public.kom_overview()
+ returns table(slot_key text, status text, name text)
+ language sql stable security definer set search_path to 'public'
+as $$
+  select a.slot_key, a.status, t.name
+  from assignments a join technicians t on t.id = a.tech_id
+  where (is_viewer() or is_admin() or my_tech_id() is not null or exists (select 1 from my_managed_ids()))
+    and a.status in ('zugesagt', 'angefragt');
+$$;

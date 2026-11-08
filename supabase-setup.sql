@@ -502,3 +502,22 @@ as $$
   where (is_viewer() or is_admin() or my_tech_id() is not null or exists (select 1 from my_managed_ids()))
     and a.status in ('zugesagt', 'angefragt');
 $$;
+-- v20: abgehakte Aufbau-Punkte gemeinsam (je Tag + Veranstaltung), live für alle sichtbar
+create table if not exists public.equip_done (
+  scope text not null, item_id text not null, done_by text not null default '', done_at timestamptz not null default now(),
+  primary key (scope, item_id)
+);
+alter table public.equip_done enable row level security;
+create or replace function public.can_check_equip(p_scope text) returns boolean language sql stable security definer set search_path to 'public' as $$
+  select is_admin() or is_viewer() or exists (
+    select 1 from assignments a where a.tech_id = my_tech_id() and a.status in ('angefragt', 'zugesagt') and a.slot_key like p_scope || '#%');
+$$;
+drop policy if exists ed_read on public.equip_done;
+create policy ed_read on public.equip_done for select to authenticated using (is_admin() or is_viewer() or my_tech_id() is not null or exists (select 1 from my_managed_ids()));
+drop policy if exists ed_ins on public.equip_done;
+create policy ed_ins on public.equip_done for insert to authenticated with check (can_check_equip(scope));
+drop policy if exists ed_upd on public.equip_done;
+create policy ed_upd on public.equip_done for update to authenticated using (can_check_equip(scope)) with check (can_check_equip(scope));
+drop policy if exists ed_del on public.equip_done;
+create policy ed_del on public.equip_done for delete to authenticated using (can_check_equip(scope));
+do $$ begin alter publication supabase_realtime add table public.equip_done; exception when others then null; end $$;

@@ -1072,3 +1072,5 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 .check li.eq-note { list-style: none; padding: 10px 12px; margin: 6px 0 2px; border-radius: 10px; background: var(--panel-2); border-left: 3px solid var(--accent); }
 .check li.eq-note span { display: flex; flex-direction: column; gap: 3px; }
 .check li.eq-note .sub { font-size: 13.5px; line-height: 1.45; color: var(--ink); opacity: .85; }
+.eq-by { display: inline-block; margin-left: 6px; font-style: normal; font-size: 12px; font-weight: 600; color: var(--st-zugesagt); white-space: nowrap; }
+.check input[disabled] { opacity: .55; }

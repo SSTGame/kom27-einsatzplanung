@@ -37,6 +37,7 @@ const DemoStore = {
   async deleteViewer(email) { const d = this.d(); d.viewers = (d.viewers || []).filter((x) => x.email !== email); this.w(d); },
   async addMessage(m) { const d = this.d(); d.messages = (d.messages || []).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sender_email: ls.get(this.U) || '' }, m)]); this.w(d); },
   async deleteMessage(id) { const d = this.d(); d.messages = (d.messages || []).filter((x) => x.id !== id); this.w(d); },
+  async setDone(scope, item_id, on, by) { const d = this.d(); d.done = (d.done || []).filter((x) => !(x.scope === scope && x.item_id === item_id)); if (on) d.done.push({ scope, item_id, done_by: by, done_at: nowISO() }); this.w(d); },
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
     const coll = Object.values(d.asg || {}).filter((a) => me && a.tech_id && a.tech_id !== me.id && ['angefragt', 'zugesagt'].includes(a.status)).map((a) => ({ slot_key: a.slot_key, name: ((d.techs || []).find((t) => t.id === a.tech_id) || {}).name || '', status: a.status }));
@@ -45,7 +46,7 @@ const DemoStore = {
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
     const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
     const msgs = (d.messages || []).filter((x) => x.to_all || isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs,
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [],
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -114,6 +115,7 @@ function makeSupabaseStore() {
     async saveViewer(v) { chk(await sb.from('kom_viewers').upsert(v)); },
     async deleteViewer(email) { chk(await sb.from('kom_viewers').delete().eq('email', email)); },
     async deleteMessage(id) { chk(await sb.from('messages').delete().eq('id', id)); },
+    async setDone(scope, item_id, on, by) { if (on) chk(await sb.from('equip_done').upsert({ scope, item_id, done_by: by, done_at: nowISO() })); else chk(await sb.from('equip_done').delete().eq('scope', scope).eq('item_id', item_id)); },
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
       const asg = {}; chk(a).forEach((x) => (asg[x.slot_key] = x));
@@ -125,7 +127,8 @@ function makeSupabaseStore() {
       const ee = await sb.from('equip_edits').select('*'); // von Hand angepasste Aufbaulisten
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [] };
+      const dn = await sb.from('equip_done').select('*').gte('scope', addDays(todayISO(), -14)); // abgehakte Aufbau-Punkte (gemeinsam)
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [] };
     },
     async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
@@ -163,7 +166,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -177,7 +180,7 @@ function dataSig() {
   const kbs = kms + (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
   const eds = Object.values(S.edits || {}).map((x) => x.slot_key + JSON.stringify(x.removed) + JSON.stringify(x.added)).sort().join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
-  return [a, u, t, o, kbs, eds, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|')].join('§');
+  return [a, u, t, o, kbs, eds, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|'), (S.done || []).map((x) => x.scope + x.item_id + x.done_by).sort().join('|'), (S.msgs || []).map((x) => x.id).join(',')].join('§');
 }
 // neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
 function paint(anchorSel) {
@@ -1550,6 +1553,12 @@ const untilTxt = (iso) => { const n = daysUntil(iso); return n === 0 ? 'heute' :
 const parseSpan = (z) => { const m = /(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})/.exec(z || ''); if (!m) return null; const a = +m[1] + m[2] / 60; let b = +m[3] + m[4] / 60; if (b <= a) b += 24; return [a, b]; };
 const hm = (h) => String(Math.floor(h) % 24).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0');
 const DONE_K = 'kom27-done';
+// Abgehakte Aufbau-Punkte sind gemeinsam: je Tag + Veranstaltung, für alle sichtbar
+const doneScope = (s) => s.date + '#' + (s.va || '');
+const doneRows = (s) => (S.done || []).filter((x) => x.scope === doneScope(s));
+const doneOf = (s) => new Set(doneRows(s).map((x) => x.item_id));
+const canCheck = (s) => !S.roOpen && !S.mgrMode && !S.preview && !s.nopam && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
+const myShortName = () => S.admin ? CFG.senderName : S.viewer ? (((S.viewers || []).find((x) => x.email === (S.user || {}).email) || {}).name || 'KOM27') : ((myTech() || {}).name || '').split(' ')[0];
 const doneGet = () => ls.get(DONE_K) || {};
 const isImportant = (l) => /probe|!|achtung|wichtig|signal|umbau|nach va|vor va|ggf|klärung/i.test(l);
 
@@ -1652,7 +1661,7 @@ const equipList = (s) => { const m = equipModel(s); return m.groups.flatMap((g) 
 const canEditEquip = (s) => !S.mgrMode && !S.preview && (S.admin || S.viewer || (!s.nopam && (myTech() && S.asg[s.key] && S.asg[s.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[s.key].status))));
 function equipHtml(s) {
   const m = equipModel(s); const edit = S.equipEdit === s.key && canEditEquip(s);
-  const done = doneGet()[s.key] || [];
+  const doneRows_ = doneRows(s); const done = doneRows_.map((x) => x.item_id); const cc = canCheck(s); const by = (id) => (doneRows_.find((x) => x.item_id === id) || {}).done_by || '';
   const roomName = (r) => esc(r || 'Allgemein');
   if (!m.groups.length && !edit) return `<p class="muted">Für diesen Tag steht in der Excel noch nichts zum Aufbau.</p>`;
   const added = (it) => (it.src === 'add' ? `<em class="eq-add" title="von Hand ergänzt${it.by ? ' von ' + esc(it.by) : ''}">＋${it.by ? ' ' + esc(it.by.split(' ')[0]) : ''}</em>` : '');
@@ -1666,7 +1675,7 @@ function equipHtml(s) {
     if (S.mgrMode) return `<div class="room">${head}<ul class="plain">${vis.map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</li>`).join('')}</ul></div>`;
     return `<div class="room">${head}<ul class="check">${vis.map((it) => { const on = done.includes(it.id);
       if (it.note) return `<li class="eq-note"><span><b>📝 ${esc(it.t)}</b>${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</span></li>`;
-      return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${esc(it.id)}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</span></label></li>`; }).join('')}</ul></div>`;
+      return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${esc(it.id)}" ${on ? 'checked' : ''} ${cc ? '' : 'disabled'}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}${on && by(it.id) ? `<em class="eq-by">✓ ${esc(by(it.id))}</em>` : ''}</span></label></li>`; }).join('')}</ul></div>`;
   }).join('');
   const have = new Set(m.groups.map((g) => g.room));
   const rlist = allRoomNames().filter((r) => !have.has(r));
@@ -1678,6 +1687,7 @@ function equipHtml(s) {
 
 function openJob(key, list) {
   const s = typeof key === 'object' ? key : allSlots().find((x) => x.key === key); if (!s) return;
+  S.sheetSlot = s;
   const a = S.asg[s.key] || {}; const det = s.det || {};
   const grp = s.group ? allSlots().filter((x) => x.group === s.group && S.asg[x.key] && S.asg[x.key].tech_id === a.tech_id) : [s];
   const gi = grp.findIndex((x) => x.key === s.key);
@@ -1702,7 +1712,7 @@ function openJob(key, list) {
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
     <h3 class="eq-h">🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}${canEditEquip(s) ? `<button class="btn small eq-btn ${S.equipEdit === s.key ? 'primary' : ''}" data-eedit>${S.equipEdit === s.key ? '✓ Fertig' : '✏️ Bearbeiten'}</button>` : ''}</h3>
     ${equipHtml(s)}
-    ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : S.mgrMode ? '' : `<p class="muted small">Abhaken ist nur für dich – praktisch beim Aufbau.</p>`}
+    ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : S.mgrMode ? '' : `<p class="muted small">${canCheck(s) ? 'Abgehakte Punkte sehen alle im Team sofort – auch das KOM27.' : 'Abgehakt wird vom Team vor Ort – hier siehst du den Stand.'}</p>`}
     ${(det.extras || []).length ? `<h3>ℹ️ Weitere Infos</h3><dl class="extras">${det.extras.map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>` : ''}
     ${a.actual_start ? `<div class="hint ok">⏱ Bestätigte Arbeitszeit: ${esc(a.actual_start)}–${esc(a.actual_end)}${a.break_min ? ', ' + a.break_min + ' min Pause' : ''} = ${fmtH(actualHours(a))}</div>` : ''}
     ${isOffer ? '' : `<h3>👥 ${S.viewer || S.mgrMode ? 'Weitere Techniker an dem Tag' : 'Mit dir im Haus'}</h3>`}
@@ -1722,15 +1732,19 @@ function openJob(key, list) {
   document.body.insertAdjacentHTML('beforeend', html);
   document.body.classList.add('noscroll');
   const box = $('#sheet');
-  const close = () => { box.remove(); document.body.classList.remove('noscroll'); document.removeEventListener('keydown', esc_); };
+  const close = () => { box.remove(); document.body.classList.remove('noscroll'); document.removeEventListener('keydown', esc_); S.sheetSlot = null; if (dataSig() !== S.sig) paint(); };
   const esc_ = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', esc_);
   box.onclick = (e) => { if (e.target === box) close(); };
   box.querySelector('[data-close]').onclick = close;
   box.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => openJob(b.dataset.jump)));
   box.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => {
-    const all = doneGet(); const cur = new Set(all[s.key] || []); c.checked ? cur.add(c.dataset.chk) : cur.delete(c.dataset.chk);
-    all[s.key] = [...cur]; ls.set(DONE_K, all); c.closest('li').classList.toggle('done', c.checked);
+    const id = c.dataset.chk, on = c.checked, sc = doneScope(s), who = myShortName();
+    const before = (S.done || []).slice();
+    S.done = (S.done || []).filter((x) => !(x.scope === sc && x.item_id === id)); if (on) S.done.push({ scope: sc, item_id: id, done_by: who, done_at: nowISO() });
+    c.closest('li').classList.toggle('done', on);
+    const sp = c.closest('label').querySelector('span'); const ex = sp.querySelector('.eq-by'); if (ex) ex.remove(); if (on && who) sp.insertAdjacentHTML('beforeend', `<em class="eq-by">✓ ${esc(who)}</em>`);
+    store.setDone(sc, id, on, who).catch((x) => { S.done = before; c.checked = !on; c.closest('li').classList.toggle('done', !on); toast('Abhaken hat nicht geklappt – bitte nochmal'); });
   }));
   // Aufbauliste bearbeiten
   const reo = () => { const sc = (box.querySelector('.sheet') || {}).scrollTop || 0; openJob(s); const nb = document.querySelector('#sheet .sheet'); if (nb) nb.scrollTop = sc; };
@@ -2019,7 +2033,7 @@ function todayCard(t) {
   else { state = 'Geschafft 👍'; cls = 'tc-done'; }
   const rooms = roomsOfSlot(s);
   const items = equipList(s);
-  const nDone = (doneGet()[s.key] || []).length;
+  const nDone = doneOf(s).size;
   const hints = items.filter((i) => /probe|achtung|wichtig|signal|!/i.test(i.t) && i.t.length < 90).slice(0, 3);
   const coll = colleaguesOf(s).filter((c) => c.status === 'zugesagt');
   const kom = s.day.kom || [];
@@ -2768,6 +2782,10 @@ async function liveRefresh() {
   if (!S.user || S.recovery) return;
   // nicht mitten in eine Eingabe hinein neu zeichnen
   const ae = document.activeElement;
+  // offene Aufbauliste: Daten nachladen und nur die Haken nachziehen (ohne neu zu zeichnen)
+  if (document.querySelector('#sheet') && S.sheetSlot && !document.querySelector('.stmenu') && !(ae && /^(SELECT|TEXTAREA)$/.test(ae.tagName)) && !(ae && ae.tagName === 'INPUT' && ae.type !== 'checkbox')) {
+    try { await reload(); } catch (e) { return; } syncSheetChecks(); return;
+  }
   if ((ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) && ae.closest('#app')) || document.querySelector('.jc-reason:not(.hidden), .jc-one:not(.hidden), .stmenu, #sheet') || Date.now() < (S.calmUntil || 0)) return scheduleLive(2500);
   const oldAsg = S.asg; const oldUnav = new Set(S.unav.map((u) => u.tech_id + '|' + u.day));
   try { await reload(); } catch (e) { return; }
@@ -2786,7 +2804,19 @@ async function liveRefresh() {
     if (added.length) { const t = techById(added[0].tech_id); msgs.push(`${t ? t.name.split(' ')[0] : 'Ein Techniker'} hat ${added.length} Tag${added.length > 1 ? 'e' : ''} als „kann nicht“ eingetragen`); }
   }
   if (dataSig() !== S.sig) paint(); // nur neu zeichnen, wenn sich wirklich etwas geändert hat
+  syncSheetChecks();
   if (msgs.length) toast(msgs.slice(0, 3).join(' · ') + (msgs.length > 3 ? ` (+${msgs.length - 3})` : ''));
+}
+// offene Aufbauliste live nachziehen, wenn jemand anderes etwas abhakt
+function syncSheetChecks() {
+  const s = S.sheetSlot; const box = document.getElementById('sheet'); if (!s || !box) return;
+  const rows = doneRows(s);
+  box.querySelectorAll('[data-chk]').forEach((c) => {
+    const r = rows.find((x) => x.item_id === c.dataset.chk); const on = !!r;
+    c.checked = on; const li = c.closest('li'); if (li) li.classList.toggle('done', on);
+    const sp = c.closest('label').querySelector('span'); const ex = sp.querySelector('.eq-by'); if (ex) ex.remove();
+    if (on && r.done_by) sp.insertAdjacentHTML('beforeend', `<em class="eq-by">✓ ${esc(r.done_by)}</em>`);
+  });
 }
 function startLive() {
   if (liveOn) return; liveOn = true;
@@ -2794,7 +2824,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

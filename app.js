@@ -1589,8 +1589,43 @@ function equipItems(text) {
     else out.push({ t: l, sub: null });
     hard = false;
   });
-  if (out.length === 1 && !out[0].sub && out[0].t.split(',').length > 2) return out[0].t.split(',').map((x) => ({ t: x.trim(), sub: null })).filter((x) => x.t);
-  return out;
+  if (out.length === 1 && !out[0].sub && out[0].t.split(',').length > 2 && !QTY.test(out[0].t)) return out[0].t.split(',').map((x) => ({ t: x.trim(), sub: null })).filter((x) => x.t.length > 1);
+  return out.flatMap(splitQty).map((x) => Object.assign(x, { t: x.t.replace(/[\s,;]+$/, '') })).filter((x) => x.t.length > 1 || x.note);
+}
+// „1 Redepult, 4x Handmikrofon, 2x Headset …, Anmerkungen Medientechnik: …“ → je Gerät ein Punkt zum Abhaken,
+// Anmerkungen als Hinweis ohne Haken (Mengenangaben darin werden ebenfalls eigene Punkte)
+const QTY = /^\d+\s*(?:x|×|stk\.?|stück)?\s*[A-Za-zÄÖÜäöü]/i;
+function splitQty(it) {
+  // „… 1x Redepult Anmerkungen Medientechnik: …“ – Anmerkung auch ohne Komma davor als Hinweis abtrennen
+  const am = /[\s,]+(Anmerkungen?[^:,]{0,40}):\s*/i.exec(it.t);
+  if (am && am.index > 0 && !/^anmerkung/i.test(it.t)) {
+    const head = it.t.slice(0, am.index).trim(); const rest = it.t.slice(am.index + am[0].length).trim();
+    const tail = splitQty({ t: 'Anmerkungen: ' + rest, sub: null }).filter((x) => x.t);
+    const tl = tail.length && tail[0].t === 'Anmerkungen' && tail[0].note ? tail : tail.map((x) => (x.note ? Object.assign(x, { t: am[1].trim() }) : x));
+    tl.forEach((x) => { if (x.note && x.t === 'Anmerkungen') x.t = am[1].trim(); });
+    return [...splitQty({ t: head, sub: it.sub }), ...(tl.length ? tl : [{ t: am[1].trim(), sub: rest, note: true }])];
+  }
+  if (/^anmerkung/i.test(it.t) && !it.t.includes(',')) { const i = it.t.indexOf(':'); if (i > 0) return [{ t: it.t.slice(0, i).trim(), sub: it.t.slice(i + 1).trim() || null, note: true }]; }
+  if (!it.t.includes(',')) return [it];
+  const segs = []; let cur = '', depth = 0;
+  for (const ch of it.t) { if (ch === '(') depth++; if (ch === ')') depth = Math.max(0, depth - 1); if (ch === ',' && !depth) { segs.push(cur.trim()); cur = ''; } else cur += ch; }
+  segs.push(cur.trim());
+  const parts = segs.filter(Boolean);
+  if (parts.filter((x) => QTY.test(x)).length < 2 && !/^anmerkung/i.test(parts[0])) return [it];
+  const items = []; let note = null;
+  parts.forEach((x) => {
+    const n = /^anmerkung/i.exec(x);
+    if (n || note) {
+      if (!note) { const i = x.indexOf(':'); note = { t: i > 0 ? x.slice(0, i).trim() : 'Anmerkungen', sub: '', note: true }; x = i > 0 ? x.slice(i + 1).trim() : ''; if (!x) return; }
+      if (QTY.test(x)) items.push({ t: x, sub: null }); else note.sub += (note.sub ? ', ' : '') + x;
+      return;
+    }
+    // kurzer Begriff ohne Menge (z. B. „Mediakart“) ist ein eigenes Gerät, längerer Text gehört zum Punkt davor
+    if (QTY.test(x) || !items.length || x.split(/\s+/).length <= 3) items.push({ t: x, sub: null }); else items[items.length - 1].t += ', ' + x;
+  });
+  if (it.sub && items.length) items[items.length - 1].sub = it.sub;
+  if (note) { note.sub = note.sub || null; items.push(note); }
+  return items.map((x) => Object.assign(x, { t: x.t.replace(/[\s,]+$/, '') }));
 }
 // Aufbauliste: Excel-Punkte + eigene Ergänzungen, ohne entfernte Punkte (gilt für alle)
 function equipModel(s) {
@@ -1630,6 +1665,7 @@ function equipHtml(s) {
       <div class="eq-new"><input type="text" maxlength="160" placeholder="Punkt hinzufügen, z. B. 2 Funkmikrofone extra" data-enew="${esc(g.room)}"><button class="btn small" data-eadd="${esc(g.room)}">＋</button></div></div>`;
     if (S.mgrMode) return `<div class="room">${head}<ul class="plain">${vis.map((it) => `<li class="${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}">${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</li>`).join('')}</ul></div>`;
     return `<div class="room">${head}<ul class="check">${vis.map((it) => { const on = done.includes(it.id);
+      if (it.note) return `<li class="eq-note"><span><b>📝 ${esc(it.t)}</b>${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''}</span></li>`;
       return `<li class="${on ? 'done' : ''} ${isImportant(it.t + ' ' + (it.sub || '')) ? 'imp' : ''}"><label><input type="checkbox" data-chk="${esc(it.id)}" ${on ? 'checked' : ''}><span>${esc(it.t)}${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ''} ${added(it)}</span></label></li>`; }).join('')}</ul></div>`;
   }).join('');
   const have = new Set(m.groups.map((g) => g.room));

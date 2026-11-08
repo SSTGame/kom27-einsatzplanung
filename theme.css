@@ -1068,3 +1068,7 @@ h3.eq-h { display: flex; align-items: center; gap: 10px; } h3.eq-h .eq-btn { mar
 }
 .hp-sum em { white-space: nowrap; }
 @media (max-width: 1099px) { .hp-sum { flex-direction: column; align-items: center; } }
+/* Aufbauliste: Anmerkungen ohne Haken */
+.check li.eq-note { list-style: none; padding: 10px 12px; margin: 6px 0 2px; border-radius: 10px; background: var(--panel-2); border-left: 3px solid var(--accent); }
+.check li.eq-note span { display: flex; flex-direction: column; gap: 3px; }
+.check li.eq-note .sub { font-size: 13.5px; line-height: 1.45; color: var(--ink); opacity: .85; }

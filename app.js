@@ -2186,7 +2186,7 @@ function komNoPamCard() {
   const w = dt === today ? 'Heute' : 'Morgen';
   return `<section class="dpanel nopam-card"><h2 class="sec">${w} ohne PAM-Techniker${list.length ? ` <span class="np-n">${list.length}</span>` : ''}</h2>
     ${list.length ? `<div class="np-list">${list.map((x) => `<button class="np-row" data-va="${d.date}|${esc(x.va)}"><span><b>${esc(x.va)}</b><small>${[roomsOf(x.info), x.zeit ? 'VA ' + niceTime(x.zeit) : ''].filter(Boolean).map(esc).join(' · ')}</small></span><span class="jc-more">Details ›</span></button>`).join('')}</div>`
-      : `<p class="muted">${w} gibt es keine Veranstaltung ohne PAM-Techniker.</p>`}
+      : `<p class="muted">✓ Alle Veranstaltungen ${w === 'Heute' ? 'heute' : 'morgen'} haben einen PAM-Techniker.</p>`}
   </section>`;
 }
 function komTodayCard() {

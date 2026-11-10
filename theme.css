@@ -199,6 +199,7 @@ input[type=text], input[type=email], input[type=password], input[type=search], i
   .toolbar .monthnav { grid-column: 1 / -1; }
   .toolbar .monthnav select { font-size: 22px; }
   .toolbar .seg { grid-column: 1; justify-self: start; }
+  .toolbar .msearch { grid-column: 1 / -1; max-width: none; width: 100%; }
   .toolbar .tb-actions { grid-column: 1 / -1; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -14px; padding: 2px 14px 4px; }
   .toolbar .tb-actions::-webkit-scrollbar { display: none; }
   .toolbar .tb-actions .btn { flex: none; }

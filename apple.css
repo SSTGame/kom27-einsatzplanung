@@ -109,7 +109,10 @@ input[type=checkbox] { accent-color: var(--accent); }
 .pill.geplant, .pill.st-geplant { background: var(--fill); color: var(--st-geplant); }
 .pill.abgesagt, .pill.st-abgesagt { background: color-mix(in srgb, var(--st-abgesagt) 14%, transparent); color: var(--st-abgesagt); }
 .vt-badge, .bell b, .sec-n { background: #d70015; color: #fff !important; }
-.allgood { border: 0; border-radius: var(--r-lg); }
+.allgood { border: 0; border-radius: var(--r-lg); background: var(--st-zugesagt); color: #fff; box-shadow: var(--shadow-card); }
+.allgood small { color: rgba(255, 255, 255, .88); }
+:root[data-theme="dark"] .allgood { background: color-mix(in srgb, var(--st-zugesagt) 20%, var(--panel)); color: var(--st-zugesagt); }
+:root[data-theme="dark"] .allgood small { color: var(--muted); }
 
 /* ---------- Heute-Karte ---------- */
 .tcard { border-radius: 26px !important; border: 0 !important; box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--accent) 60%, transparent) !important; background: linear-gradient(160deg, #1a8cff 0%, #0064d1 55%, #4b3fd6 120%) !important; }

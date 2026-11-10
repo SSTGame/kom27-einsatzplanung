@@ -37,6 +37,8 @@ const DemoStore = {
   async deleteViewer(email) { const d = this.d(); d.viewers = (d.viewers || []).filter((x) => x.email !== email); this.w(d); },
   async addMessage(m) { const d = this.d(); d.messages = (d.messages || []).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sender_email: ls.get(this.U) || '' }, m)]); this.w(d); },
   async deleteMessage(id) { const d = this.d(); d.messages = (d.messages || []).filter((x) => x.id !== id); this.w(d); },
+  async addNote(scope, body, by) { const d = this.d(); d.notes = (d.notes || []).concat([{ id: Date.now(), scope, body, author: by, author_email: ls.get(this.U) || '', created_at: nowISO() }]); this.w(d); },
+  async delNote(id) { const d = this.d(); d.notes = (d.notes || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
   async setDone(scope, item_id, on, by) { const d = this.d(); d.done = (d.done || []).filter((x) => !(x.scope === scope && x.item_id === item_id)); if (on) d.done.push({ scope, item_id, done_by: by, done_at: nowISO() }); this.w(d); },
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
@@ -46,7 +48,7 @@ const DemoStore = {
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
     const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
     const msgs = (d.messages || []).filter((x) => x.to_all || isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [],
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [],
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -115,6 +117,8 @@ function makeSupabaseStore() {
     async saveViewer(v) { chk(await sb.from('kom_viewers').upsert(v)); },
     async deleteViewer(email) { chk(await sb.from('kom_viewers').delete().eq('email', email)); },
     async deleteMessage(id) { chk(await sb.from('messages').delete().eq('id', id)); },
+    async addNote(scope, body, by) { chk(await sb.from('handover_notes').insert({ scope, body, author: by })); },
+    async delNote(id) { chk(await sb.from('handover_notes').delete().eq('id', id)); },
     async setDone(scope, item_id, on, by) { if (on) chk(await sb.from('equip_done').upsert({ scope, item_id, done_by: by, done_at: nowISO() })); else chk(await sb.from('equip_done').delete().eq('scope', scope).eq('item_id', item_id)); },
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
@@ -128,7 +132,8 @@ function makeSupabaseStore() {
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
       const dn = await sb.from('equip_done').select('*').gte('scope', addDays(todayISO(), -14)); // abgehakte Aufbau-Punkte (gemeinsam)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [] };
+      const hn = await sb.from('handover_notes').select('*').gte('scope', addDays(todayISO(), -21)).order('created_at'); // Übergabe-Notizen (fehlt die Tabelle: leer)
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data };
     },
     async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
@@ -166,7 +171,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -1014,6 +1019,7 @@ function renderPlan() {
         <button class="btn small" id="mNext" ${mi >= months.length - 1 ? 'disabled' : ''} aria-label="Nächster Monat">›</button>
       </div>
       <div class="seg" role="tablist"><button data-view="liste" class="${S.view !== 'raster' ? 'on' : ''}">Liste</button><button data-view="raster" class="${S.view === 'raster' ? 'on' : ''}">Raster</button><button data-view="zeit" class="${S.view === 'zeit' ? 'on' : ''}">Zeitstrahl</button></div>
+      <div class="msearch"><input type="search" id="mSearch" placeholder="Suchen: VA-Nr., Raum, Name" autocomplete="off" aria-label="Im Einsatzplan suchen"><div id="mSearchRes" class="ms-res hidden"></div></div>
       <div class="spacer"></div>
       <div class="tb-actions">
       ${(() => { const n = visDays.filter((d) => !d.cancelled).reduce((acc, d) => acc + d.slots.filter((x) => (slotState(x) === 'leer' || slotState(x) === 'abgesagt') && !offerOf(x.key)).length, 0); return n ? `<button class="btn" id="offerAll" title="Alle unbesetzten Einsätze dieses Monats an alle Techniker schicken – wer Zeit hat, meldet sich">📣 Offene ausschreiben (${n})</button>` : ''; })()}
@@ -1030,6 +1036,7 @@ function renderPlan() {
   wireImport();
   if (!S.plan) return;
   const go = (i) => { if (months[i]) { S.month = months[i]; S.tlWeek = undefined; renderMaster(); } };
+  wireSearch();
   $('#mPrev').onclick = () => go(mi - 1);
   $('#mNext').onclick = () => go(mi + 1);
   document.querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.filter; S.keep = new Set(); renderMaster(); }));
@@ -1167,7 +1174,7 @@ function renderHours() {
         <td class="h-st" data-l="Beginn"><input type="time" data-h="st" value="${esc(a.actual_start || '')}" placeholder="${ps}"></td><td class="h-en" data-l="Ende"><input type="time" data-h="en" value="${esc(a.actual_end || '')}" placeholder="${pe}"></td>
         <td class="h-br" data-l="Pause"><select data-h="br">${['', 0, 15, 30, 45, 60, 90].map((v) => `<option value="${v}" ${String(a.break_min ?? '') === String(v) ? 'selected' : ''}>${v === '' ? '–' : v + ' min'}</option>`).join('')}</select></td>
         <td class="h-ist" data-l="Ist">${ih !== null ? `<b>${fmtH(ih)}</b>${diff && Math.abs(diff) >= 0.25 ? ` <small class="${diff > 0 ? 'warn' : 'muted'}">${diff > 0 ? '+' : ''}${String(Math.round(diff * 100) / 100).replace('.', ',')}</small>` : ''}${a.time_note ? ` <span title="${esc(a.time_note)}">💬</span>` : ''}` : x.date <= today ? '<span class="warn small">fehlt</span>' : '<span class="muted small">kommt noch</span>'}</td></tr>`; }).join('')}
-      </tbody></table></details>`;
+      </tbody></table><div class="h-foot"><button class="btn small" data-hpdf="${t.id}">🖨 Stunden von ${esc(t.name.split(' ')[0])} als PDF</button></div></details>`;
   }).join('');
   m.innerHTML = `<div class="toolbar">
       <div class="monthnav"><select id="hMonth">${months.map((x) => `<option value="${x}" ${x === S.month ? 'selected' : ''}>${MON[+x.slice(5, 7) - 1]} ${x.slice(0, 4)}</option>`).join('')}</select></div>
@@ -1193,6 +1200,7 @@ function renderHours() {
     toast(`Push an ${missT.length} Techniker geschickt (wer 🔔 aktiviert hat)`);
   };
   $('#hPdf').onclick = () => printHours(S.month);
+  m.querySelectorAll('[data-hpdf]').forEach((b) => (b.onclick = () => printHours(S.month, b.dataset.hpdf)));
   $('#hCsv').onclick = () => {
     const num = (h) => (h === null || h === undefined ? '' : String(Math.round(h * 100) / 100).replace('.', ','));
     const q = (x) => '"' + String(x ?? '').replace(/"/g, '""') + '"';
@@ -1558,6 +1566,33 @@ const doneScope = (s) => s.date + '#' + (s.va || '');
 const doneRows = (s) => (S.done || []).filter((x) => x.scope === doneScope(s));
 const doneOf = (s) => new Set(doneRows(s).map((x) => x.item_id));
 const canCheck = (s) => !S.roOpen && !S.mgrMode && !S.preview && !s.nopam && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
+const canNote = (s) => !S.roOpen && !S.mgrMode && !S.preview && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
+// Übergabe-Notizen: alle Tage derselben Veranstaltung (damit die nächste Schicht auch die vom Vortag sieht)
+const notesOf = (s) => (S.notes || []).filter((n) => { const i = n.scope.indexOf('#'); const va = n.scope.slice(i + 1); return s.va ? va === s.va : n.scope === doneScope(s); }).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+function notesListHtml(s) {
+  const l = notesOf(s); const me = ((S.user || {}).email || '').toLowerCase();
+  if (!l.length) return `<p class="muted small ho-empty">Noch keine Übergabe. Schreib hier rein, was die nächste Schicht wissen muss – z. B. „Funkmikro 3 hat Aussetzer“ oder „Kunde will morgen 30 min früher starten“.</p>`;
+  return l.map((n) => { const day = n.scope.slice(0, 10); const mine = S.admin || (n.author_email || '').toLowerCase() === me;
+    return `<div class="ho-item${day !== s.date ? ' other' : ''}"><div class="ho-body">${esc(n.body).replace(/\n/g, '<br>')}</div><div class="ho-meta"><b>${esc(n.author || '–')}</b><span>${day !== s.date ? esc(fmtDate(day)) + ', ' : ''}${new Date(n.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr</span>${mine && !S.roOpen && !S.preview ? `<button class="ho-del" data-hodel="${esc(String(n.id))}" aria-label="Notiz löschen">Löschen</button>` : ''}</div></div>`; }).join('');
+}
+function notesHtml(s) {
+  const n = notesOf(s).length;
+  return `<h3 class="ho-h">🤝 Übergabe${n ? ` <span class="ho-n">${n}</span>` : ''}</h3><div class="ho-list" id="hoList">${notesListHtml(s)}</div>
+    ${canNote(s) ? `<div class="ho-new"><textarea id="hoText" rows="2" maxlength="600" placeholder="Notiz für die nächste Schicht …"></textarea><button class="btn primary" id="hoSave">Übergabe speichern</button></div>` : ''}`;
+}
+function wireNotes(box, s) {
+  const list = box.querySelector('#hoList'); if (!list) return;
+  const redraw = () => { list.innerHTML = notesListHtml(s); const n = notesOf(s).length; const h = box.querySelector('.ho-h'); if (h) h.innerHTML = `🤝 Übergabe${n ? ` <span class="ho-n">${n}</span>` : ''}`; };
+  list.onclick = (e) => { const b = e.target.closest('[data-hodel]'); if (!b) return; if (!confirm('Diese Übergabe-Notiz löschen?')) return;
+    const before = S.notes; S.notes = (S.notes || []).filter((x) => String(x.id) !== b.dataset.hodel); redraw();
+    store.delNote(b.dataset.hodel).catch(() => { S.notes = before; redraw(); toast('Löschen hat nicht geklappt – bitte nochmal'); }); };
+  const sv = box.querySelector('#hoSave'); if (!sv) return;
+  sv.onclick = async () => { const ta = box.querySelector('#hoText'); const body = ta.value.trim(); if (!body) return ta.focus();
+    sv.disabled = true;
+    try { await store.addNote(doneScope(s), body, myShortName()); ta.value = ''; await reload(); redraw(); toast('Übergabe gespeichert – das Team sieht sie sofort'); }
+    catch (e) { toast('Speichern hat nicht geklappt – bitte nochmal'); }
+    sv.disabled = false; };
+}
 const myShortName = () => S.admin ? CFG.senderName : S.viewer ? (((S.viewers || []).find((x) => x.email === (S.user || {}).email) || {}).name || 'KOM27') : ((myTech() || {}).name || '').split(' ')[0];
 const doneGet = () => ls.get(DONE_K) || {};
 const isImportant = (l) => /probe|!|achtung|wichtig|signal|umbau|nach va|vor va|ggf|klärung/i.test(l);
@@ -1710,6 +1745,7 @@ function openJob(key, list) {
     <div class="facts">${fact(isOffer || S.viewer || S.mgrMode ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.nopam ? s.zeit : s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit, s.nopam && !s.zeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
+    ${isOffer ? '' : notesHtml(s)}
     <h3 class="eq-h">🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}${canEditEquip(s) ? `<button class="btn small eq-btn ${S.equipEdit === s.key ? 'primary' : ''}" data-eedit>${S.equipEdit === s.key ? '✓ Fertig' : '✏️ Bearbeiten'}</button>` : ''}</h3>
     ${equipHtml(s)}
     ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : S.mgrMode ? '' : `<p class="muted small">${canCheck(s) ? 'Abgehakte Punkte sehen alle im Team sofort – auch das KOM27.' : 'Abgehakt wird vom Team vor Ort – hier siehst du den Stand.'}</p>`}
@@ -1738,6 +1774,7 @@ function openJob(key, list) {
   box.onclick = (e) => { if (e.target === box) close(); };
   box.querySelector('[data-close]').onclick = close;
   box.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => openJob(b.dataset.jump)));
+  wireNotes(box, s);
   box.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => {
     const id = c.dataset.chk, on = c.checked, sc = doneScope(s), who = myShortName();
     const before = (S.done || []).slice();
@@ -1827,6 +1864,35 @@ function calSheet(t, yes) {
 }
 
 /* ---------------- Druckansicht / PDF ---------------- */
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-mypdf]'); if (b && myTech()) printHours(b.dataset.mypdf, myTech().id); });
+/* ---------------- Suche im Master (VA-Nummer, Raum, Name) ---------------- */
+function searchPlan(q) {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean); if (!words.length) return [];
+  const today = todayISO(); const out = [];
+  allDays().forEach((d) => {
+    if (d.free) return;
+    const names = d.slots.map((x) => { const a = S.asg[x.key]; const t = a && a.tech_id ? techById(a.tech_id) : null; return t ? t.name : ''; }).filter(Boolean);
+    const vas = [...new Set([...(d.vas || []), ...d.slots.map((x) => x.va || '')].filter(Boolean))];
+    const rooms = roomsOf(d.info);
+    const hay = [fmtDate(d.date), d.date, vas.join(' '), d.slots.map((x) => x.label || '').join(' '), d.info || '', names.join(' '), (d.kom || []).join(' ')].join(' ').toLowerCase();
+    if (words.every((w) => hay.includes(w))) out.push({ date: d.date, vas, rooms, names, cancelled: d.cancelled, open: d.slots.filter((x) => ['leer', 'abgesagt'].includes(slotState(x))).length });
+  });
+  return out.sort((a, b) => (a.date < today) - (b.date < today) || (a.date < today ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))).slice(0, 25);
+}
+function wireSearch() {
+  const inp = $('#mSearch'), res = $('#mSearchRes'); if (!inp || !res) return;
+  const today = todayISO();
+  const draw = () => { const q = inp.value.trim(); S.q = q; if (q.length < 2) { res.classList.add('hidden'); res.innerHTML = ''; return; }
+    const l = searchPlan(q);
+    res.innerHTML = l.length ? l.map((r) => `<button class="ms-row${r.date < today ? ' past' : ''}" data-msd="${r.date}"><span class="ms-d">${esc(fmtDate(r.date))}</span><span class="ms-m"><b>${esc(r.vas.join(' · ') || 'Einsatz')}${r.cancelled ? ' (abgesagt)' : ''}</b><small>${esc([r.rooms, r.names.join(', ') || (r.open ? '' : 'ohne PAM-Techniker')].filter(Boolean).join(' – '))}</small></span>${r.open ? `<span class="ms-o">${r.open} offen</span>` : ''}</button>`).join('') : `<div class="ms-none">Nichts gefunden für „${esc(q)}“. Du kannst nach VA-Nummer, Raum (z. B. Saal 3), Datum (12.11.) oder Techniker suchen.</div>`;
+    res.classList.remove('hidden'); };
+  inp.oninput = draw; inp.onfocus = draw;
+  inp.onkeydown = (e) => { if (e.key === 'Escape') { inp.value = ''; draw(); inp.blur(); } if (e.key === 'Enter') { const f = res.querySelector('[data-msd]'); if (f) f.click(); } };
+  res.onclick = (e) => { const b = e.target.closest('[data-msd]'); if (!b) return; const dt = b.dataset.msd;
+    S.q = ''; S.month = dt.slice(0, 7); S.view = 'liste'; S.filter = 'alle'; S.tlWeek = undefined; if (dt < today) S.showPast = true; renderMaster();
+    const el = document.getElementById('d-' + dt); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } };
+  document.addEventListener('click', (e) => { if (!e.target.closest('.msearch')) { const r = $('#mSearchRes'); if (r) r.classList.add('hidden'); } });
+}
 function printDoc(title, body) {
   const w = window.open('', '_blank'); if (!w) return toast('Bitte Pop-ups für diese Seite erlauben.');
   w.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>
@@ -1852,8 +1918,8 @@ function printMonth(month) {
   printDoc(`KOM27 Einsatzplan ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}`, `<h1>Medientechnik KOM27 – Einsatzplan ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}</h1><p class="sub">ÖPP Mauerstraße · Excel-Stand ${S.plan ? new Date(S.plan.importedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '–'}</p>
     <table><thead><tr><th>Datum</th><th>Veranstaltung</th><th>Raum</th><th>Einsatzzeit</th><th>Techniker</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Keine Einsätze</td></tr>'}</tbody></table>`);
 }
-function printHours(month) {
-  const sl = allSlots().filter((x) => x.date.startsWith(month) && S.asg[x.key] && S.asg[x.key].tech_id && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled).sort((a, b) => a.date.localeCompare(b.date));
+function printHours(month, only) {
+  const sl = allSlots().filter((x) => x.date.startsWith(month) && S.asg[x.key] && S.asg[x.key].tech_id && (!only || S.asg[x.key].tech_id === only) && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled).sort((a, b) => a.date.localeCompare(b.date));
   const per = {}; sl.forEach((x) => (per[S.asg[x.key].tech_id] = per[S.asg[x.key].tech_id] || []).push(x));
   const n = (h) => (h === null || h === undefined ? '–' : String(Math.round(h * 100) / 100).replace('.', ','));
   let tot = [0, 0]; let body = '';
@@ -1862,10 +1928,11 @@ function printHours(month) {
     const rows = l.map((x) => { const a = S.asg[x.key]; const ih = actualHours(a); p += planHours(x); ist += ih || 0;
       return `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.va || '')}</td><td>${esc(x.zeit || '')}</td><td>${a.actual_start ? esc(a.actual_start) + '–' + esc(a.actual_end) : '–'}</td><td class="r">${a.break_min ?? '–'}</td><td class="r">${n(planHours(x))}</td><td class="r"><b>${n(ih)}</b></td><td>${esc(a.time_note || '')}</td></tr>`; }).join('');
     tot = [tot[0] + p, tot[1] + ist];
-    body += `<h2 style="font-size:14px;margin:12px 0 4px">${esc(t.name)}${t.company ? ' <span class="muted">· ' + esc(t.company) + '</span>' : ''}</h2><table><thead><tr><th>Datum</th><th>VA</th><th>Plan</th><th>Ist</th><th class="r">Pause</th><th class="r">Plan h</th><th class="r">Ist h</th><th>Anmerkung</th></tr></thead>
-      <tbody>${rows}<tr><td colspan="5"><b>Summe ${l.length} Einsätze</b></td><td class="r"><b>${n(p)}</b></td><td class="r"><b>${n(ist)}</b></td><td></td></tr></tbody></table>`;
+    body += `<h2 style="font-size:14px;margin:12px 0 4px${body && !only ? ';break-before:page' : ''}">${esc(t.name)}${t.company ? ' <span class="muted">· ' + esc(t.company) + '</span>' : ''}</h2><table><thead><tr><th>Datum</th><th>VA</th><th>Plan</th><th>Ist</th><th class="r">Pause</th><th class="r">Plan h</th><th class="r">Ist h</th><th>Anmerkung</th></tr></thead>
+      <tbody>${rows}<tr><td colspan="5"><b>Summe ${l.length} Einsätze</b></td><td class="r"><b>${n(p)}</b></td><td class="r"><b>${n(ist)}</b></td><td></td></tr></tbody></table>${only ? `<table style="margin-top:46px;border:0"><tr><td style="border:0;border-top:1px solid #1c1f24;width:45%">Datum, Unterschrift Techniker</td><td style="border:0;width:10%"></td><td style="border:0;border-top:1px solid #1c1f24;width:45%">Datum, Unterschrift ${esc(CFG.senderName)}</td></tr></table>` : ''}`;
   });
-  printDoc(`KOM27 Stunden ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}`, `<h1>Medientechnik KOM27 – Stundenübersicht ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}</h1><p class="sub">${sl.length} zugesagte Einsätze · Plan ${n(tot[0])} h · bestätigt ${n(tot[1])} h (Plan = Einsatzzeit abzüglich gesetzlicher Pause)</p>${body || '<p>Keine zugesagten Einsätze.</p>'}`);
+  const one = only ? techById(only) || myTech() : null;
+  printDoc(`KOM27 Stunden ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}${one ? ' ' + one.name : ''}`, `<h1>Medientechnik KOM27 – Stundenübersicht ${MON[+month.slice(5, 7) - 1]} ${month.slice(0, 4)}</h1><p class="sub">${sl.length} zugesagte Einsätze · Plan ${n(tot[0])} h · bestätigt ${n(tot[1])} h (Plan = Einsatzzeit abzüglich gesetzlicher Pause)</p>${body || '<p>Keine zugesagten Einsätze.</p>'}`);
 }
 
 /* ---------------- Projektleiter (Techniker mit eigenem Chef) ---------------- */
@@ -2579,6 +2646,7 @@ function renderTech() {
         <div class="kpi"><b>${String(Math.round(monH * 10) / 10).replace('.', ',')}</b><span>Std. im ${MON[+mon.slice(5, 7) - 1]}</span></div>
         ${toLog.length ? `<a href="#timeSec" class="kpi warn"><b>${toLog.length}</b><span>Arbeitszeit eintragen</span></a>` : `<div class="kpi"><b>✓</b><span>Zeiten vollständig</span></div>`}
       </div>
+      <div class="mypdf"><span>🖨 Stunden-PDF</span>${[addDays(mon + '-01', -1).slice(0, 7), mon].map((x) => `<button class="chip" data-mypdf="${x}">${MON[+x.slice(5, 7) - 1]}</button>`).join('')}</div>
     </section>
     <div class="dash"><div class="dash-main">
     ${todayCard(t) || nextCard(t)}
@@ -2810,6 +2878,7 @@ async function liveRefresh() {
 // offene Aufbauliste live nachziehen, wenn jemand anderes etwas abhakt
 function syncSheetChecks() {
   const s = S.sheetSlot; const box = document.getElementById('sheet'); if (!s || !box) return;
+  const hl = box.querySelector('#hoList'); if (hl) { hl.innerHTML = notesListHtml(s); const n = notesOf(s).length; const h = box.querySelector('.ho-h'); if (h) h.innerHTML = `🤝 Übergabe${n ? ` <span class="ho-n">${n}</span>` : ''}`; }
   const rows = doneRows(s);
   box.querySelectorAll('[data-chk]').forEach((c) => {
     const r = rows.find((x) => x.item_id === c.dataset.chk); const on = !!r;
@@ -2824,7 +2893,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

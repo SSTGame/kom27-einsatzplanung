@@ -1,0 +1,156 @@
+/* =====================================================================
+   KOM27 Einsatzplanung – „Apple-Stil“
+   Systemschrift (San Francisco auf Apple-Geräten), gruppierte Karten ohne Rahmen,
+   weiche Schatten, Milchglas-Leisten, große runde Ecken, Systemfarben.
+   Liegt über style.css + theme.css.
+   ===================================================================== */
+:root, :root[data-theme="light"] {
+  --bg: #f2f2f7; --panel: #ffffff; --panel-2: #f2f2f7; --ink: #1c1c1e; --muted: #636366; --line: #e5e5ea; --line-strong: #c7c7cc;
+  --accent: #0071e3; --accent-ink: #ffffff;
+  --accent-text: #0058b8; --st-geplant: #636366; --st-angefragt: #0058b8; --st-zugesagt: #17692c; --st-abgesagt: #d70015; --st-leer: #a34a00;
+  --f-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --f-num: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --r-lg: 22px; --r-md: 16px; --r-sm: 12px; --radius: 16px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px -12px rgba(0, 0, 0, .12);
+  --shadow-float: 0 20px 50px -18px rgba(0, 0, 0, .35), 0 2px 8px rgba(0, 0, 0, .08);
+  --glass: rgba(255, 255, 255, .72);
+  --fill: rgba(120, 120, 128, .12); --fill-2: rgba(120, 120, 128, .2);
+}
+:root[data-theme="dark"] {
+  --bg: #000000; --panel: #1c1c1e; --panel-2: #2c2c2e; --ink: #f5f5f7; --muted: #a1a1a6; --line: #38383a; --line-strong: #48484a;
+  --accent: #4aa3ff; --accent-ink: #001429; --accent-text: #6cb4ff;
+  --st-geplant: #a1a1a6; --st-angefragt: #5eb0ff; --st-zugesagt: #32d158; --st-abgesagt: #ff6961; --st-leer: #ffb340;
+  --free: #101012;
+  --shadow-card: 0 0 0 1px rgba(255, 255, 255, .06);
+  --shadow-float: 0 24px 60px -16px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 255, 255, .08);
+  --glass: rgba(28, 28, 30, .72);
+  --fill: rgba(120, 120, 128, .24); --fill-2: rgba(120, 120, 128, .36);
+}
+
+/* ---------- Schrift ---------- */
+body { font-family: var(--f-ui); font-size: 16px; line-height: 1.47; letter-spacing: -.01em; background: var(--bg); color: var(--ink); }
+h1, h2, h3, .hello h1, .kb-head h1, .login h1, .brand, .week, .td-time, .jc-time b, .kpi b, .sumbox b, .ov-n, .clock b, .hp-head b, .hp-n {
+  font-family: var(--f-num); font-stretch: 100%; letter-spacing: -.022em;
+}
+.hello h1 { font-size: 32px; font-weight: 700; letter-spacing: -.03em; }
+h2.sec { font-size: 21px; font-weight: 700; }
+h3 { font-size: 17px; font-weight: 600; }
+.brand { font-weight: 700; font-size: 17px; }
+.td-time { font-weight: 700; letter-spacing: -.035em; }
+.muted, .note, small { letter-spacing: 0; }
+.week { background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 14px 6px 6px; }
+
+/* ---------- Karten: gruppiert, ohne Rahmen, weicher Schatten ---------- */
+.card, .job-card, .dpanel, .kr, .ov, .kpi, .sumbox, .tnext, .time-card, .offer-card, .calcard, .zs, .mcal, .cw-card, .hcard, .importline, .lg-card, .mi, .kb-entry {
+  border: 0 !important; border-radius: var(--r-lg); background: var(--panel); box-shadow: var(--shadow-card);
+}
+.room, .kom-slot, .mini-line, .bl-item, .dbox, .hint, .np-row, .kn-row { border-radius: var(--r-md); }
+.dbox, .hint { background: var(--fill); border: 0; }
+.np-row { border: 0; background: var(--fill); }
+.job-card.is-today, .kom-day.is-today { box-shadow: var(--shadow-card), inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent) !important; }
+.mi.new { box-shadow: var(--shadow-card), inset 3px 0 0 var(--accent); }
+
+/* ---------- Leisten aus Milchglas ---------- */
+header.top { background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid var(--line); box-shadow: none; }
+@media (min-width: 1100px) { body.is-master header.top { background: var(--glass); border-right: .5px solid var(--line); border-bottom: 0; } }
+nav.tabs, .mine .viewtabs { background: var(--glass) !important; -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px); border: .5px solid var(--line) !important; box-shadow: var(--shadow-float); }
+nav.tabs button, .viewtabs button { color: var(--muted); font-weight: 600; letter-spacing: -.01em; }
+nav.tabs button.on, .viewtabs button.on, .mine .viewtabs button.on { color: var(--accent-text) !important; background: color-mix(in srgb, var(--accent) 13%, transparent) !important; }
+nav.tabs button.on *, .viewtabs button.on * { color: inherit; }
+@media (min-width: 1100px) {
+  body.is-master nav.tabs { background: transparent !important; border: 0 !important; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  body.is-master nav.tabs button { border-radius: 10px; color: var(--ink); font-weight: 500; }
+  body.is-master nav.tabs button.on { background: var(--fill-2) !important; color: var(--ink) !important; font-weight: 600; }
+  .is-dash .viewtabs { background: var(--fill) !important; border: 0 !important; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 2px; border-radius: 11px; }
+  .is-dash .viewtabs button { border-radius: 9px; color: var(--ink); font-weight: 500; }
+  .is-dash .viewtabs button.on { background: var(--panel) !important; color: var(--ink) !important; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 0 0 .5px rgba(0, 0, 0, .04); }
+}
+@media (min-width: 1100px) { :root[data-theme="dark"] .is-dash .viewtabs button.on { background: #636366 !important; } }
+
+/* ---------- Knöpfe ---------- */
+.btn { border: 0; border-radius: 12px; background: var(--fill); color: var(--accent); font-weight: 600; letter-spacing: -.01em; box-shadow: none; transition: transform .12s ease, opacity .12s ease, background-color .15s ease; }
+.btn { color: var(--accent-text); }
+.btn:hover { background: var(--fill-2); border: 0; }
+.btn:active, .big:active, .chip:active, .hp-t:active, .np-row:active, .kn-row:active { transform: scale(.97); opacity: .85; }
+.btn.primary, .big.primary, .big.td-go { background: var(--accent); color: var(--accent-ink) !important; border: 0; }
+.btn.primary:hover { background: var(--accent); filter: brightness(1.08); }
+.btn[disabled] { opacity: .4; }
+.big { border-radius: 14px; font-weight: 600; border: 0; }
+.big.yes { background: var(--st-zugesagt); color: #fff; }
+:root[data-theme="dark"] .big.yes { color: #00210a; }
+.big.no { background: color-mix(in srgb, var(--st-abgesagt) 12%, transparent); color: var(--st-abgesagt); border: 0; }
+.big.ghost { background: var(--fill); color: var(--ink); border: 0; }
+.linkbtn, a, .jc-detail, .jc-more { color: var(--accent-text); }
+.legal-links a, .legal-links .linkbtn { color: var(--muted) !important; }
+.theme-tg, .bell { border: 0; background: var(--fill); color: var(--ink); }
+#logout { border: 0; background: var(--fill); color: var(--ink); }
+
+/* ---------- Umschalter wie auf dem iPhone ---------- */
+.seg { background: var(--fill); border: 0; border-radius: 11px; padding: 2px; gap: 0; }
+.seg button { border-radius: 9px; color: var(--ink); font-weight: 500; background: transparent; border: 0; }
+.seg button.on { background: var(--panel); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 0 0 .5px rgba(0, 0, 0, .04); }
+:root[data-theme="dark"] .seg button.on { background: #636366; }
+.chip { border: 0; background: var(--fill); color: var(--ink); border-radius: 999px; font-weight: 500; }
+.chip.on { background: var(--ink); color: var(--bg); }
+.chip b { opacity: .7; }
+
+/* ---------- Eingabefelder: gefüllt, ohne Rahmen ---------- */
+input[type=text], input[type=email], input[type=password], input[type=date], input[type=time], input[type=search], input[type=number], select, textarea {
+  background: var(--fill); border: 0; border-radius: 12px; color: var(--ink); font-size: 16px; box-shadow: none;
+}
+input:focus, select:focus, textarea:focus { outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+
+/* ---------- Status ---------- */
+.pill { border-radius: 999px; border: 0; font-weight: 600; }
+.pill.zugesagt, .pill.st-zugesagt { background: color-mix(in srgb, var(--st-zugesagt) 14%, transparent); color: var(--st-zugesagt); }
+.pill.angefragt, .pill.st-angefragt { background: color-mix(in srgb, var(--st-angefragt) 14%, transparent); color: var(--st-angefragt); }
+.pill.geplant, .pill.st-geplant { background: var(--fill); color: var(--st-geplant); }
+.pill.abgesagt, .pill.st-abgesagt { background: color-mix(in srgb, var(--st-abgesagt) 14%, transparent); color: var(--st-abgesagt); }
+.vt-badge, .bell b, .sec-n { background: #d70015; color: #fff !important; }
+.allgood { border: 0; border-radius: var(--r-lg); }
+
+/* ---------- Heute-Karte ---------- */
+.tcard { border-radius: 26px !important; border: 0 !important; box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--accent) 60%, transparent) !important; background: linear-gradient(160deg, #1a8cff 0%, #0064d1 55%, #4b3fd6 120%) !important; }
+:root[data-theme="dark"] .tcard { background: linear-gradient(160deg, #0a68c9 0%, #0a4ea0 55%, #3a30a8 120%) !important; }
+.tcard .td-go { background: #fff !important; color: #0058b8 !important; border-radius: 14px; }
+.tcard .td-tag { border-radius: 999px; }
+
+/* ---------- Fenster von unten (Sheet) ---------- */
+.sheet-bg { background: rgba(0, 0, 0, .32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.sheet { border-radius: 26px 26px 0 0; border: 0; box-shadow: var(--shadow-float); background: var(--panel); }
+.sheet::before { content: ''; display: block; width: 38px; height: 5px; border-radius: 3px; background: var(--line-strong); margin: 8px auto 2px; }
+@media (min-width: 700px) { .sheet { border-radius: 26px; } .sheet::before { display: none; } }
+.stmenu, .gmenu { border: 0; border-radius: 16px; background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px); box-shadow: var(--shadow-float); }
+#toast { border-radius: 999px; background: color-mix(in srgb, var(--ink) 88%, transparent); color: var(--bg); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font-weight: 600; }
+.privbar { border-radius: 20px; }
+
+/* ---------- Listen: feine Trennlinien statt Kästen ---------- */
+.check li { border-color: var(--line); }
+.room { background: var(--fill); border: 0; }
+.kn-row { border: 0; background: transparent; }
+.kn-row + .kn-row { box-shadow: inset 0 .5px 0 var(--line); border-radius: 0; }
+table.grid th, table.grid td, .kr-grid th, .kr-grid td { border-color: var(--line); }
+
+/* ---------- Hausplan ---------- */
+.hp { --hp-pam: #17692c; --hp-open: #a34a00; --hp-no: #0058b8; --hp-bg: var(--panel-2); --hp-card: var(--panel); --hp-ink: var(--ink); --hp-head: #0064d1; }
+:root[data-theme="dark"] .hp { --hp-pam: #32d158; --hp-open: #ff9f0a; --hp-no: #4aa3ff; --hp-bg: #101012; --hp-card: #1c1c1e; --hp-head: #0a4ea0; }
+.hp-panel { border-radius: 24px; box-shadow: var(--shadow-card); }
+.hp-head { background: linear-gradient(160deg, #1a8cff, #0064d1 70%); }
+:root[data-theme="dark"] .hp-head { background: linear-gradient(160deg, #0a68c9, #0a4ea0 70%); }
+.hp-t { border-radius: 16px; }
+.hp-sem, .hp-foot { border-radius: 16px; }
+
+/* ---------- Bewegung ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .sheet { animation: apSheet .38s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes apSheet { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+
+.hp-sum b { color: var(--ink); }
+.jc-detail { background: color-mix(in srgb, var(--accent) 9%, transparent); border: 0; border-radius: 12px; }
+@media (min-width: 701px) and (max-width: 1099px) { body.is-master nav.tabs button { font-size: 14px; padding-left: 9px; padding-right: 9px; } body.is-master .top-inner { gap: 8px; } }
+.ab-add summary, details.more summary, .jc-equip summary { color: var(--accent-text); }
+@media (max-width: 1099px) { .dpanel { padding: 16px 18px; margin-top: 16px; } .dpanel > h2.sec:first-child { margin-top: 0; } }
+.cal-range summary { color: var(--accent-text); }

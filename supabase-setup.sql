@@ -521,3 +521,20 @@ create policy ed_upd on public.equip_done for update to authenticated using (can
 drop policy if exists ed_del on public.equip_done;
 create policy ed_del on public.equip_done for delete to authenticated using (can_check_equip(scope));
 do $$ begin alter publication supabase_realtime add table public.equip_done; exception when others then null; end $$;
+
+-- v21: Übergabe-Notizen je Veranstaltung (Tag + VA), für die nächste Schicht und das KOM27
+create table if not exists public.handover_notes (
+  id bigint generated always as identity primary key,
+  scope text not null, body text not null check (char_length(body) between 1 and 600),
+  author text not null default '', author_email text not null default lower(coalesce(auth.jwt() ->> 'email', '')),
+  created_at timestamptz not null default now()
+);
+create index if not exists handover_notes_scope on public.handover_notes (scope);
+alter table public.handover_notes enable row level security;
+drop policy if exists hn_read on public.handover_notes;
+create policy hn_read on public.handover_notes for select to authenticated using (is_admin() or is_viewer() or my_tech_id() is not null or exists (select 1 from my_managed_ids()));
+drop policy if exists hn_ins on public.handover_notes;
+create policy hn_ins on public.handover_notes for insert to authenticated with check (can_check_equip(scope) and author_email = lower(coalesce(auth.jwt() ->> 'email', '')));
+drop policy if exists hn_del on public.handover_notes;
+create policy hn_del on public.handover_notes for delete to authenticated using (is_admin() or author_email = lower(coalesce(auth.jwt() ->> 'email', '')));
+do $$ begin alter publication supabase_realtime add table public.handover_notes; exception when others then null; end $$;

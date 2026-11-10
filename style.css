@@ -626,3 +626,37 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
   .is-master nav.tabs{display:grid !important;grid-template-columns:repeat(5,1fr)}
   .is-master nav.tabs button span{white-space:nowrap}
 }
+
+/* ---------- Übergabe-Notizen ---------- */
+.ho-h { display: flex; align-items: center; gap: 8px; }
+.ho-n { background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; border-radius: 99px; padding: 1px 8px; }
+.ho-list { display: grid; gap: 8px; margin-bottom: 10px; }
+.ho-item { background: #fff7e0; border-left: 4px solid #e0a100; border-radius: 10px; padding: 10px 12px; color: #2b2200; }
+.ho-item.other { background: var(--panel-2, #f2f4f7); border-left-color: var(--line-strong, #c7c7cc); color: var(--ink); }
+.ho-body { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.ho-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 12.5px; opacity: .85; }
+.ho-del { margin-left: auto; background: none; border: 0; color: inherit; text-decoration: underline; font-size: 12.5px; padding: 6px 2px; cursor: pointer; }
+.ho-new { display: grid; gap: 8px; margin-bottom: 6px; }
+.ho-new textarea { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: vertical; min-height: 64px; }
+.ho-new .btn { justify-self: start; min-height: 44px; }
+:root[data-theme="dark"] .ho-item { background: #3a2f0a; color: #ffeebb; border-left-color: #e0a100; }
+:root[data-theme="dark"] .ho-item.other { background: var(--panel-2); color: var(--ink); }
+/* ---------- Stunden-PDF ---------- */
+.h-foot { padding: 10px 12px 12px; }
+.mypdf { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; color: var(--muted); }
+.mypdf .chip { min-height: 40px; padding: 6px 14px; white-space: nowrap; }
+/* ---------- Suche im Master ---------- */
+.msearch { position: relative; flex: 1 1 220px; max-width: 340px; }
+.msearch input { width: 100%; font: inherit; font-size: 15px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); min-height: 38px; }
+.ms-res { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: min(460px, 92vw); max-height: 60vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 34px rgba(0,0,0,.18); padding: 6px; }
+.ms-res.hidden { display: none; }
+.ms-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-radius: 10px; padding: 9px 10px; color: var(--ink); font: inherit; cursor: pointer; }
+.ms-row:hover, .ms-row:focus-visible { background: var(--panel-2, #f2f4f7); }
+.ms-row.past { opacity: .7; }
+.ms-d { flex: 0 0 76px; font-weight: 700; font-size: 13.5px; }
+.ms-m { flex: 1; min-width: 0; display: grid; }
+.ms-m b { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-m small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-o { background: #c27c00; color: #fff; font-size: 12px; font-weight: 700; border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
+.ms-none { padding: 12px; color: var(--muted); font-size: 14px; }
+@media (max-width: 700px) { .msearch { flex-basis: 100%; max-width: none; } .ms-res { width: 100%; } }

@@ -134,14 +134,23 @@
         if (m) { if (s._va && s._va !== m._va) m.also = (m.also || []).concat(s._va); return; }
         merged.push(Object.assign({}, s, { also: [] }));
       });
-      // Mehr Zeilen als „Anzahl“: überzählige Zeilen ohne Namen sind parallele VAs desselben Einsatzes
+      // Spalte „Anzahl PAM“ gibt vor, wie viele Techniker der Tag braucht – die Namen in der Excel sind nur Vorschläge
       if (d.anzahl && merged.length > d.anzahl) {
+        const fold = (x) => { const tgt = merged.find((y) => (y.zeit || '') === (x.zeit || '')) || merged[0];
+          if (tgt && x._va && x._va !== tgt._va) tgt.also = tgt.also.concat(x._va);
+          if (tgt && x.name && !String(tgt.auch || '').includes(x.name)) tgt.auch = [...(tgt.auch ? [tgt.auch] : []), x.name].join(', '); };
+        // 1. Zeilen ohne Namen (parallele VAs desselben Einsatzes)
         for (let i = merged.length - 1; i >= 0 && merged.length > d.anzahl; i--) {
           if (merged[i].name) continue;
-          const [x] = merged.splice(i, 1);
-          const tgt = merged.find((y) => y.zeit === x.zeit) || merged[0];
-          if (tgt && x._va && x._va !== tgt._va) tgt.also = tgt.also.concat(x._va);
+          fold(merged.splice(i, 1)[0]);
         }
+        // 2. weitere Namen zur selben Uhrzeit – ein Platz je Uhrzeit
+        for (let i = merged.length - 1; i >= 1 && merged.length > d.anzahl; i--) {
+          if (!merged.some((y, j) => j < i && (y.zeit || '') === (merged[i].zeit || ''))) continue;
+          fold(merged.splice(i, 1)[0]);
+        }
+        // 3. immer noch mehr Namen als gewünscht: von unten kürzen
+        while (merged.length > d.anzahl) fold(merged.splice(merged.length - 1, 1)[0]);
       }
       slotRows.length = 0; merged.forEach((s) => slotRows.push(s));
       // Fehlende Plätze bis "Anzahl" auffüllen
@@ -165,7 +174,7 @@
         if (!color && va && prev) { const p = prev.slots.find((x) => x.va === va && x.color); if (p) color = p.color; }
         const vk = va || '-';
         const n = day.slots.filter((x) => (x.va || '-') === vk).length;
-        day.slots.push({ key: d.date + '#' + vk + '#' + n, date: d.date, idx, zeit: s.zeit, excelName: s.name, note: s.note || '', va: va, also: [...new Set((s.also || []).filter((x) => x && x !== va))], color: color || null, label: s.va || '',
+        day.slots.push({ key: d.date + '#' + vk + '#' + n, date: d.date, idx, zeit: s.zeit, excelName: s.name, excelAlso: s.auch || '', note: s.note || '', va: va, also: [...new Set((s.also || []).filter((x) => x && x !== va))], color: color || null, label: s.va || '',
           det: { buch: s.buch || '', einlass: s.einlass || '', vazeit: s.vazeit || '', rooms: s.rooms || [], extras: s.extras || [] } });
       });
       day.vaIds = [...new Set(d.rows.map((r) => r._va).filter(Boolean))];
@@ -214,6 +223,6 @@
     return { importedAt: new Date().toISOString(), days };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 4 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 5 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

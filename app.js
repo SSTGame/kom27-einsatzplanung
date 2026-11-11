@@ -1024,7 +1024,7 @@ function renderPlan() {
             ${off ? `<div class="offer-box"><span>📣 ausgeschrieben${ints.length ? '' : ' – noch keine Meldung'}</span>${ints.map((i) => { const it = techById(i.tech_id); return it ? `<button class="take" data-take="${esc(s.key)}" data-tid="${it.id}" title="${esc(it.name)} einteilen (gilt als zugesagt)">🙋 ${esc(it.name.split(' ')[0])} einteilen</button>` : ''; }).join('')}<button class="linkbtn" data-unoffer="${esc(s.key)}">zurückziehen</button></div>` : ''}
             ${t && a.status === 'zugesagt' && a.tech_reply === 'absage_wunsch' ? `<div class="hint warn cw">🙋 ${esc(t.name.split(' ')[0])} möchte absagen${a.tech_reply_note ? ': „' + esc(a.tech_reply_note) + '“' : ''} – <b>unter „Anfragen“ entscheiden</b></div>` : ''}
             ${t && unavOf(t.id, d.date) ? `<div class="hint warn">⛔ ${esc(t.name.split(' ')[0])} hat sich abgemeldet${unavOf(t.id, d.date).note ? ': ' + esc(unavOf(t.id, d.date).note) : ''}</div>` : ''}
-            ${excelDiff ? `<div class="hint" title="So steht es in der KOM27-Excel">Excel: ${esc(s.excelName)}</div>` : ''}
+            ${excelDiff || s.excelAlso ? `<div class="hint" title="So steht es in der KOM27-Excel">Excel: ${esc([s.excelName, s.excelAlso].filter(Boolean).join(', ') || '–')}</div>` : ''}
           </div>`;
         }).join('')}</div>
       </div>`;

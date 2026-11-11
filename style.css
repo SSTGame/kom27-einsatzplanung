@@ -660,3 +660,21 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .ms-o { background: #c27c00; color: #fff; font-size: 12px; font-weight: 700; border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
 .ms-none { padding: 12px; color: var(--muted); font-size: 14px; }
 @media (max-width: 700px) { .msearch { flex-basis: 100%; max-width: none; } .ms-res { width: 100%; } }
+
+/* ---------- Erinnerungen (Gong, Recording) ---------- */
+.al-h { display: flex; align-items: center; gap: 8px; }
+.al-list { display: grid; gap: 6px; margin-bottom: 8px; }
+.al-item { display: flex; align-items: center; gap: 10px; background: var(--panel-2, #f2f4f7); border-radius: 10px; padding: 8px 10px; }
+.al-t { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 17px; min-width: 52px; }
+.al-l { display: grid; min-width: 0; flex: 1; }
+.al-l b { font-size: 15px; overflow-wrap: anywhere; }
+.al-l small { color: var(--muted); font-size: 12.5px; }
+.al-x { background: none; border: 0; color: var(--muted); font-size: 17px; min-width: 40px; min-height: 40px; cursor: pointer; }
+.al-sug { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.al-sug .chip { min-height: 40px; }
+.al-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.al-new input, .al-new select { font: inherit; font-size: 16px; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); min-height: 44px; }
+.al-new #alTime { width: 118px; }
+.al-new #alLabel { flex: 1 1 140px; min-width: 0; }
+.al-new .btn { min-height: 44px; }
+.al-hint { margin: 6px 0 2px; }

@@ -39,6 +39,8 @@ const DemoStore = {
   async deleteMessage(id) { const d = this.d(); d.messages = (d.messages || []).filter((x) => x.id !== id); this.w(d); },
   async addNote(scope, body, by) { const d = this.d(); d.notes = (d.notes || []).concat([{ id: Date.now(), scope, body, author: by, author_email: ls.get(this.U) || '', created_at: nowISO() }]); this.w(d); },
   async delNote(id) { const d = this.d(); d.notes = (d.notes || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
+  async addAlarm(row) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => !(x.scope === row.scope && x.at_time === row.at_time && x.label === row.label)).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sent_at: null, auto: false, author_email: ls.get(this.U) || '' }, row)]); this.w(d); },
+  async delAlarm(id) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
   async setDone(scope, item_id, on, by) { const d = this.d(); d.done = (d.done || []).filter((x) => !(x.scope === scope && x.item_id === item_id)); if (on) d.done.push({ scope, item_id, done_by: by, done_at: nowISO() }); this.w(d); },
   async loadAll() {
     const d = this.d(); const me = (d.techs || []).find((t) => (t.email || '').toLowerCase() === ls.get(this.U));
@@ -48,7 +50,7 @@ const DemoStore = {
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
     const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
     const msgs = (d.messages || []).filter((x) => x.to_all || isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [],
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [], alarms: d.alarms || [],
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -119,6 +121,8 @@ function makeSupabaseStore() {
     async deleteMessage(id) { chk(await sb.from('messages').delete().eq('id', id)); },
     async addNote(scope, body, by) { chk(await sb.from('handover_notes').insert({ scope, body, author: by })); },
     async delNote(id) { chk(await sb.from('handover_notes').delete().eq('id', id)); },
+    async addAlarm(row) { chk(await sb.from('alarms').upsert(row, { onConflict: 'scope,at_time,label' })); },
+    async delAlarm(id) { chk(await sb.from('alarms').delete().eq('id', id)); },
     async setDone(scope, item_id, on, by) { if (on) chk(await sb.from('equip_done').upsert({ scope, item_id, done_by: by, done_at: nowISO() })); else chk(await sb.from('equip_done').delete().eq('scope', scope).eq('item_id', item_id)); },
     async loadAll() {
       const [p, t, a] = await Promise.all([sb.from('plan').select('data').eq('id', 1).maybeSingle(), sb.from('technicians').select('*').order('name'), sb.from('assignments').select('*')]);
@@ -132,8 +136,9 @@ function makeSupabaseStore() {
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
       const dn = await sb.from('equip_done').select('*').gte('scope', addDays(todayISO(), -14)); // abgehakte Aufbau-Punkte (gemeinsam)
+      const al = await sb.from('alarms').select('*').gte('scope', addDays(todayISO(), -2)).order('at_time'); // Erinnerungen (Gong, Recording)
       const hn = await sb.from('handover_notes').select('*').gte('scope', addDays(todayISO(), -21)).order('created_at'); // Übergabe-Notizen (fehlt die Tabelle: leer)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data };
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data, alarms: al.error ? [] : al.data };
     },
     async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
@@ -171,7 +176,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -1567,6 +1572,53 @@ const doneRows = (s) => (S.done || []).filter((x) => x.scope === doneScope(s));
 const doneOf = (s) => new Set(doneRows(s).map((x) => x.item_id));
 const canCheck = (s) => !S.roOpen && !S.mgrMode && !S.preview && !s.nopam && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
 const canNote = (s) => !S.roOpen && !S.mgrMode && !S.preview && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
+/* ---------------- Erinnerungen: Gong-Zeiten und Recording ---------------- */
+const LEADS = [[5, '5 Min vorher'], [10, '10 Min vorher'], [15, '15 Min vorher'], [0, 'pünktlich']];
+const alarmsOf = (s) => (S.alarms || []).filter((a) => a.scope === doneScope(s)).sort((x, y) => x.at_time.localeCompare(y.at_time));
+const hhmm = (t) => { const m = String(t || '').match(/(\d{1,2})[.:](\d{2})/); return m ? String(+m[1]).padStart(2, '0') + ':' + m[2] : ''; };
+// Recording im Excel-Text: Zeit raussuchen, sonst Veranstaltungsbeginn
+function recordingHints(s) {
+  const det = s.det || {}; const txt = [(det.rooms || []).map((r) => r.join(': ')).join(' · '), s.day && s.day.info, det.hinweis, det.ablauf].filter(Boolean).join(' · ');
+  const out = [];
+  String(txt).split(/\s*·\s*|\n/).forEach((part) => {
+    if (!/record|aufzeichn|mitschnitt|stream/i.test(part)) return;
+    const t = hhmm((part.match(/(\d{1,2}[.:]\d{2})/) || [])[1]) || hhmm(det.vazeit || (s.day || {}).vazeit || s.zeit);
+    if (t && !out.some((o) => o.at_time === t)) out.push({ at_time: t, label: /stream/i.test(part) ? 'Stream' : 'Recording' });
+  });
+  return out;
+}
+function alarmsHtml(s) {
+  const l = alarmsOf(s); const can = canNote(s); const me = ((S.user || {}).email || '').toLowerCase();
+  const sug = recordingHints(s).filter((h) => !l.some((a) => a.at_time === h.at_time && a.label === h.label));
+  if (!l.length && !can && !sug.length) return '';
+  const row = (a) => `<div class="al-item"><span class="al-t">${esc(a.at_time)}</span><span class="al-l"><b>${esc(a.label)}</b><small>${a.lead_min ? a.lead_min + ' Min vorher' : 'pünktlich'} · ${a.auto ? 'aus der Excel' : esc(a.author || '–')}</small></span>${(S.admin || a.auto || (a.author_email || '').toLowerCase() === me) && can ? `<button class="al-x" data-aldel="${esc(String(a.id))}" aria-label="Erinnerung löschen">✕</button>` : ''}</div>`;
+  return `<h3 class="al-h">⏰ Erinnerungen${l.length ? ` <span class="ho-n">${l.length}</span>` : ''}</h3>
+    <div class="al-list" id="alList">${l.length ? l.map(row).join('') : '<p class="muted small">Noch keine Erinnerung. Trag Gong-Zeiten oder andere Punkte ein – alle im Einsatz bekommen sie aufs Handy.</p>'}</div>
+    ${can && sug.length ? `<div class="al-sug">${sug.map((h) => `<button class="chip" data-alsug="${esc(h.at_time + '|' + h.label)}">⏰ ${esc(h.label)} ${esc(h.at_time)} – erinnern</button>`).join('')}</div>` : ''}
+    ${can ? `<div class="al-new"><input type="time" id="alTime" aria-label="Uhrzeit"><input type="text" id="alLabel" maxlength="60" placeholder="z. B. Gong 1" aria-label="Text"><select id="alLead" aria-label="Vorlauf">${LEADS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select><button class="btn primary" id="alSave">Eintragen</button></div>
+    <p class="muted small al-hint">Geht an alle, die an dem Tag eingeteilt sind, und an das KOM27.</p>` : ''}`;
+}
+function wireAlarms(box, s) {
+  const list = box.querySelector('#alList'); if (!list) return;
+  const redraw = () => { const n = box.querySelector('.al-h'); const html = alarmsHtml(s); const tmp = document.createElement('div'); tmp.innerHTML = html;
+    list.innerHTML = (tmp.querySelector('#alList') || { innerHTML: '' }).innerHTML;
+    const sug = box.querySelector('.al-sug'), nsug = tmp.querySelector('.al-sug'); if (sug) sug.innerHTML = nsug ? nsug.innerHTML : '';
+    if (n) n.innerHTML = (tmp.querySelector('.al-h') || n).innerHTML; };
+  const add = async (at_time, label, lead_min) => {
+    if (!at_time || !label) return toast('Bitte Uhrzeit und Text angeben');
+    try { await store.addAlarm({ scope: doneScope(s), at_time, label, lead_min, author: myShortName() }); await reload(); redraw();
+      toast(`Erinnerung ${at_time} – ${label} ist eingetragen`); } catch (e) { toast('Eintragen hat nicht geklappt – bitte nochmal'); }
+  };
+  list.onclick = (e) => { const dl = e.target.closest('[data-aldel]'); if (!dl) return;
+    if (!confirm('Diese Erinnerung löschen?')) return;
+    const before = S.alarms; S.alarms = (S.alarms || []).filter((x) => String(x.id) !== dl.dataset.aldel); redraw();
+    store.delAlarm(dl.dataset.aldel).catch(() => { S.alarms = before; redraw(); toast('Löschen hat nicht geklappt – bitte nochmal'); }); };
+  const sgbox = box.querySelector('.al-sug');
+  if (sgbox) sgbox.onclick = (e) => { const sg = e.target.closest('[data-alsug]'); if (!sg) return; const [t, l] = sg.dataset.alsug.split('|'); sg.disabled = true; add(t, l, 5); };
+  const sv = box.querySelector('#alSave'); if (!sv) return;
+  sv.onclick = async () => { const t = box.querySelector('#alTime').value, l = box.querySelector('#alLabel').value.trim(), ld = +box.querySelector('#alLead').value;
+    sv.disabled = true; await add(t, l, ld); box.querySelector('#alLabel').value = ''; box.querySelector('#alTime').value = ''; sv.disabled = false; };
+}
 // Übergabe-Notizen: alle Tage derselben Veranstaltung (damit die nächste Schicht auch die vom Vortag sieht)
 const notesOf = (s) => (S.notes || []).filter((n) => { const i = n.scope.indexOf('#'); const va = n.scope.slice(i + 1); return s.va ? va === s.va : n.scope === doneScope(s); }).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 function notesListHtml(s) {
@@ -1746,6 +1798,7 @@ function openJob(key, list) {
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
     ${isOffer ? '' : notesHtml(s)}
+    ${isOffer ? '' : alarmsHtml(s)}
     <h3 class="eq-h">🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}${canEditEquip(s) ? `<button class="btn small eq-btn ${S.equipEdit === s.key ? 'primary' : ''}" data-eedit>${S.equipEdit === s.key ? '✓ Fertig' : '✏️ Bearbeiten'}</button>` : ''}</h3>
     ${equipHtml(s)}
     ${old ? `<p class="muted small">Tipp für ${esc(CFG.senderName)}: Excel einmal neu einlesen, dann erscheint hier die Liste Punkt für Punkt.</p>` : S.mgrMode ? '' : `<p class="muted small">${canCheck(s) ? 'Abgehakte Punkte sehen alle im Team sofort – auch das KOM27.' : 'Abgehakt wird vom Team vor Ort – hier siehst du den Stand.'}</p>`}
@@ -1775,6 +1828,7 @@ function openJob(key, list) {
   box.querySelector('[data-close]').onclick = close;
   box.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => openJob(b.dataset.jump)));
   wireNotes(box, s);
+  wireAlarms(box, s);
   box.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => {
     const id = c.dataset.chk, on = c.checked, sc = doneScope(s), who = myShortName();
     const before = (S.done || []).slice();
@@ -2100,7 +2154,9 @@ function todayCard(t) {
   else { state = 'Geschafft 👍'; cls = 'tc-done'; }
   const rooms = roomsOfSlot(s);
   const items = equipList(s);
-  const nDone = doneOf(s).size;
+  const chkItems = items.filter((x) => !x.note); // Anmerkungen sind keine abhakbaren Punkte
+  const dn = doneOf(s);
+  const nDone = chkItems.filter((x) => dn.has(x.id)).length;
   const hints = items.filter((i) => /probe|achtung|wichtig|signal|!/i.test(i.t) && i.t.length < 90).slice(0, 3);
   const coll = colleaguesOf(s).filter((c) => c.status === 'zugesagt');
   const kom = s.day.kom || [];
@@ -2111,7 +2167,7 @@ function todayCard(t) {
     <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}${det.einlass ? ' · Einlass ' + esc(det.einlass) : ''}</div>
     ${hints.map((i) => `<div class="td-hint">⚠️ ${esc(i.t)}</div>`).join('')}
     <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
-    <button class="big td-go" data-open="${esc(s.key)}">🛠 Aufbauliste & Details${items.length ? ` <small>${nDone}/${items.length} erledigt</small>` : ''}</button>
+    <button class="big td-go" data-open="${esc(s.key)}">🛠 Aufbauliste & Details${chkItems.length ? ` <small>${nDone}/${chkItems.length} erledigt</small>` : ''}</button>
     <div class="td-more">
       ${needTime ? `<button class="td-link" data-gotime>⏱ Arbeitszeit eintragen</button>` : ''}
       <button class="td-link" data-gokb>📘 KOM27-Infos</button>
@@ -2878,6 +2934,7 @@ async function liveRefresh() {
 // offene Aufbauliste live nachziehen, wenn jemand anderes etwas abhakt
 function syncSheetChecks() {
   const s = S.sheetSlot; const box = document.getElementById('sheet'); if (!s || !box) return;
+  const al = box.querySelector('#alList'); if (al) { const tmp = document.createElement('div'); tmp.innerHTML = alarmsHtml(s); const nl = tmp.querySelector('#alList'); if (nl) al.innerHTML = nl.innerHTML; }
   const hl = box.querySelector('#hoList'); if (hl) { hl.innerHTML = notesListHtml(s); const n = notesOf(s).length; const h = box.querySelector('.ho-h'); if (h) h.innerHTML = `🤝 Übergabe${n ? ` <span class="ho-n">${n}</span>` : ''}`; }
   const rows = doneRows(s);
   box.querySelectorAll('[data-chk]').forEach((c) => {
@@ -2893,7 +2950,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes', 'alarms'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

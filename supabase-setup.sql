@@ -538,3 +538,27 @@ create policy hn_ins on public.handover_notes for insert to authenticated with c
 drop policy if exists hn_del on public.handover_notes;
 create policy hn_del on public.handover_notes for delete to authenticated using (is_admin() or author_email = lower(coalesce(auth.jwt() ->> 'email', '')));
 do $$ begin alter publication supabase_realtime add table public.handover_notes; exception when others then null; end $$;
+
+-- v22: Erinnerungen je Veranstaltung (Gong-Zeiten von Hand, Recording automatisch aus der Excel)
+create table if not exists public.alarms (
+  id bigint generated always as identity primary key,
+  scope text not null,
+  at_time text not null check (at_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  lead_min int not null default 5 check (lead_min between 0 and 120),
+  label text not null check (char_length(label) between 1 and 80),
+  author text not null default '', author_email text not null default lower(coalesce(auth.jwt() ->> 'email', '')),
+  auto boolean not null default false,
+  created_at timestamptz not null default now(), sent_at timestamptz
+);
+create unique index if not exists alarms_uniq on public.alarms (scope, at_time, label);
+create index if not exists alarms_scope on public.alarms (scope);
+alter table public.alarms enable row level security;
+drop policy if exists al_read on public.alarms;
+create policy al_read on public.alarms for select to authenticated using (is_admin() or is_viewer() or my_tech_id() is not null or exists (select 1 from my_managed_ids()));
+drop policy if exists al_ins on public.alarms;
+create policy al_ins on public.alarms for insert to authenticated with check (can_check_equip(scope) and author_email = lower(coalesce(auth.jwt() ->> 'email', '')));
+drop policy if exists al_upd on public.alarms;
+create policy al_upd on public.alarms for update to authenticated using (can_check_equip(scope)) with check (can_check_equip(scope));
+drop policy if exists al_del on public.alarms;
+create policy al_del on public.alarms for delete to authenticated using (is_admin() or auto or author_email = lower(coalesce(auth.jwt() ->> 'email', '')));
+do $$ begin alter publication supabase_realtime add table public.alarms; exception when others then null; end $$;

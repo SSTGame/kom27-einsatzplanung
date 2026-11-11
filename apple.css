@@ -13,7 +13,7 @@
   --r-lg: 22px; --r-md: 16px; --r-sm: 12px; --radius: 16px;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px -12px rgba(0, 0, 0, .12);
   --shadow-float: 0 20px 50px -18px rgba(0, 0, 0, .35), 0 2px 8px rgba(0, 0, 0, .08);
-  --glass: rgba(255, 255, 255, .72);
+  --glass: rgba(255, 255, 255, .88);
   --fill: rgba(120, 120, 128, .12); --fill-2: rgba(120, 120, 128, .2);
 }
 :root[data-theme="dark"] {
@@ -23,7 +23,7 @@
   --free: #101012;
   --shadow-card: 0 0 0 1px rgba(255, 255, 255, .06);
   --shadow-float: 0 24px 60px -16px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 255, 255, .08);
-  --glass: rgba(28, 28, 30, .72);
+  --glass: rgba(28, 28, 30, .9);
   --fill: rgba(120, 120, 128, .24); --fill-2: rgba(120, 120, 128, .36);
 }
 
@@ -51,9 +51,13 @@ h3 { font-size: 17px; font-weight: 600; }
 .mi.new { box-shadow: var(--shadow-card), inset 3px 0 0 var(--accent); }
 
 /* ---------- Leisten aus Milchglas ---------- */
-header.top { background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid var(--line); box-shadow: none; }
+* { -webkit-tap-highlight-color: transparent; }
+/* iOS: Leisten bekommen eine eigene Ebene, sonst schiebt sich beim schnellen Scrollen Inhalt darüber */
+.sheet-bg { transform: translateZ(0); }
+#toast, .privbar { transform: translateX(-50%) translateZ(0); }
+header.top { background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid var(--line); box-shadow: none;  transform: translateZ(0); will-change: transform; z-index: 30; }
 @media (min-width: 1100px) { body.is-master header.top { background: var(--glass); border-right: .5px solid var(--line); border-bottom: 0; } }
-nav.tabs, .mine .viewtabs { background: var(--glass) !important; -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px); border: .5px solid var(--line) !important; box-shadow: var(--shadow-float); }
+nav.tabs, .mine .viewtabs { background: var(--glass) !important; -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px); border: .5px solid var(--line) !important; box-shadow: var(--shadow-float);  transform: translateZ(0); will-change: transform; }
 nav.tabs button, .viewtabs button { color: var(--muted); font-weight: 600; letter-spacing: -.01em; }
 nav.tabs button.on, .viewtabs button.on, .mine .viewtabs button.on { color: var(--accent-text) !important; background: color-mix(in srgb, var(--accent) 13%, transparent) !important; }
 nav.tabs button.on *, .viewtabs button.on * { color: inherit; }
@@ -68,10 +72,11 @@ nav.tabs button.on *, .viewtabs button.on * { color: inherit; }
 @media (min-width: 1100px) { :root[data-theme="dark"] .is-dash .viewtabs button.on { background: #636366 !important; } }
 
 /* ---------- Knöpfe ---------- */
-.btn { border: 0; border-radius: 12px; background: var(--fill); color: var(--accent); font-weight: 600; letter-spacing: -.01em; box-shadow: none; transition: transform .12s ease, opacity .12s ease, background-color .15s ease; }
+.btn { border: 0; border-radius: 12px; background: var(--fill); color: var(--accent); font-weight: 600; letter-spacing: -.01em; box-shadow: none; transition: transform .12s ease, filter .12s ease, background-color .15s ease; }
 .btn { color: var(--accent-text); }
 .btn:hover { background: var(--fill-2); border: 0; }
-.btn:active, .big:active, .chip:active, .hp-t:active, .np-row:active, .kn-row:active { transform: scale(.97); opacity: .85; }
+.btn:active, .big:active, .chip:active, .hp-t:active, .np-row:active, .kn-row:active { transform: scale(.97); filter: brightness(.95); }
+:root[data-theme="dark"] .btn:active, :root[data-theme="dark"] .big:active, :root[data-theme="dark"] .chip:active, :root[data-theme="dark"] .hp-t:active, :root[data-theme="dark"] .np-row:active, :root[data-theme="dark"] .kn-row:active { filter: brightness(1.25); }
 .btn.primary, .big.primary, .big.td-go { background: var(--accent); color: var(--accent-ink) !important; border: 0; }
 .btn.primary:hover { background: var(--accent); filter: brightness(1.08); }
 .btn[disabled] { opacity: .4; }

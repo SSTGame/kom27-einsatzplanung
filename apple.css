@@ -55,7 +55,7 @@ h3 { font-size: 17px; font-weight: 600; }
 /* iOS: Leisten bekommen eine eigene Ebene, sonst schiebt sich beim schnellen Scrollen Inhalt darüber */
 .sheet-bg { transform: translateZ(0); }
 #toast, .privbar { transform: translateX(-50%) translateZ(0); }
-header.top { background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid var(--line); box-shadow: none;  transform: translateZ(0); will-change: transform; z-index: 30; }
+header.top { background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid var(--line); box-shadow: none;  z-index: 30; }
 @media (min-width: 1100px) { body.is-master header.top { background: var(--glass); border-right: .5px solid var(--line); border-bottom: 0; } }
 nav.tabs, .mine .viewtabs { background: var(--glass) !important; -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px); border: .5px solid var(--line) !important; box-shadow: var(--shadow-float);  transform: translateZ(0); will-change: transform; }
 nav.tabs button, .viewtabs button { color: var(--muted); font-weight: 600; letter-spacing: -.01em; }

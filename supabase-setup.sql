@@ -562,3 +562,26 @@ create policy al_upd on public.alarms for update to authenticated using (can_che
 drop policy if exists al_del on public.alarms;
 create policy al_del on public.alarms for delete to authenticated using (is_admin() or auto or author_email = lower(coalesce(auth.jwt() ->> 'email', '')));
 do $$ begin alter publication supabase_realtime add table public.alarms; exception when others then null; end $$;
+
+-- v23: Projektleiter dürfen ihre eigenen Techniker und deren Einsätze lesen und deren Zu-/Absage eintragen
+drop policy if exists tech_read on public.technicians;
+create policy tech_read on public.technicians for select to authenticated
+  using (is_admin() or id = my_tech_id() or id in (select my_managed_ids()));
+
+drop policy if exists asg_read on public.assignments;
+create policy asg_read on public.assignments for select to authenticated
+  using (is_admin() or tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
+
+create or replace function public.respond(p_slot text, p_status text, p_note text)
+ returns void language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if p_status not in ('zugesagt','abgesagt') then raise exception 'Ungültiger Status'; end if;
+  update assignments
+     set status = p_status,
+         note = coalesce(p_note, ''),
+         updated_at = now(),
+         declined = case when p_status = 'abgesagt' then array_append(declined, tech_id) else declined end
+   where slot_key = p_slot and (tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
+  if not found then raise exception 'Kein Einsatz gefunden'; end if;
+end $function$;

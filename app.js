@@ -363,10 +363,29 @@ function changesBanner() {
 function wireChanges() {
   if (!$('#chg')) return; const c = S.plan.changes;
   $('#chgHide').onclick = () => { ls.set('kom27-chg-seen', c.at); renderMaster(); };
-  if ($('#chgNotify')) $('#chgNotify').onclick = () => {
-    const by = {}; c.items.filter((i) => i.notify && i.tech_id).forEach((i) => (by[i.tech_id] = by[i.tech_id] || []).push(i.text.replace(/ · [^:]+:/, ':')));
-    Object.entries(by).forEach(([id, l]) => notify('techs', [id], 'Änderung im KOM27-Plan', l.slice(0, 3).join(' · ') + (l.length > 3 ? ' …' : ''), 'chg-' + c.at));
-    toast(`${Object.keys(by).length} Techniker per Push informiert (wer 🔔 aktiviert hat)`);
+  if ($('#chgNotify')) $('#chgNotify').onclick = async () => {
+    const by = {}, askBy = {};
+    c.items.filter((i) => i.notify && i.tech_id).forEach((i) => {
+      // wer nur eingeplant ist, wird bei einer Zeitänderung gleich mit angefragt – sonst käme eine Mitteilung zu einem Einsatz, den er in der App gar nicht sieht
+      const a = i.key && S.asg[i.key];
+      const nurGeplant = a && a.tech_id === i.tech_id && a.status === 'geplant';
+      if (nurGeplant && i.type !== 'time') return; // entfallener Einsatz, den er nie gesehen hat
+      (by[i.tech_id] = by[i.tech_id] || []).push(i.text.replace(/ · [^:]+:/, ':'));
+      if (nurGeplant) (askBy[i.tech_id] = askBy[i.tech_id] || []).push(i.key);
+    });
+    const ask = Object.values(askBy).flat();
+    if (ask.length) {
+      const ch = ask.map((k) => Object.assign({}, S.asg[k], { status: 'angefragt', requested_at: S.asg[k].requested_at || nowISO(), updated_at: nowISO() }));
+      try { await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a)); }
+      catch (e) { return toast('Anfragen konnten nicht gespeichert werden – bitte nochmal'); }
+    }
+    Object.entries(by).forEach(([id, l]) => {
+      const neu = !!askBy[id];
+      notify('techs', [id], neu ? 'Neue Einsatzanfrage KOM27' : 'Änderung im KOM27-Plan',
+        l.slice(0, 3).join(' · ') + (l.length > 3 ? ' …' : '') + (neu ? ' – bitte in der App zu- oder absagen.' : ''), 'chg-' + c.at);
+    });
+    toast(`${Object.keys(by).length} Techniker informiert${ask.length ? `, davon ${Object.keys(askBy).length} direkt angefragt` : ''}`);
+    paint();
   };
   document.querySelectorAll('[data-chgdel]').forEach((b) => (b.onclick = () => { const k = b.dataset.chgdel; const prev = S.asg[k]; optimistic(() => delete S.asg[k], () => store.deleteAssignments([k]), '#chg', () => (S.asg[k] = prev)); }));
 }

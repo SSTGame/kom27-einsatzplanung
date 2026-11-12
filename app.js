@@ -2636,6 +2636,7 @@ function renderKom() {
   const me = (S.user.email || '').split('@')[0];
   const v = S.preview ? ((S.viewers || [])[0] || { name: 'Jens' }) : (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
   const tc = komTodayCard() + komNoPamCard();
+  const wkPanel = `<section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><span class="kn-who">${d.slots.map((s) => { const k = komOf(s.key); return k ? `<i class="kw-n ${k.status}">${esc(k.name.split(' ')[0])}${k.status === 'angefragt' ? ' ?' : ''}</i>` : '<i class="kw-n offen">offen</i>'; }).join('') || '<i class="kw-n nopam">ohne PAM-Techniker</i>'}</span>${vaListOf(d).map((x) => `<small>${esc(x.rooms.join(', ') || 'Raum ?')}${x.zeit ? ' · VA ' + esc(niceTime(x.zeit)) : ''}${x.pam ? '' : ' · <em>ohne PAM</em>'}</small>`).join('')}</span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>`;
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
     <section class="hello hi-kom">
       <h1>Hallo ${esc(v && v.name ? v.name.split(' ')[0] : me)} 👋</h1>
@@ -2649,8 +2650,9 @@ function renderKom() {
     </section>
     <div class="dash kom-dash"><div class="dash-main">
     ${houseViewsHtml(today)}
+    <div class="only-m kn-mob">${wkPanel}</div>
     </div><aside class="dash-side only-d ds-today">${tc}</aside><aside class="dash-side only-d ds-week">
-      <section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><span class="kn-who">${d.slots.map((s) => { const k = komOf(s.key); return k ? `<i class="kw-n ${k.status}">${esc(k.name.split(' ')[0])}${k.status === 'angefragt' ? ' ?' : ''}</i>` : '<i class="kw-n offen">offen</i>'; }).join('') || '<i class="kw-n nopam">ohne PAM-Techniker</i>'}</span>${vaListOf(d).map((x) => `<small>${esc(x.rooms.join(', ') || 'Raum ?')}${x.zeit ? ' · VA ' + esc(niceTime(x.zeit)) : ''}${x.pam ? '' : ' · <em>ohne PAM</em>'}</small>`).join('')}</span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>
+      ${wkPanel}
     </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
   wire();

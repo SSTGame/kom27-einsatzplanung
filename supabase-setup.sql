@@ -622,3 +622,11 @@ create policy vr_read on public.va_requests for select to authenticated using (i
 drop policy if exists vr_write on public.va_requests;
 create policy vr_write on public.va_requests for all to authenticated using (is_admin() or is_viewer()) with check (is_admin() or is_viewer());
 do $$ begin alter publication supabase_realtime add table public.equip_catalog, public.va_requests; exception when others then null; end $$;
+
+-- v26/v27: Räume mit Betreuung und Buchungszeit, mehrtägige Veranstaltungen, KOM27 vor Ort
+alter table public.va_requests add column if not exists rdet jsonb not null default '{}'::jsonb;
+alter table public.va_requests add column if not exists day_to date;
+alter table public.va_requests add column if not exists kom text[] not null default '{}';
+alter table public.va_requests add column if not exists wunsch text not null default '';
+alter table public.va_requests drop constraint if exists va_requests_status_check;
+alter table public.va_requests add constraint va_requests_status_check check (status in ('entwurf','gesendet','uebernommen','abgelehnt','abgesagt'));

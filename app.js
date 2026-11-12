@@ -39,7 +39,7 @@ const DemoStore = {
   async deleteMessage(id) { const d = this.d(); d.messages = (d.messages || []).filter((x) => x.id !== id); this.w(d); },
   async addNote(scope, body, by) { const d = this.d(); d.notes = (d.notes || []).concat([{ id: Date.now(), scope, body, author: by, author_email: ls.get(this.U) || '', created_at: nowISO() }]); this.w(d); },
   async delNote(id) { const d = this.d(); d.notes = (d.notes || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
-  async saveCat(row) { const d = this.d(); d.cat = d.cat || []; const i = d.cat.findIndex((x) => (row.id && x.id === row.id) || x.name.toLowerCase() === String(row.name).toLowerCase());
+  async saveCat(row) { const d = this.d(); if (!d.cat || !d.cat.length) d.cat = DEMO_CAT.map((x, i) => Object.assign({ id: i + 1 }, x)); const i = d.cat.findIndex((x) => (row.id && x.id === row.id) || x.name.toLowerCase() === String(row.name).toLowerCase());
     if (i < 0) d.cat.push(Object.assign({ id: Date.now(), grp: 'Sonstiges', hint: '', stock: null, sort: 999, active: true }, row, { id: row.id || Date.now() })); else d.cat[i] = Object.assign({}, d.cat[i], row); this.w(d); },
   async saveVr(row) { const d = this.d(); d.vreq = d.vreq || []; const i = d.vreq.findIndex((x) => row.id && x.id === row.id);
     if (i < 0) d.vreq.push(Object.assign({}, row, { id: row.id || Date.now() })); else d.vreq[i] = Object.assign({}, d.vreq[i], row); this.w(d); },

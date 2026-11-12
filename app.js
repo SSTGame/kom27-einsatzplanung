@@ -126,8 +126,11 @@ function makeSupabaseStore() {
     async deleteMessage(id) { chk(await sb.from('messages').delete().eq('id', id)); },
     async addNote(scope, body, by) { chk(await sb.from('handover_notes').insert({ scope, body, author: by })); },
     async delNote(id) { chk(await sb.from('handover_notes').delete().eq('id', id)); },
-    async saveCat(row) { const r = Object.assign({}, row); if (r.id == null) delete r.id; chk(await sb.from('equip_catalog').upsert(r, { onConflict: 'id' })); },
-    async saveVr(row) { const r = Object.assign({}, row, { updated_at: nowISO() }); if (r.id == null) delete r.id; chk(await sb.from('va_requests').upsert(r, { onConflict: 'id' })); },
+    // id wird von der Datenbank vergeben (generated always), deshalb getrennt: ändern per update, neu per insert
+    async saveCat(row) { const r = Object.assign({}, row, { updated_at: nowISO() }); const id = r.id; delete r.id;
+      chk(id ? await sb.from('equip_catalog').update(r).eq('id', id) : await sb.from('equip_catalog').insert(r)); },
+    async saveVr(row) { const r = Object.assign({}, row, { updated_at: nowISO() }); const id = r.id; delete r.id; delete r.author_email;
+      chk(id ? await sb.from('va_requests').update(r).eq('id', id) : await sb.from('va_requests').insert(r)); },
     async delVr(id) { chk(await sb.from('va_requests').delete().eq('id', id)); },
     async addAlarm(row) { chk(await sb.from('alarms').upsert(row, { onConflict: 'scope,at_time,label' })); },
     async delAlarm(id) { chk(await sb.from('alarms').delete().eq('id', id)); },

@@ -287,7 +287,7 @@
         active: m.querySelector('#kcActive').checked, sort: P.catEdit.sort || 999 };
       cs.disabled = true;
       try { await store.saveCat(row); await reload(); P.catEdit = null; P.grp = row.grp; toast(`„${row.name}" ist gespeichert`); render(m); }
-      catch (e) { toast('Speichern hat nicht geklappt: ' + ((e && e.message) || 'unbekannter Fehler')); cs.disabled = false; }
+      catch (e) { const t = String((e && e.message) || ''); toast(/duplicate|unique/i.test(t) ? 'Einen Punkt mit diesem Namen gibt es schon' : 'Speichern hat nicht geklappt: ' + (t || 'unbekannter Fehler')); cs.disabled = false; }
     };
     m.querySelectorAll('[data-pcup]').forEach((b) => (b.onclick = async () => {
       const l = cat().filter((c) => c.grp === (P.grp || grps()[0]));

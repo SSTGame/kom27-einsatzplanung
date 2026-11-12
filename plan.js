@@ -6,6 +6,12 @@
   const MODES = [['pam', 'PAM-Techniker', 'wird angefragt'], ['selbst', 'Machen wir selbst', 'ohne PAM'], ['aufbau', 'Nur Aufbau', 'PAM baut auf, wir betreuen']];
   const ST = { entwurf: ['geplant', 'Entwurf'], gesendet: ['angefragt', 'bei PAM angefragt'], uebernommen: ['zugesagt', 'von PAM übernommen'], abgelehnt: ['abgesagt', 'abgelehnt'], abgesagt: ['abgesagt', 'abgesagt'] };
   const KOM = ['Jens', 'Felix', 'Regie'];
+  // Wie viele kabellose Mikrofone ein Raum verträgt – die vier Shure Axient zählen extra
+  const MIC_MAX = { 'Saal 1': 16, 'Saal 2': 16, 'Saal 3': 8, 'Saal 4': 8 };
+  const AXIENT = 'Shure Axient (Funkstrecke)';
+  const isFunk = (name) => { const c = (S.cat || []).find((x) => x.name === name); return !!(c && c.funk); };
+  const micUsed = (r, room) => (r.items || []).filter((i) => (i.room || '') === room && isFunk(i.name)).reduce((n, i) => n + i.qty, 0);
+  const micMax = (room) => MIC_MAX[room];
   const P = { view: 'liste', row: null, grp: null, catEdit: null, rtab: null, vaAuto: true, techAuto: true };
 
   const GORD = ['Ton', 'Bild', 'Konferenz', 'Aufzeichnung & Stream', 'Bestuhlung', 'Sonstiges'];
@@ -106,6 +112,7 @@
               <span>bis</span>
               <input type="time" data-prb="${esc(x)}|to" value="${esc(rd(r, x).buch_to || '')}">
               <input class="rnote" data-prn="${esc(x)}" value="${esc(rd(r, x).note || '')}" maxlength="120" placeholder="Anmerkung zu ${esc(x)} (z. B. Bestuhlung, Aufbau ab …)">
+              ${micMax(x) != null ? `<span class="miccount${micUsed(r, x) >= micMax(x) ? ' voll' : ''}">🎤 ${micUsed(r, x)} von ${micMax(x)} Mikrofonen${qtyOf(r, x, AXIENT) ? ` + ${qtyOf(r, x, AXIENT)}× Axient` : ''}</span>` : ''}
             </div>
           </div>`).join('') : '<p class="muted">Noch kein Raum gewählt.</p>'}
         ${gm !== 'selbst' ? `<div class="pf2" style="margin-top:14px">
@@ -119,6 +126,7 @@
       <h2 class="sec">Welche Technik wird in welchem Raum gebraucht?</h2>
       <section class="dpanel">
         ${!rooms.length ? '<p class="muted">Wähle oben zuerst die Räume aus.</p>' : `
+        ${rtab && micMax(rtab) != null ? `<p class="note mic-note">In ${esc(rtab)} gehen bis zu <b>${micMax(rtab)} kabellose Mikrofone</b> (Hand und Headset zusammen), dazu kommen 4× Shure Axient. Mehr ist technisch nicht möglich.</p>` : ''}
         ${rooms.length > 1 ? `<div class="prooms rtabs">${rooms.map((x) => `<button class="room-t${x === rtab ? ' on' : ''}" data-prt="${esc(x)}">${esc(x)} <span class="rt-k">${(r.items || []).filter((i) => (i.room || '') === x && i.qty > 0).length || ''}</span></button>`).join('')}</div>` : ''}
         <div class="prooms pgrp">${g.map((x) => `<button class="room-t${x === grp ? ' on' : ''}" data-pgrp="${esc(x)}">${esc(x)} <span class="rt-k">${cat().filter((c) => c.grp === x && c.active && qtyOf(r, rtab, c.name) > 0).length || ''}</span></button>`).join('')}</div>
         <div class="peq">${cat().filter((c) => c.grp === grp && c.active).map((c) => `<div class="eqrow2${qtyOf(r, rtab, c.name) ? ' on' : ''}">
@@ -180,6 +188,10 @@
     wire(m);
   }
   function setItem(room, name, d) {
+    const max = micMax(room);
+    if (d > 0 && max != null && isFunk(name) && micUsed(P.row, room) >= max) { toast(`In ${room} gehen höchstens ${max} kabellose Mikrofone – die Shure Axient kommen extra dazu.`); return; }
+    const ax = (S.cat || []).find((x) => x.name === name && x.stock != null);
+    if (d > 0 && ax && name === AXIENT && qtyOf(P.row, room, name) >= ax.stock) { toast(`Es gibt nur ${ax.stock}× ${name}.`); return; }
     const it = (P.row.items || []).slice();
     const i = it.findIndex((x) => x.name === name && (x.room || '') === room);
     if (i < 0) { if (d > 0) it.push({ room, name, qty: 1 }); }

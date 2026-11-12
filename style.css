@@ -750,3 +750,6 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .rsub input[type=time] { width: 112px; }
 .rsub .rnote { flex: 1 1 220px; min-width: 0; }
 .vq-bis { font-weight: 600; color: var(--muted); font-size: 13px; }
+.miccount { font-size: 13px; font-weight: 650; color: var(--st-zugesagt); background: color-mix(in srgb, var(--st-zugesagt) 12%, var(--panel)); border-radius: 999px; padding: 6px 12px; }
+.miccount.voll { color: var(--st-angefragt); background: color-mix(in srgb, var(--st-angefragt) 14%, var(--panel)); }
+.mic-note { margin: 0 0 12px; }

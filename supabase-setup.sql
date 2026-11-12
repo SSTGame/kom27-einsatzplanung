@@ -630,3 +630,10 @@ alter table public.va_requests add column if not exists kom text[] not null defa
 alter table public.va_requests add column if not exists wunsch text not null default '';
 alter table public.va_requests drop constraint if exists va_requests_status_check;
 alter table public.va_requests add constraint va_requests_status_check check (status in ('entwurf','gesendet','uebernommen','abgelehnt','abgesagt'));
+
+-- Mikrofon-Grenzen: Hand- und Headsetmikrofone zählen auf das Raumlimit (Saal 1+2: 16, Saal 3+4: 8), Shure Axient extra
+alter table public.equip_catalog add column if not exists funk boolean not null default false;
+update public.equip_catalog set funk = true where name in ('Handmikrofon','Headsetmikrofon');
+insert into public.equip_catalog (grp, name, hint, stock, sort, active)
+values ('Ton','Shure Axient (Funkstrecke)','4 Stück im Haus – zählen nicht auf das Limit der anderen Mikrofone',4,25,true)
+on conflict do nothing;

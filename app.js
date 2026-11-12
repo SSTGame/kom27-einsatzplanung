@@ -400,11 +400,11 @@ function wireChanges() {
   document.querySelectorAll('[data-chgdel]').forEach((b) => (b.onclick = () => { const k = b.dataset.chgdel; const prev = S.asg[k]; optimistic(() => delete S.asg[k], () => store.deleteAssignments([k]), '#chg', () => (S.asg[k] = prev)); }));
 }
 // Technik-Katalog für den Demo-Modus (online kommt er aus der Datenbank)
-const DEMO_CAT = [['Ton', 'Handmikrofon', 'Saal 1+2 bis 16, Saal 3+4 bis 8 kabellose Mikrofone', 16, true], ['Ton', 'Headsetmikrofon', '', 8, true], ['Ton', 'Shure Axient (Funkstrecke)', '4 Stück im Haus – zählen extra', 4], ['Ton', 'Rednerpult mit Mikrofon', '', 2], ['Ton', 'Audiomitschnitt', '', null],
+const DEMO_CAT = [['Ton', 'Handmikrofon', 'Saal 1+2 bis 16, Saal 3+4 bis 8 kabellose Mikrofone', 16, true], ['Ton', 'Headsetmikrofon', '', 8, true], ['Ton', 'Shure Axient (Funkstrecke)', '4 Stück im Haus – zählen extra', 4, false, ['Saal 1', 'Saal 2', 'Saal 3', 'Saal 4', 'Seminar 1', 'Foyer', 'Konferenzzone'], 4], ['Ton', 'Deckenmikrofon', 'fest installiert – in Seminar 2 und 3 das einzige Mikrofon', null, false, ['Seminar 2', 'Seminar 3'], 1], ['Ton', 'Rednerpult mit Mikrofon', '', 2], ['Ton', 'Audiomitschnitt', '', null],
   ['Bild', 'LED-Wand / Display', 'LED-Wand in den Sälen, Display in den Seminarräumen', null], ['Bild', 'Mobiler HDMI-Anschluss', 'für LED-Wand oder Display', null], ['Bild', 'Präsentationslaptop mit Officepaket', '', 4], ['Bild', 'Presenter', '', 4], ['Bild', 'Vorschaumonitor', '', 2],
   ['Konferenz', 'Diskussionsanlage', 'kabelgebundene Sprechstellen', null], ['Aufzeichnung & Stream', 'Webex-Meeting (statische Kamera)', '', null], ['Aufzeichnung & Stream', 'Recording / Videomitschnitt', 'Startzeit angeben – alle werden 5 Min vorher erinnert', null],
   ['Bestuhlung', 'Reihenbestuhlung', 'Anzahl Plätze angeben', null], ['Bestuhlung', 'Stehtische', '', 12], ['Bestuhlung', 'Bühne', 'mit Rednerpult, wenn gewünscht', null], ['Sonstiges', 'Catering im Raum', 'Zeiten in die Bemerkung', null]
-].map(([grp, name, hint, stock, funk], i) => ({ grp, name, hint, stock, funk: !!funk, sort: (i + 1) * 10, active: true }));
+].map(([grp, name, hint, stock, funk, rooms, maxroom], i) => ({ grp, name, hint, stock, funk: !!funk, rooms: rooms || [], maxroom: maxroom == null ? null : maxroom, sort: (i + 1) * 10, active: true }));
 // Versteckter Planungsbereich: erscheint nur, wenn jemand den Code eintippt
 const X40_CODE = '2und40';
 const x40 = () => ls.get('kom27-x40') === '1';

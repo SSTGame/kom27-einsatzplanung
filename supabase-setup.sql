@@ -637,3 +637,10 @@ update public.equip_catalog set funk = true where name in ('Handmikrofon','Heads
 insert into public.equip_catalog (grp, name, hint, stock, sort, active)
 values ('Ton','Shure Axient (Funkstrecke)','4 Stück im Haus – zählen nicht auf das Limit der anderen Mikrofone',4,25,true)
 on conflict do nothing;
+
+-- Raumgrenzen je Punkt: Deckenmikrofon nur in Seminar 2+3 (eins), Shure Axient nicht in Seminar 2+3
+alter table public.equip_catalog add column if not exists maxroom int;
+insert into public.equip_catalog (grp, name, hint, stock, sort, active, rooms, maxroom)
+values ('Ton','Deckenmikrofon','fest installiert – in Seminar 2 und 3 das einzige Mikrofon',null,15,true,'{"Seminar 2","Seminar 3"}',1)
+on conflict do nothing;
+update public.equip_catalog set rooms = '{"Saal 1","Saal 2","Saal 3","Saal 4","Seminar 1","Foyer","Konferenzzone"}', maxroom = 4 where name = 'Shure Axient (Funkstrecke)';

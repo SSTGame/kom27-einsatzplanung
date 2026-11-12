@@ -7,7 +7,7 @@
   const ST = { entwurf: ['geplant', 'Entwurf'], gesendet: ['angefragt', 'bei PAM angefragt'], uebernommen: ['zugesagt', 'von PAM übernommen'], abgelehnt: ['abgesagt', 'abgelehnt'], abgesagt: ['abgesagt', 'abgesagt'] };
   const KOM = ['Jens', 'Felix', 'Regie'];
   // Wie viele kabellose Mikrofone ein Raum verträgt – die vier Shure Axient zählen extra
-  const MIC_MAX = { 'Saal 1': 16, 'Saal 2': 16, 'Saal 3': 8, 'Saal 4': 8 };
+  const MIC_MAX = { 'Saal 1': 16, 'Saal 2': 16, 'Saal 3': 8, 'Saal 4': 8, 'Seminar 1': 3, 'Seminar 2': 0, 'Seminar 3': 0 };
   const AXIENT = 'Shure Axient (Funkstrecke)';
   const isFunk = (name) => { const c = (S.cat || []).find((x) => x.name === name); return !!(c && c.funk); };
   const micUsed = (r, room) => (r.items || []).filter((i) => (i.room || '') === room && isFunk(i.name)).reduce((n, i) => n + i.qty, 0);
@@ -112,7 +112,7 @@
               <span>bis</span>
               <input type="time" data-prb="${esc(x)}|to" value="${esc(rd(r, x).buch_to || '')}">
               <input class="rnote" data-prn="${esc(x)}" value="${esc(rd(r, x).note || '')}" maxlength="120" placeholder="Anmerkung zu ${esc(x)} (z. B. Bestuhlung, Aufbau ab …)">
-              ${micMax(x) != null ? `<span class="miccount${micUsed(r, x) >= micMax(x) ? ' voll' : ''}">🎤 ${micUsed(r, x)} von ${micMax(x)} Mikrofonen${qtyOf(r, x, AXIENT) ? ` + ${qtyOf(r, x, AXIENT)}× Axient` : ''}</span>` : ''}
+              ${micMax(x) != null ? (micMax(x) ? `<span class="miccount${micUsed(r, x) >= micMax(x) ? ' voll' : ''}">🎤 ${micUsed(r, x)} von ${micMax(x)} Mikrofonen${qtyOf(r, x, AXIENT) ? ` + ${qtyOf(r, x, AXIENT)}× Axient` : ''}</span>` : `<span class="miccount">🎤 nur Deckenmikrofon</span>`) : ''}
             </div>
           </div>`).join('') : '<p class="muted">Noch kein Raum gewählt.</p>'}
         ${gm !== 'selbst' ? `<div class="pf2" style="margin-top:14px">
@@ -126,10 +126,10 @@
       <h2 class="sec">Welche Technik wird in welchem Raum gebraucht?</h2>
       <section class="dpanel">
         ${!rooms.length ? '<p class="muted">Wähle oben zuerst die Räume aus.</p>' : `
-        ${rtab && micMax(rtab) != null ? `<p class="note mic-note">In ${esc(rtab)} gehen bis zu <b>${micMax(rtab)} kabellose Mikrofone</b> (Hand und Headset zusammen), dazu kommen 4× Shure Axient. Mehr ist technisch nicht möglich.</p>` : ''}
+        ${rtab && micMax(rtab) != null ? `<p class="note mic-note">${micMax(rtab) ? `In ${esc(rtab)} gehen bis zu <b>${micMax(rtab)} kabellose Mikrofone</b> (Hand und Headset zusammen)${micMax(rtab) > 3 ? ', dazu kommen 4× Shure Axient' : ''}. Mehr ist technisch nicht möglich.` : `In ${esc(rtab)} gibt es <b>nur das Deckenmikrofon</b> – kabellose Mikrofone sind dort nicht möglich.`}</p>` : ''}
         ${rooms.length > 1 ? `<div class="prooms rtabs">${rooms.map((x) => `<button class="room-t${x === rtab ? ' on' : ''}" data-prt="${esc(x)}">${esc(x)} <span class="rt-k">${(r.items || []).filter((i) => (i.room || '') === x && i.qty > 0).length || ''}</span></button>`).join('')}</div>` : ''}
         <div class="prooms pgrp">${g.map((x) => `<button class="room-t${x === grp ? ' on' : ''}" data-pgrp="${esc(x)}">${esc(x)} <span class="rt-k">${cat().filter((c) => c.grp === x && c.active && qtyOf(r, rtab, c.name) > 0).length || ''}</span></button>`).join('')}</div>
-        <div class="peq">${cat().filter((c) => c.grp === grp && c.active).map((c) => `<div class="eqrow2${qtyOf(r, rtab, c.name) ? ' on' : ''}">
+        <div class="peq">${cat().filter((c) => c.grp === grp && c.active && (!(c.rooms || []).length || c.rooms.includes(rtab)) && !(isFunk(c.name) && micMax(rtab) === 0)).map((c) => `<div class="eqrow2${qtyOf(r, rtab, c.name) ? ' on' : ''}">
             <span class="step"><button data-pq="${esc(c.name)}|-1" aria-label="weniger">−</button><b>${qtyOf(r, rtab, c.name)}</b><button data-pq="${esc(c.name)}|1" aria-label="mehr">+</button></span>
             <span class="eq-n">${esc(c.name)}${c.hint ? `<small>${esc(c.hint)}</small>` : ''}</span>
           </div>`).join('')}</div>
@@ -161,7 +161,7 @@
         <p class="note">Was hier steht, kann beim Planen angetippt werden. Änderungen gelten für neue Veranstaltungen – was schon geplant ist, behält seinen Text.</p>
         <div class="prooms pgrp">${g.map((x) => `<button class="room-t${x === grp ? ' on' : ''}" data-pgrp="${esc(x)}">${esc(x)} <span class="rt-k">${cat().filter((c) => c.grp === x).length}</span></button>`).join('')}</div>
         <div class="vq-list">${cat().filter((c) => c.grp === grp).map((c) => `<div class="kat-row${c.active ? '' : ' off'}">
-          <span class="vq-main"><b>${esc(c.name)}</b><small>${esc([c.hint, c.stock != null ? 'Bestand ' + c.stock : '', c.active ? '' : 'ausgeblendet'].filter(Boolean).join(' · ') || '–')}</small></span>
+          <span class="vq-main"><b>${esc(c.name)}</b><small>${esc([c.hint, c.stock != null ? 'Bestand ' + c.stock : '', (c.rooms || []).length ? 'nur ' + c.rooms.join(', ') : '', c.maxroom != null ? 'höchstens ' + c.maxroom + ' pro Raum' : '', c.funk ? 'zählt auf das Mikrofon-Limit' : '', c.active ? '' : 'ausgeblendet'].filter(Boolean).join(' · ') || '–')}</small></span>
           <button class="btn small" data-pcup="${c.id}" aria-label="nach oben">↑</button>
           <button class="btn small" data-pcedit="${c.id}">Ändern</button></div>`).join('') || '<p class="muted">Diese Gruppe ist leer.</p>'}</div>
         <div class="pfoot"><span class="spacer"></span><button class="btn primary" data-pcedit="neu">+ Neuer Punkt</button></div>
@@ -176,6 +176,11 @@
           <div class="pfld"><label for="kcHint">Hinweis (steht klein darunter)</label><input id="kcHint" value="${esc(e.hint || '')}" maxlength="120"></div>
           <div class="pfld"><label for="kcStock">Bestand (leer = unbegrenzt)</label><input type="number" id="kcStock" min="0" max="999" value="${e.stock == null ? '' : e.stock}"></div>
         </div>
+        <div class="pf2">
+          <div class="pfld"><label for="kcMax">Höchstens pro Raum (leer = unbegrenzt)</label><input type="number" id="kcMax" min="0" max="99" value="${e.maxroom == null ? '' : e.maxroom}"></div>
+          <div class="pfld"><label>Nur in diesen Räumen (nichts angetippt = überall)</label><div class="prooms">${RAEUME.map((x) => `<button class="room-t${(e.rooms || []).includes(x) ? ' on' : ''}" data-kcr="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>
+        </div>
+        <label class="kcchk"><input type="checkbox" id="kcFunk" ${e.funk ? 'checked' : ''}> zählt auf das Mikrofon-Limit des Raums (Saal 1+2: 16, Saal 3+4: 8, Seminar 1: 3)</label>
         <label class="kcchk"><input type="checkbox" id="kcActive" ${e.active === false ? '' : 'checked'}> beim Planen anzeigen</label>
         <div class="pfoot"><span class="spacer"></span><button class="btn" data-pcx>Abbrechen</button><button class="btn primary" data-pcsave>Speichern</button></div>
       </section>` : ''}`;
@@ -189,9 +194,11 @@
   }
   function setItem(room, name, d) {
     const max = micMax(room);
-    if (d > 0 && max != null && isFunk(name) && micUsed(P.row, room) >= max) { toast(`In ${room} gehen höchstens ${max} kabellose Mikrofone – die Shure Axient kommen extra dazu.`); return; }
-    const ax = (S.cat || []).find((x) => x.name === name && x.stock != null);
-    if (d > 0 && ax && name === AXIENT && qtyOf(P.row, room, name) >= ax.stock) { toast(`Es gibt nur ${ax.stock}× ${name}.`); return; }
+    if (d > 0 && max != null && isFunk(name) && micUsed(P.row, room) >= max) {
+      toast(max ? `In ${room} gehen höchstens ${max} kabellose Mikrofone – die Shure Axient kommen extra dazu.` : `In ${room} gibt es nur das Deckenmikrofon – kabellose Mikrofone sind dort nicht möglich.`); return; }
+    const c = (S.cat || []).find((x) => x.name === name);
+    if (d > 0 && c && c.maxroom != null && qtyOf(P.row, room, name) >= c.maxroom) { toast(`In ${room} ${c.maxroom === 1 ? 'gibt es nur ein' : 'gehen höchstens ' + c.maxroom + '×'} ${name}.`); return; }
+    if (d > 0 && name === AXIENT && c && c.stock != null && qtyOf(P.row, room, name) >= c.stock) { toast(`Es gibt nur ${c.stock}× ${name}.`); return; }
     const it = (P.row.items || []).slice();
     const i = it.findIndex((x) => x.name === name && (x.room || '') === room);
     if (i < 0) { if (d > 0) it.push({ room, name, qty: 1 }); }
@@ -263,11 +270,21 @@
       P.catEdit = b.dataset.pcedit === 'neu' ? { grp: P.grp || grps()[0], active: true } : Object.assign({}, cat().find((c) => String(c.id) === b.dataset.pcedit));
       render(m); const f = m.querySelector('.kat-form'); if (f) f.scrollIntoView({ block: 'center' });
     }));
+    m.querySelectorAll('[data-kcr]').forEach((b) => (b.onclick = () => {
+      const g2 = (id) => { const e2 = m.querySelector('#' + id); return e2 ? e2.value : ''; };
+      P.catEdit = Object.assign({}, P.catEdit, { name: g2('kcName'), grp: g2('kcGrp'), hint: g2('kcHint'), stock: g2('kcStock') === '' ? null : +g2('kcStock'), maxroom: g2('kcMax') === '' ? null : +g2('kcMax'),
+        funk: m.querySelector('#kcFunk').checked, active: m.querySelector('#kcActive').checked });
+      const x = b.dataset.kcr; const r0 = P.catEdit.rooms || [];
+      P.catEdit.rooms = r0.includes(x) ? r0.filter((y) => y !== x) : r0.concat([x]);
+      render(m); const f = m.querySelector('.kat-form'); if (f) f.scrollIntoView({ block: 'center' });
+    }));
     const cx = m.querySelector('[data-pcx]'); if (cx) cx.onclick = () => { P.catEdit = null; render(m); };
     const cs = m.querySelector('[data-pcsave]'); if (cs) cs.onclick = async () => {
       const g = (id) => { const e = m.querySelector('#' + id); return e ? e.value.trim() : ''; };
       const name = g('kcName'); if (!name) return m.querySelector('#kcName').focus();
-      const row = { id: P.catEdit.id, name, grp: g('kcGrp') || 'Sonstiges', hint: g('kcHint'), stock: g('kcStock') === '' ? null : +g('kcStock'), active: m.querySelector('#kcActive').checked, sort: P.catEdit.sort || 999 };
+      const row = { id: P.catEdit.id, name, grp: g('kcGrp') || 'Sonstiges', hint: g('kcHint'), stock: g('kcStock') === '' ? null : +g('kcStock'),
+        maxroom: g('kcMax') === '' ? null : +g('kcMax'), rooms: P.catEdit.rooms || [], funk: m.querySelector('#kcFunk').checked,
+        active: m.querySelector('#kcActive').checked, sort: P.catEdit.sort || 999 };
       cs.disabled = true;
       try { await store.saveCat(row); await reload(); P.catEdit = null; P.grp = row.grp; toast(`„${row.name}" ist gespeichert`); render(m); }
       catch (e) { toast('Speichern hat nicht geklappt: ' + ((e && e.message) || 'unbekannter Fehler')); cs.disabled = false; }

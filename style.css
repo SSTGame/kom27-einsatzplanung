@@ -678,3 +678,58 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .al-new #alLabel { flex: 1 1 140px; min-width: 0; }
 .al-new .btn { min-height: 44px; }
 .al-hint { margin: 6px 0 2px; }
+
+/* ---------- Versteckter Planungsbereich (Code 2und40) ---------- */
+.planwrap { display: block; }
+.vq-list { display: grid; }
+.vq-row, .kat-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 13px 2px; color: var(--ink); font: inherit; cursor: pointer; }
+.vq-row:last-child, .kat-row:last-child { border-bottom: 0; }
+.vq-row:hover { background: var(--panel-2); border-radius: 10px; }
+.kat-row { cursor: default; }
+.kat-row.off { opacity: .55; }
+.dbox2 { display: grid; place-items: center; width: 58px; flex: none; background: var(--panel-2); border-radius: 12px; padding: 7px 0; }
+.dbox2 i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.dbox2 b { font-size: 21px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.vq-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.vq-main b { font-size: 15.5px; overflow-wrap: anywhere; }
+.vq-main small { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.pfld { display: grid; gap: 7px; margin-bottom: 16px; }
+.pfld > label { font-size: 13.5px; font-weight: 650; color: var(--muted); }
+.pfld input, .pfld select, .pfld textarea, .pown-new input { font: inherit; font-size: 16px; padding: 11px 12px; min-height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); width: 100%; }
+.pf2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pf3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.pf2b { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.prooms { display: flex; flex-wrap: wrap; gap: 8px; }
+.prooms.pgrp { margin-bottom: 14px; }
+.room-t { border: 1.5px solid var(--line); background: var(--panel-2); border-radius: 12px; padding: 10px 14px; font-size: 15px; font-weight: 600; min-height: 46px; display: inline-flex; align-items: center; gap: 8px; color: var(--ink); cursor: pointer; }
+.room-t.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); color: var(--accent-text, var(--accent)); }
+.room-t .rt-k { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.room-t.on .rt-k { color: inherit; opacity: .8; }
+.segbig { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.segbig button { border: 1.5px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; font-weight: 650; font-size: 15px; background: var(--panel-2); color: var(--ink); min-height: 64px; cursor: pointer; }
+.segbig button small { display: block; font-weight: 500; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.segbig button.on { border-color: var(--st-zugesagt); background: color-mix(in srgb, var(--st-zugesagt) 12%, var(--panel)); color: var(--st-zugesagt); }
+.segbig button.on small { color: inherit; opacity: .85; }
+.step { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); flex: none; }
+.step button { width: 44px; height: 44px; border: 0; background: none; font-size: 20px; color: var(--accent-text, var(--accent)); font-weight: 700; cursor: pointer; }
+.step b { min-width: 34px; text-align: center; font-size: 17px; font-variant-numeric: tabular-nums; }
+.peq { display: grid; }
+.peq h4 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 14px 0 6px; }
+.eqrow2 { display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.eqrow2:last-child { border-bottom: 0; }
+.eq-n { flex: 1; font-size: 15px; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.eq-n small { color: var(--muted); font-size: 12.5px; }
+.eqrow2.on .eq-n { font-weight: 650; }
+.pown-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.pown-new input { flex: 1 1 200px; width: auto; }
+.pown-new .btn { min-height: 46px; }
+.pfoot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 16px 0 6px; }
+.pfoot .big { min-height: 52px; }
+.kat-form h3 { margin: 0 0 12px; font-size: 16px; }
+.kcchk { display: flex; align-items: center; gap: 10px; font-size: 15px; min-height: 44px; }
+.kcchk input { width: 22px; height: 22px; }
+@media (max-width: 700px) {
+  .pf2, .pf3 { grid-template-columns: 1fr; }
+  .segbig { grid-template-columns: 1fr; }
+  .pfoot .big { flex: 1 1 100%; }
+}

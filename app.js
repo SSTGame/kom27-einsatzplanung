@@ -39,6 +39,11 @@ const DemoStore = {
   async deleteMessage(id) { const d = this.d(); d.messages = (d.messages || []).filter((x) => x.id !== id); this.w(d); },
   async addNote(scope, body, by) { const d = this.d(); d.notes = (d.notes || []).concat([{ id: Date.now(), scope, body, author: by, author_email: ls.get(this.U) || '', created_at: nowISO() }]); this.w(d); },
   async delNote(id) { const d = this.d(); d.notes = (d.notes || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
+  async saveCat(row) { const d = this.d(); d.cat = d.cat || []; const i = d.cat.findIndex((x) => (row.id && x.id === row.id) || x.name.toLowerCase() === String(row.name).toLowerCase());
+    if (i < 0) d.cat.push(Object.assign({ id: Date.now(), grp: 'Sonstiges', hint: '', stock: null, sort: 999, active: true }, row, { id: row.id || Date.now() })); else d.cat[i] = Object.assign({}, d.cat[i], row); this.w(d); },
+  async saveVr(row) { const d = this.d(); d.vreq = d.vreq || []; const i = d.vreq.findIndex((x) => row.id && x.id === row.id);
+    if (i < 0) d.vreq.push(Object.assign({}, row, { id: row.id || Date.now() })); else d.vreq[i] = Object.assign({}, d.vreq[i], row); this.w(d); },
+  async delVr(id) { const d = this.d(); d.vreq = (d.vreq || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
   async addAlarm(row) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => !(x.scope === row.scope && x.at_time === row.at_time && x.label === row.label)).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sent_at: null, auto: false, author_email: ls.get(this.U) || '' }, row)]); this.w(d); },
   async delAlarm(id) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
   async setDone(scope, item_id, on, by) { const d = this.d(); d.done = (d.done || []).filter((x) => !(x.scope === scope && x.item_id === item_id)); if (on) d.done.push({ scope, item_id, done_by: by, done_at: nowISO() }); this.w(d); },
@@ -50,7 +55,7 @@ const DemoStore = {
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
     const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
     const msgs = (d.messages || []).filter((x) => x.to_all || isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [], alarms: d.alarms || [],
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [], alarms: d.alarms || [], cat: d.cat && d.cat.length ? d.cat : DEMO_CAT.map((x, i) => Object.assign({ id: i + 1 }, x)), vreq: d.vreq || [],
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -121,6 +126,9 @@ function makeSupabaseStore() {
     async deleteMessage(id) { chk(await sb.from('messages').delete().eq('id', id)); },
     async addNote(scope, body, by) { chk(await sb.from('handover_notes').insert({ scope, body, author: by })); },
     async delNote(id) { chk(await sb.from('handover_notes').delete().eq('id', id)); },
+    async saveCat(row) { const r = Object.assign({}, row); if (r.id == null) delete r.id; chk(await sb.from('equip_catalog').upsert(r, { onConflict: 'id' })); },
+    async saveVr(row) { const r = Object.assign({}, row, { updated_at: nowISO() }); if (r.id == null) delete r.id; chk(await sb.from('va_requests').upsert(r, { onConflict: 'id' })); },
+    async delVr(id) { chk(await sb.from('va_requests').delete().eq('id', id)); },
     async addAlarm(row) { chk(await sb.from('alarms').upsert(row, { onConflict: 'scope,at_time,label' })); },
     async delAlarm(id) { chk(await sb.from('alarms').delete().eq('id', id)); },
     async setDone(scope, item_id, on, by) { if (on) chk(await sb.from('equip_done').upsert({ scope, item_id, done_by: by, done_at: nowISO() })); else chk(await sb.from('equip_done').delete().eq('scope', scope).eq('item_id', item_id)); },
@@ -136,9 +144,11 @@ function makeSupabaseStore() {
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
       const dn = await sb.from('equip_done').select('*').gte('scope', addDays(todayISO(), -14)); // abgehakte Aufbau-Punkte (gemeinsam)
+      const ct = await sb.from('equip_catalog').select('*').order('sort'); // Technik-Katalog (versteckter Planungsbereich)
+      const vq = await sb.from('va_requests').select('*').gte('day', addDays(todayISO(), -60)).order('day');
       const al = await sb.from('alarms').select('*').gte('scope', addDays(todayISO(), -2)).order('at_time'); // Erinnerungen (Gong, Recording)
       const hn = await sb.from('handover_notes').select('*').gte('scope', addDays(todayISO(), -21)).order('created_at'); // Übergabe-Notizen (fehlt die Tabelle: leer)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data, alarms: al.error ? [] : al.data };
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data, alarms: al.error ? [] : al.data, cat: ct.error ? [] : ct.data, vreq: vq.error ? [] : vq.data };
     },
     async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
@@ -176,7 +186,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.cat = d.cat || []; S.vreq = d.vreq || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -389,6 +399,36 @@ function wireChanges() {
   };
   document.querySelectorAll('[data-chgdel]').forEach((b) => (b.onclick = () => { const k = b.dataset.chgdel; const prev = S.asg[k]; optimistic(() => delete S.asg[k], () => store.deleteAssignments([k]), '#chg', () => (S.asg[k] = prev)); }));
 }
+// Technik-Katalog für den Demo-Modus (online kommt er aus der Datenbank)
+const DEMO_CAT = [['Ton', 'Handmikrofon', 'max. 16 kabellose Mikrofone gesamt', 16], ['Ton', 'Headsetmikrofon', '', 8], ['Ton', 'Rednerpult mit Mikrofon', '', 2], ['Ton', 'Audiomitschnitt', '', null],
+  ['Bild', 'LED-Wand / Display', 'LED-Wand in den Sälen, Display in den Seminarräumen', null], ['Bild', 'Mobiler HDMI-Anschluss', 'für LED-Wand oder Display', null], ['Bild', 'Präsentationslaptop mit Officepaket', '', 4], ['Bild', 'Presenter', '', 4], ['Bild', 'Vorschaumonitor', '', 2],
+  ['Konferenz', 'Diskussionsanlage', 'kabelgebundene Sprechstellen', null], ['Aufzeichnung & Stream', 'Webex-Meeting (statische Kamera)', '', null], ['Aufzeichnung & Stream', 'Recording / Videomitschnitt', 'Startzeit angeben – alle werden 5 Min vorher erinnert', null],
+  ['Bestuhlung', 'Reihenbestuhlung', 'Anzahl Plätze angeben', null], ['Bestuhlung', 'Stehtische', '', 12], ['Bestuhlung', 'Bühne', 'mit Rednerpult, wenn gewünscht', null], ['Sonstiges', 'Catering im Raum', 'Zeiten in die Bemerkung', null]
+].map(([grp, name, hint, stock], i) => ({ grp, name, hint, stock, sort: (i + 1) * 10, active: true }));
+// Versteckter Planungsbereich: erscheint nur, wenn jemand den Code eintippt
+const X40_CODE = '2und40';
+const x40 = () => ls.get('kom27-x40') === '1';
+function x40Toggle() {
+  const on = !x40();
+  ls.set('kom27-x40', on ? '1' : '0');
+  toast(on ? 'Planungsbereich ist sichtbar' : 'Planungsbereich ist wieder versteckt');
+  if (window.KOM27Plan) KOM27Plan.reset();
+  if (S.tab === 'plan2') S.tab = 'plan';
+  if (S.techTab === 'plan') S.techTab = 'jobs';
+  paint();
+}
+(function () {
+  let buf = '';
+  document.addEventListener('keydown', (e) => {
+    if (e.key.length !== 1 || e.metaKey || e.ctrlKey) return;
+    buf = (buf + e.key.toLowerCase()).slice(-12);
+    if (buf.endsWith(X40_CODE)) { buf = ''; x40Toggle(); }
+  });
+  document.addEventListener('input', (e) => {
+    const t = e.target; if (!t || !t.value || typeof t.value !== 'string') return;
+    if (t.value.toLowerCase().trim().endsWith(X40_CODE)) { t.value = t.value.slice(0, -X40_CODE.length).trim(); x40Toggle(); }
+  });
+})();
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 // Nach einer Absage steht der Tag auch im Plan als „kann nicht“ – so sieht die Planung sofort, dass der Techniker weg ist
 async function offAfterDecline(t, keys, note) {
@@ -676,14 +716,14 @@ function header(extra) {
 
 function renderMaster() {
   const nInt = (S.interest || []).filter((i) => offerOf(i.slot_key)).length;
-  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['haus', 'Haus'], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker'], ['kb', 'Infos']];
-  const IC = { plan: '📋', haus: '🏢', req: '📨', hours: '⏱', techs: '👥', kb: '📘' };
+  const tabs = [['plan', 'Planung' + (nInt ? ` <span class="tbadge" title="Meldungen auf ausgeschriebene Einsätze">🙋${nInt}</span>` : '')], ['haus', 'Haus'], ['req', 'Anfragen'], ['hours', 'Stunden'], ['techs', 'Techniker'], ['kb', 'Infos']].concat(x40() ? [['plan2', 'Planen']] : []);
+  const IC = { plan: '📋', haus: '🏢', req: '📨', hours: '⏱', techs: '👥', kb: '📘', plan2: '📝' };
   const nav = `<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}"><i class="tic">${IC[k]}</i><span>${l}</span></button>`).join('')}</nav>`;
   $('#app').innerHTML = header(nav) + `<main id="main"></main>`;
   document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { const same = S.tab === b.dataset.tab; S.tab = b.dataset.tab; renderMaster(); if (!same) window.scrollTo(0, 0); }));
   document.body.classList.add('is-master');
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
-  ({ plan: renderPlan, haus: () => { const td = todayISO(); $('#main').innerHTML = `<div class="haus-wrap">${houseViewsHtml(td)}</div>`; wireHouseViews($('#main'), td); }, req: renderReq, hours: renderHours, techs: renderTechs, kb: () => { $('#main').innerHTML = kbHtml(); wireKb($('#main')); } })[S.tab]();
+  ({ plan: renderPlan, haus: () => { const td = todayISO(); $('#main').innerHTML = `<div class="haus-wrap">${houseViewsHtml(td)}</div>`; wireHouseViews($('#main'), td); }, req: renderReq, hours: renderHours, techs: renderTechs, plan2: () => KOM27Plan.render($('#main')), kb: () => { $('#main').innerHTML = kbHtml(); wireKb($('#main')); } })[S.tab]();
   $('#main').insertAdjacentHTML('beforeend', legalFoot());
   privacyNote();
 }
@@ -2620,13 +2660,14 @@ function renderKom() {
   $('#app').innerHTML = header() + `<main class="mine is-dash" id="main"></main>`;
   $('#logout').onclick = async () => { await store.signOut(); S.user = null; renderLogin(); };
   const m = $('#main');
-  const vt = `<div class="viewtabs" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht${S.techTab !== 'msg' && msgUnread().length ? ` <b class="vt-badge">${msgUnread().length}</b>` : ''}</button></div>`;
+  const vt = `<div class="viewtabs${x40() ? ' vt4' : ''}" role="tablist"><button data-vt="jobs" class="${!['kb', 'msg'].includes(S.techTab) ? 'on' : ''}">📅 <span class="vt-l">Alle </span>Termine</button><button data-vt="kb" class="${S.techTab === 'kb' ? 'on' : ''}">📘 <span class="vt-l">KOM27-</span>Infos <small>${(S.kb || []).length}</small></button><button data-vt="msg" class="${S.techTab === 'msg' ? 'on' : ''}">📲 Nachricht${S.techTab !== 'msg' && msgUnread().length ? ` <b class="vt-badge">${msgUnread().length}</b>` : ''}</button>${x40() ? `<button data-vt="plan" class="${S.techTab === 'plan' ? 'on' : ''}">📝 <span class="vt-l">Planen</span></button>` : ''}</div>`;
   const wire = () => {
     m.querySelectorAll('[data-vt]').forEach((b) => (b.onclick = () => { S.techTab = b.dataset.vt; paint(); window.scrollTo(0, 0); }));
     m.querySelectorAll('[data-gokb]').forEach((b) => (b.onclick = () => { S.techTab = 'kb'; paint(); window.scrollTo(0, 0); }));
     wireHouseViews(m, today);
     const pe = m.querySelector('#pvEnd'); if (pe) pe.onclick = () => { S.preview = false; S.viewer = false; S.techTab = 'jobs'; S.tab = 'techs'; paint(); window.scrollTo(0, 0); };
   };
+  if (S.techTab === 'plan' && x40()) { m.innerHTML = pvBar() + vt + '<div id="planHost"></div>' + legalFoot(); wire(); KOM27Plan.render(m.querySelector('#planHost')); return; }
   if (S.techTab === 'kb') { m.innerHTML = pvBar() + vt + kbHtml() + legalFoot(); wire(); wireKb(m); return; }
   if (S.techTab === 'msg') { setTimeout(msgMarkRead, 0); m.innerHTML = pvBar() + vt + komMsgHtml() + `<section class="dpanel mi-sent"><h2 class="sec">Nachrichten</h2><p class="note">Was das KOM27 gesendet hat und Nachrichten der Techniker an alle.</p>${msgItemsHtml(msgSorted().slice(0, 30), { to: true, unread: true, empty: 'Noch keine Nachrichten.' })}</section>` + legalFoot(); wire(); wireKomMsg(m); return; }
   const week = allDays().filter((d) => d.date >= today && d.date <= addDays(today, 6) && (d.slots.length || (d.vas || []).length) && !d.free);
@@ -2986,7 +3027,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes', 'alarms'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes', 'alarms', 'equip_catalog', 'va_requests'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

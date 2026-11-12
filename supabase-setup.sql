@@ -585,3 +585,40 @@ begin
    where slot_key = p_slot and (tech_id = my_tech_id() or tech_id in (select my_managed_ids()));
   if not found then raise exception 'Kein Einsatz gefunden'; end if;
 end $function$;
+
+-- v24/v25: versteckter Planungsbereich (Code 2und40) – Technik-Katalog und Veranstaltungen des KOM27
+create table if not exists public.equip_catalog (
+  id bigint generated always as identity primary key,
+  grp text not null default 'Sonstiges',
+  name text not null check (char_length(name) between 1 and 80),
+  hint text not null default '', stock int, rooms text[] not null default '{}',
+  sort int not null default 0, active boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists equip_catalog_name on public.equip_catalog (lower(name));
+alter table public.equip_catalog enable row level security;
+drop policy if exists ec_read on public.equip_catalog;
+create policy ec_read on public.equip_catalog for select to authenticated using (true);
+drop policy if exists ec_write on public.equip_catalog;
+create policy ec_write on public.equip_catalog for all to authenticated using (is_admin() or is_viewer()) with check (is_admin() or is_viewer());
+
+create table if not exists public.va_requests (
+  id bigint generated always as identity primary key,
+  day date not null, va text not null default '', title text not null default '',
+  rooms text[] not null default '{}',
+  va_from text not null default '', va_to text not null default '', einlass text not null default '',
+  mode text not null default 'pam' check (mode in ('pam','selbst','aufbau')),
+  techs int not null default 1 check (techs between 0 and 6),
+  tech_from text not null default '', tech_to text not null default '',
+  items jsonb not null default '[]'::jsonb, note text not null default '',
+  status text not null default 'entwurf' check (status in ('entwurf','gesendet','uebernommen','abgelehnt')),
+  author text not null default '', author_email text not null default lower(coalesce(auth.jwt() ->> 'email', '')),
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create index if not exists va_requests_day on public.va_requests (day);
+alter table public.va_requests enable row level security;
+drop policy if exists vr_read on public.va_requests;
+create policy vr_read on public.va_requests for select to authenticated using (is_admin() or is_viewer());
+drop policy if exists vr_write on public.va_requests;
+create policy vr_write on public.va_requests for all to authenticated using (is_admin() or is_viewer()) with check (is_admin() or is_viewer());
+do $$ begin alter publication supabase_realtime add table public.equip_catalog, public.va_requests; exception when others then null; end $$;

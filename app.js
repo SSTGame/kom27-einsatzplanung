@@ -390,6 +390,19 @@ function wireChanges() {
   document.querySelectorAll('[data-chgdel]').forEach((b) => (b.onclick = () => { const k = b.dataset.chgdel; const prev = S.asg[k]; optimistic(() => delete S.asg[k], () => store.deleteAssignments([k]), '#chg', () => (S.asg[k] = prev)); }));
 }
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
+// Nach einer Absage steht der Tag auch im Plan als „kann nicht“ – so sieht die Planung sofort, dass der Techniker weg ist
+async function offAfterDecline(t, keys, note) {
+  if (!t) return;
+  const dates = [...new Set(allSlots().filter((x) => keys.includes(x.key)).map((x) => x.date))];
+  for (const day of dates) {
+    if (unavOf(t.id, day)) continue;
+    const anderer = allSlots().some((x) => x.date === day && !keys.includes(x.key) && S.asg[x.key] && S.asg[x.key].tech_id === t.id && ['angefragt', 'zugesagt'].includes(S.asg[x.key].status));
+    if (anderer) continue; // an dem Tag läuft noch ein anderer Einsatz
+    const txt = ('Absage' + (note ? ' – ' + note : '')).slice(0, 120);
+    try { await store.setUnav(t.id, day, txt, false); if (DEMO && unavAuto(t.id, day)) await DemoStore.confirmUnav(t.id, [day]); S.unav = S.unav.filter((u) => !(u.tech_id === t.id && u.day === day)).concat([{ tech_id: t.id, day, note: txt, confirmed: true }]); }
+    catch (e) { /* „kann nicht“ ist nur ein Zusatz – die Absage selbst steht schon */ }
+  }
+}
 const allDays = () => (S.plan ? S.plan.days : []);
 const allSlots = () => allDays().flatMap((d) => d.slots.map((s) => Object.assign({ day: d }, s)));
 const techById = (id) => S.techs.find((t) => t.id === id);
@@ -2107,6 +2120,7 @@ function renderManager(team, me) {
     const dates = allSlots().filter((x) => keys.includes(x.key)).map((x) => fmtDate(x.date)).join(', ');
     notify('admins', [], `${t ? t.name : 'Techniker'}: ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'} (Projektleiter)`, dates + (note ? ' – „' + note + '“' : ''), 'mgr-' + (t ? t.id : ''));
     if (t) notify('techs', [t.id], status === 'zugesagt' ? 'Einsatz bestätigt ✓' : 'Einsatz abgesagt', `KOM27 ${dates}${status === 'zugesagt' ? ' – dein Projektleiter hat zugesagt.' : ''}`, 'mgr-t-' + t.id);
+    if (status === 'abgesagt') { await offAfterDecline(t, keys, note); paint('#openSec'); }
     toast(status === 'zugesagt' ? 'Zusage gespeichert ✓' : 'Absage gespeichert');
   };
   window.__answer = (keys, status, note) => decide(keys, status, note);
@@ -2784,6 +2798,7 @@ function renderTech() {
     try {
       await Promise.all(keys.map((k) => store.respond(S.user.email, k, status, note || '')));
       notify('admins', [], `${firstName(t)} hat ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'}`, dates.join(', ') + (note ? ' – „' + note + '“' : ''), 'answer-' + t.id);
+      if (status === 'abgesagt') { await offAfterDecline(t, keys, note); paint(jc ? '#openSec' : null); }
       calm(1500);
     } catch (e) { keys.forEach((k, i) => (S.asg[k] = prev[i])); paint(); toast('Nicht gespeichert: ' + e.message); }
   };

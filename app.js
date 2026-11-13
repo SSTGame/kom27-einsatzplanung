@@ -750,12 +750,35 @@ function renderMaster() {
   privacyNote();
 }
 
+// Mehrere Excel-Listen parallel: die neue Datei ersetzt nur ihren eigenen Zeitraum,
+// Tage aus anderen Listen (etwa 2027) bleiben erhalten.
+function mischen(plan) {
+  const neu = plan.days || []; if (!neu.length) return;
+  const quelle = plan.fileName || 'Liste';
+  neu.forEach((d) => (d.src = quelle));
+  const alt = (S.plan && S.plan.days) || [];
+  if (alt.length) {
+    const altQuelle = (S.plan && S.plan.fileName) || 'Liste 1';
+    const von = neu[0].date, bis = neu[neu.length - 1].date;
+    const behalten = alt.filter((d) => (d.src || altQuelle) !== quelle && (d.date < von || d.date > bis));
+    behalten.forEach((d) => (d.src = d.src || altQuelle));
+    if (behalten.length) {
+      plan.days = behalten.concat(neu).sort((a, b) => a.date.localeCompare(b.date));
+      plan.vaDet = Object.assign({}, S.plan.vaDet, plan.vaDet);
+    }
+  }
+  // Übersicht, welche Listen gerade zusammen den Plan ergeben
+  const nach = {};
+  (plan.days || []).forEach((d) => { const q = d.src || quelle; const e = (nach[q] = nach[q] || { name: q, von: d.date, bis: d.date, tage: 0 });
+    if (d.date < e.von) e.von = d.date; if (d.date > e.bis) e.bis = d.date; e.tage++; });
+  plan.files = Object.values(nach).sort((a, b) => a.von.localeCompare(b.von));
+}
 function importBar() {
   const when = S.plan ? new Date(S.plan.importedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : null;
   return `<div class="importline" id="drop">
       <span class="dot ${S.plan ? 'ok' : ''}"></span>
       <span>${when ? 'Excel-Stand: <b>' + esc(when) + '</b>' : '<b>Noch keine Excel eingelesen</b>'}</span>
-      <span class="muted hide-sm">· neue Datei einfach hierher ziehen oder</span>
+      ${(S.plan && S.plan.files || []).length > 1 ? `<span class="muted listen">· ${esc((S.plan.files).map((f) => f.von.slice(0, 4) === f.bis.slice(0, 4) ? f.von.slice(0, 4) : f.von.slice(0, 4) + '–' + f.bis.slice(0, 4)).join(' + '))} aus ${S.plan.files.length} Listen</span>` : '<span class="muted hide-sm">· neue Datei einfach hierher ziehen oder</span>'}
       <span class="spacer"></span>
       ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint ↗</a>` : ''}
       <label class="btn small">Excel einlesen<input type="file" id="file" accept=".xlsx" hidden></label>
@@ -797,6 +820,7 @@ async function importFile(file, srcHash) {
     plan.fileName = file.name;
     try { plan.sourceHash = srcHash || await sha256hex(buf); } catch (e) {}
     plan.pv = window.KOM27Parser.VERSION || 0;
+    mischen(plan); // mehrere Listen (z. B. 2026 und 2027) laufen nebeneinander
     const old = S.plan; const back = applyRemovals(plan, old && old.removed);
     const ch = old && old.days ? diffPlans(old, plan) : null;
     if (ch && back.length) ch.items.unshift(...back.map((text) => ({ type: 'new', text })));

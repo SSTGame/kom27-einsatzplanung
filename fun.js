@@ -104,48 +104,130 @@
     let kand = [];
     treffer.forEach((z) => { const r = (z / N) | 0, c = z % N; [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([a, b]) => { if (a >= 0 && a < N && b >= 0 && b < N && !sch.includes(a * N + b)) kand.push(a * N + b); }); });
     if (!kand.length) kand = Array.from({ length: N * N }, (_, i) => i).filter((z) => !sch.includes(z));
-    schuss('kom', kand[(Math.random() * kand.length) | 0]);
-    speichern(); zeichnen();
+    const z = kand[(Math.random() * kand.length) | 0];
+    schuss('kom', z);
+    speichern(); zeichnen(); fxAuf('pam', z);
     if (G.state.status === 'play' && G.state.turn === 'kom') setTimeout(computerZug, 700);
   }
-  const PLAN = `<svg class="sv-plan" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width=".7">
-    <rect x="2" y="2" width="31" height="17" rx="1.5"/><rect x="34.5" y="2" width="31" height="17" rx="1.5"/><rect x="67" y="2" width="31" height="17" rx="1.5"/>
-    <rect x="2" y="23" width="34" height="35" rx="1.5"/><rect x="2" y="61" width="34" height="37" rx="1.5"/>
-    <rect x="40" y="23" width="58" height="23" rx="1.5"/><rect x="40" y="49" width="58" height="17" rx="1.5"/><rect x="40" y="69" width="58" height="29" rx="1.5"/></g>
-    <g fill="currentColor" font-size="4.6" font-weight="700" text-anchor="middle"><text x="17.5" y="12">Seminar 1</text><text x="50" y="12">Seminar 2</text><text x="82.5" y="12">Seminar 3</text>
-    <text x="19" y="42">Saal 4</text><text x="19" y="81">Saal 3</text><text x="69" y="36">Saal 1</text><text x="69" y="59">Foyer</text><text x="69" y="85">Saal 2</text></g></svg>`;
-  // kleines Schiff als Zeichnung: Rumpf mit Bug, Aufbau, Schornstein, Bullaugen
+  // Schiffe als Zeichnung: Rumpf mit Bug, Deck, Brücke, Schornstein, Geschütztürme
   function schiffSvg(len, quer) {
-    const L = len * 100;
-    const b = Math.max(26, L * 0.18);
-    const form = `<path class="rumpf" d="M8 22 H${L - 40} L${L - 4} 50 L${L - 40} 78 H8 Q0 50 8 22 Z"/>
-      <path class="deck" d="M18 32 H${L - 46} L${L - 24} 50 L${L - 46} 68 H18 Z"/>
-      <rect class="bruecke" x="${L * 0.26}" y="34" width="${b}" height="32" rx="6"/>
-      <rect class="rohr" x="${L * 0.26 + b + 8}" y="30" width="13" height="26" rx="4"/>
-      ${Array.from({ length: len }, (_, i) => `<circle class="auge" cx="${i * 100 + 46}" cy="70" r="3.4"/>`).join('')}`;
+    const L = len * 100, b = Math.max(28, L * 0.17), bx = L * 0.3;
+    const turm = (x) => `<g class="turm"><circle cx="${x}" cy="50" r="11"/><rect x="${x - 2.5}" y="25" width="5" height="24" rx="2.5"/></g>`;
+    const form = `<path class="rumpf" d="M10 20 H${L - 38} Q${L - 4} 50 ${L - 38} 80 H10 Q2 50 10 20 Z"/>
+      <path class="deck" d="M20 31 H${L - 46} Q${L - 22} 50 ${L - 46} 69 H20 Q14 50 20 31 Z"/>
+      <rect class="bruecke" x="${bx}" y="33" width="${b}" height="34" rx="7"/>
+      <rect class="fenster" x="${bx + 5}" y="39" width="${Math.max(6, b - 10)}" height="9" rx="4"/>
+      <rect class="rohr" x="${bx + b + 9}" y="27" width="14" height="28" rx="5"/>
+      <path class="mast" d="M${bx + b / 2} 33 V9"/>
+      ${len >= 3 ? turm(L - 64) : ''}${len >= 4 ? turm(60) : ''}
+      ${Array.from({ length: len }, (_, i) => `<circle class="auge" cx="${i * 100 + 50}" cy="72" r="3.6"/>`).join('')}`;
     return quer ? `<svg viewBox="0 0 ${L} 100" preserveAspectRatio="none">${form}</svg>` : `<svg viewBox="0 0 100 ${L}" preserveAspectRatio="none"><g transform="translate(100,0) rotate(90)">${form}</g></svg>`;
   }
   const istQuer = (sch) => sch.cells.length < 2 || sch.cells[1] - sch.cells[0] === 1;
+  const SPALTEN = 'ABCDEFGH';
+  const feldName = (z) => SPALTEN[z % N] + (((z / N) | 0) + 1);
   function brett(seite, eigen, setup) {
     const st = G.state; const s = st[seite]; const beschuss = st[gegner(seite)].shots; // Schüsse, die auf dieses Brett gingen
-    let h = `<div class="sv-brett${setup ? ' setup' : ''}">${PLAN}`;
+    let h = `<div class="sv-brett${setup ? ' setup' : ''}" data-seite="${seite}">`;
     (s.ships || []).forEach((sch, i) => { const weg = versenkt(sch, beschuss); if (!eigen && !weg) return;
       const z = sch.cells[0], q = istQuer(sch), len = sch.cells.length;
-      h += `<div class="sv-schiff${weg ? ' weg' : ''}${setup && G.sel === i ? ' sel' : ''}" style="grid-row:${((z / N) | 0) + 1} / span ${q ? 1 : len};grid-column:${(z % N) + 1} / span ${q ? len : 1};animation-delay:${-(i * 0.7)}s" title="${esc(sch.name)}">${schiffSvg(len, q)}</div>`; });
+      h += `<div class="sv-schiff${weg ? ' weg' : ''}" data-si="${i}" style="grid-row:${((z / N) | 0) + 1} / span ${q ? 1 : len};grid-column:${(z % N) + 1} / span ${q ? len : 1};animation-delay:${-(i * 0.7)}s" title="${esc(sch.name)}">${schiffSvg(len, q)}</div>`; });
     for (let z = 0; z < N * N; z++) {
       const schiff = (s.ships || []).find((x) => x.cells.includes(z)); const getroffen = beschuss.includes(z);
       const kl = getroffen ? (schiff ? (versenkt(schiff, beschuss) ? 'weg' : 'hit') : 'miss') : '';
+      const stil = `grid-row:${((z / N) | 0) + 1};grid-column:${(z % N) + 1}`;
+      if (setup) { h += `<span class="sv-z ${kl}" style="${stil}"></span>`; continue; }
       const kann = !eigen && st.status === 'play' && st.turn === ich() && !getroffen;
-      const attr = setup ? `data-svp="${z}"` : kann ? `data-svz="${z}"` : 'disabled';
-      h += `<button class="sv-z ${kl}" style="grid-row:${((z / N) | 0) + 1};grid-column:${(z % N) + 1}" ${attr} aria-label="${String.fromCharCode(65 + (z % N))}${((z / N) | 0) + 1}">${getroffen ? (schiff ? '✹' : '•') : ''}</button>`;
+      h += `<button class="sv-z ${kl}" style="${stil}" ${kann ? `data-svz="${z}"` : 'disabled'} aria-label="${feldName(z)}">${getroffen ? '<i class="sv-pin"></i>' : ''}</button>`;
     }
-    return h + '</div>';
+    h += '</div>';
+    return `<div class="sv-board"><span class="sv-eck"></span><div class="sv-labx">${[...SPALTEN].map((c) => `<span>${c}</span>`).join('')}</div>`
+      + `<div class="sv-laby">${Array.from({ length: N }, (_, i) => `<span>${i + 1}</span>`).join('')}</div>${h}</div>`;
   }
   // Schiff ab Feld z in die gewählte Richtung – null, wenn es nicht passt
   function platz(len, z, quer, andere) {
     const r = (z / N) | 0, c = z % N; if (quer ? c + len > N : r + len > N) return null;
     const cells = Array.from({ length: len }, (_, i) => (quer ? z + i : z + i * N));
     return cells.some((x) => andere.some((sch) => sch.cells.includes(x))) ? null : cells;
+  }
+  /* ----- Einschlag: Fontäne beim Danebenschuss, Explosion beim Treffer ----- */
+  function fx(bo, z, art) {
+    if (!bo) return;
+    const e = document.createElement('div');
+    e.className = 'sv-eff ' + art;
+    e.style.gridRow = String(((z / N) | 0) + 1); e.style.gridColumn = String((z % N) + 1);
+    e.innerHTML = art === 'boom'
+      ? '<span class="blitz"></span><span class="feuer"></span><span class="ring r1"></span><span class="ring r2"></span>' + Array.from({ length: 10 }, (_, i) => `<i style="--w:${i * 36}deg"></i>`).join('')
+      : '<span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="saeule"></span>' + Array.from({ length: 7 }, (_, i) => `<b style="--w:${i * 51 + 10}deg"></b>`).join('');
+    bo.appendChild(e);
+    if (art === 'boom') { bo.classList.add('wackelt'); setTimeout(() => bo.classList.remove('wackelt'), 480); }
+    setTimeout(() => e.remove(), 1300);
+  }
+  function fxAuf(seite, z) {
+    const bo = document.querySelector(`#svSpiel .sv-brett[data-seite="${seite}"]`); if (!bo) return;
+    const getroffen = (((G.state || {})[seite] || {}).ships || []).some((x) => x.cells.includes(z));
+    fx(bo, z, getroffen ? 'boom' : 'splash');
+  }
+  /* ----- Aufstellen: Schiffe ziehen, antippen zum Drehen – mit Maus und am iPad ----- */
+  function wireSetup(o, me) {
+    const bo = o.querySelector('.sv-brett.setup'); if (!bo) return;
+    const ships = () => G.state[me].ships;
+    const ghost = document.createElement('div'); ghost.className = 'sv-ghost'; ghost.hidden = true; bo.appendChild(ghost);
+    let zug = null, start = 0, bewegt = false, letztes = null;
+    const feld = (ev) => { const r = bo.getBoundingClientRect();
+      const c = Math.floor((ev.clientX - r.left) / (r.width / N)), z = Math.floor((ev.clientY - r.top) / (r.height / N));
+      return c < 0 || c >= N || z < 0 || z >= N ? null : z * N + c; };
+    const anker = (f) => { let r = (f / N) | 0, c = f % N;
+      if (zug.quer) c = Math.max(0, Math.min(N - zug.len, c - zug.greif)); else r = Math.max(0, Math.min(N - zug.len, r - zug.greif));
+      return r * N + c; };
+    const andere = () => ships().filter((x) => x !== zug.alt);
+    const zeigen = (f) => {
+      if (!zug || f == null) { ghost.hidden = true; zug && (zug.ziel = null); return; }
+      const a = anker(f); const passt = platz(zug.len, a, zug.quer, andere());
+      zug.ziel = passt ? a : null;
+      ghost.hidden = false; ghost.className = 'sv-ghost ' + (passt ? 'ok' : 'nok');
+      ghost.style.gridRow = `${((a / N) | 0) + 1} / span ${zug.quer ? 1 : zug.len}`;
+      ghost.style.gridColumn = `${(a % N) + 1} / span ${zug.quer ? zug.len : 1}`;
+      ghost.innerHTML = schiffSvg(zug.len, zug.quer);
+    };
+    const aufraeumen = () => { zug = null; ghost.hidden = true; bo.querySelectorAll('.sv-schiff.zieht').forEach((e) => e.classList.remove('zieht')); };
+    bo.addEventListener('pointerdown', (ev) => {
+      if (zug) return;
+      const f = feld(ev); if (f == null) return;
+      const hier = ships().find((x) => x.cells.includes(f));
+      if (hier) zug = { alt: hier, name: hier.name, len: hier.cells.length, quer: istQuer(hier), greif: hier.cells.indexOf(f) };
+      else if (G.sel != null && G.sel >= 0 && FLOTTE[G.sel]) zug = { alt: null, name: FLOTTE[G.sel][0], len: FLOTTE[G.sel][1], quer: G.quer !== false, greif: 0 };
+      else return;
+      ev.preventDefault();
+      start = Date.now(); bewegt = false; letztes = f;
+      if (hier) { const el = bo.querySelector(`.sv-schiff[data-si="${ships().indexOf(hier)}"]`); if (el) el.classList.add('zieht'); }
+      try { bo.setPointerCapture(ev.pointerId); } catch (e) { /* egal */ }
+      zeigen(f);
+    });
+    bo.addEventListener('pointermove', (ev) => {
+      if (!zug) return;
+      const f = feld(ev); if (f === letztes) return;
+      letztes = f; bewegt = true; zeigen(f);
+    });
+    const fertig = (ev) => {
+      if (!zug) return;
+      const z = zug; const kurz = !bewegt && Date.now() - start < 400;
+      aufraeumen();
+      if (z.alt && kurz) { // antippen dreht das Schiff an Ort und Stelle
+        const basis = z.alt.cells[0]; const neuQuer = !z.quer;
+        const cells = platz(z.len, basis, neuQuer, ships().filter((x) => x !== z.alt));
+        if (!cells) return toast('Zum Drehen ist hier kein Platz – zieh das Schiff woanders hin');
+        z.alt.cells = cells; G.quer = neuQuer; G.sel = null; return zeichnen();
+      }
+      if (z.ziel == null) { if (bewegt || !z.alt) toast('Da passt das Schiff nicht hin'); return zeichnen(); }
+      const cells = platz(z.len, z.ziel, z.quer, ships().filter((x) => x !== z.alt));
+      if (!cells) return zeichnen();
+      G.state[me].ships = ships().filter((x) => x !== z.alt).concat([{ name: z.name, cells }]);
+      G.quer = z.quer; G.sel = null; zeichnen();
+    };
+    bo.addEventListener('pointerup', fertig);
+    bo.addEventListener('pointercancel', () => { aufraeumen(); zeichnen(); });
+    bo.addEventListener('contextmenu', (ev) => ev.preventDefault());
   }
   function zeichnen() {
     let o = document.getElementById('svSpiel'); if (!G.offen) { if (o) o.remove(); return; }
@@ -166,9 +248,9 @@
       const da = (n) => st[me].ships.some((x) => x.name === n);
       const voll = st[me].ships.length === FLOTTE.length;
       if (G.sel == null || G.sel >= 0 && da(FLOTTE[G.sel] && FLOTTE[G.sel][0])) { const i = FLOTTE.findIndex(([n]) => !da(n)); G.sel = i; }
-      inhalt = `<p class="sv-txt">${bereit ? ((st[er] || {}).email ? `Deine Flotte liegt bereit. Warte auf ${esc(nameOf(st, er))} …` : `Deine Flotte liegt bereit. Warte auf ${ZIELE[st.ziel] || 'einen Gegner'} …`) : voll ? 'Alles aufgestellt. Tippe ein Schiff an, um es noch einmal zu versetzen – oder los.' : 'Stell deine Flotte auf: Schiff wählen, dann ins Haus tippen. Mit „Drehen“ liegt es quer oder längs.'}</p>
+      inhalt = `<p class="sv-txt">${bereit ? ((st[er] || {}).email ? `Deine Flotte liegt bereit. Warte auf ${esc(nameOf(st, er))} …` : `Deine Flotte liegt bereit. Warte auf ${ZIELE[st.ziel] || 'einen Gegner'} …`) : voll ? 'Alles aufgestellt. Schiff verschieben: einfach ziehen. Antippen dreht es. Oder los!' : 'Stell deine Flotte auf: Schiff wählen und ins Haus ziehen. Ein Schiff antippen dreht es, ziehen verschiebt es.'}</p>
         ${bereit ? '' : `<div class="sv-flotte">${FLOTTE.map(([n, len], i) => `<button class="sv-wahl${G.sel === i ? ' on' : ''}${da(n) ? ' da' : ''}" data-svs="${i}"><span class="sv-mini" style="width:${len * 22}px">${schiffSvg(len, true)}</span>${esc(n)}</button>`).join('')}
-          <button class="btn" data-svdreh>↻ Drehen: ${G.quer === false ? 'längs' : 'quer'}</button></div>`}
+          <button class="btn sv-dreh" data-svdreh>↻ ${G.quer === false ? 'längs' : 'quer'} <small>(Taste R)</small></button></div>`}
         <div class="sv-felder eins"><div><h4>Dein Haus</h4>${brett(me, true, !bereit)}</div></div>
         <div class="sv-btns">${bereit ? '' : `<button class="big ghost" data-svwurf>Zufällig aufstellen</button><button class="big primary solid" data-svbereit ${voll ? '' : 'disabled'}>Bereit</button>`}<button class="btn" data-svende>Spiel abbrechen</button></div>`;
     } else {
@@ -204,15 +286,7 @@
     const wf = o.querySelector('[data-svwurf]'); if (wf) wf.onclick = () => { G.state[me].ships = wuerfeln(); G.sel = -1; zeichnen(); };
     o.querySelectorAll('[data-svs]').forEach((b) => (b.onclick = () => { const i = +b.dataset.svs; G.state[me].ships = G.state[me].ships.filter((x) => x.name !== FLOTTE[i][0]); G.sel = i; zeichnen(); }));
     const dr = o.querySelector('[data-svdreh]'); if (dr) dr.onclick = () => { G.quer = G.quer === false; zeichnen(); };
-    o.querySelectorAll('[data-svp]').forEach((b) => (b.onclick = () => {
-      const z = +b.dataset.svp; const ships = G.state[me].ships;
-      const hier = ships.find((x) => x.cells.includes(z));
-      if (hier) { G.quer = istQuer(hier); G.sel = FLOTTE.findIndex(([n]) => n === hier.name); G.state[me].ships = ships.filter((x) => x !== hier); return zeichnen(); } // Schiff wieder aufnehmen
-      if (G.sel == null || G.sel < 0) return;
-      const [name, len] = FLOTTE[G.sel]; const cells = platz(len, z, G.quer !== false, ships);
-      if (!cells) return toast('Da passt das Schiff nicht hin');
-      ships.push({ name, cells }); G.sel = null; zeichnen();
-    }));
+    if (o.querySelector('.sv-brett.setup')) wireSetup(o, me);
     const br = o.querySelector('[data-svbereit]'); if (br) br.onclick = async () => {
       if (G.state[me].ships.length !== FLOTTE.length) return;
       if (!G.solo) { try { const neu = await store.gameLoad(); if (neu && neu.status === 'setup') { neu[me] = G.state[me]; G.state = neu; } } catch (e) { /* dann eben mit dem eigenen Stand */ } }
@@ -223,8 +297,9 @@
     const en = o.querySelector('[data-svende]'); if (en) en.onclick = async () => { if (G.state.status === 'play' && !confirm('Laufendes Spiel wirklich abbrechen?')) return; G.state = {}; await speichern(); G.state = null; zeichnen(); };
     o.querySelectorAll('[data-svz]').forEach((b) => (b.onclick = async () => {
       if (!G.solo) { try { const neu = await store.gameLoad(); if (neu && neu.status) G.state = neu; } catch (e) { return; } }
-      if (!schuss(me, +b.dataset.svz)) return zeichnen();
-      await speichern(); zeichnen();
+      const z = +b.dataset.svz;
+      if (!schuss(me, z)) return zeichnen();
+      await speichern(); zeichnen(); fxAuf(er, z);
       if (G.state.status === 'done') { if (G.state.winner === me) konfetti();
         if (!G.solo) { const gm = (G.state[gegner(me)] || {}).email;
           const t = (S.techs || []).find((x) => (x.email || '').toLowerCase() === gm);
@@ -283,7 +358,9 @@
     const mir = ich();
     const meinsOffen = mir && G.state && G.state.status === 'setup' && G.state[mir] && !G.state[mir].ready && neu.status === 'setup';
     if (meinsOffen) { neu[mir] = G.state[mir]; if (document.querySelector('#svSpiel [data-svp]') && (neu[gegner(mir)] || {}).ready === (G.state[gegner(mir)] || {}).ready) { G.state = neu; return; } }
+    const vorher = mir && G.state && G.state[gegner(mir)] ? (G.state[gegner(mir)].shots || []).slice() : [];
     G.state = neu.status ? neu : null; zeichnen(); banner();
+    if (G.state && mir) { const jetzt = ((G.state[gegner(mir)] || {}).shots || []).filter((z) => !vorher.includes(z)); if (jetzt.length) fxAuf(mir, jetzt[jetzt.length - 1]); }
     if (G.state && G.state.status === 'done' && mir && G.state.winner === mir && war) konfetti();
   }
 
@@ -291,7 +368,12 @@
   (function () {
     const CODE = 'versenken'; let buf = '';
     const angemeldet = () => !!S.user && !document.querySelector('.card.login'); // auf der Anmeldeseite passiert nichts
-    document.addEventListener('keydown', (e) => { if (!angemeldet() || e.key.length !== 1 || e.metaKey || e.ctrlKey) return; buf = (buf + e.key.toLowerCase()).slice(-12); if (buf.endsWith(CODE)) { buf = ''; oeffnen(); } });
+    document.addEventListener('keydown', (e) => {
+      if (!angemeldet() || e.key.length !== 1 || e.metaKey || e.ctrlKey) return;
+      // R dreht das Schiff, solange die Flotte aufgestellt wird
+      if (e.key.toLowerCase() === 'r' && document.querySelector('#svSpiel .sv-brett.setup')) { const d = document.querySelector('#svSpiel [data-svdreh]'); if (d) { d.click(); return; } }
+      buf = (buf + e.key.toLowerCase()).slice(-12); if (buf.endsWith(CODE)) { buf = ''; oeffnen(); }
+    });
     document.addEventListener('input', (e) => { if (!angemeldet()) return; const t = e.target; if (!t || typeof t.value !== 'string' || !t.value) return; if (t.value.toLowerCase().trim().endsWith(CODE)) { t.value = t.value.slice(0, -CODE.length).trim(); t.blur(); oeffnen(); } });
   })();
 

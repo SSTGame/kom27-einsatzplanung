@@ -58,6 +58,20 @@
       else if (/^(saal|seminar|foyer)/.test(h)) col.rooms.push([c, clean(ws.getCell(head, c).value)]);
     }
     if (!col.buch && col.vazeit) col.buch = 0;
+    // „Anzahl“, „Name Techniker“ und „Einsatzzeit“ stehen ein bis zwei Zeilen unter der Kopfzeile.
+    // Je nach Blatt sind sie verschoben (z. B. wenn eine Spalte wie „Service Haus 1“ dazukommt) – deshalb suchen statt raten.
+    const unter = { anz: 0, name: 0, zeit: 0 };
+    for (let r = head; r <= head + 2; r++) {
+      for (let c = 1; c <= 30; c++) {
+        const h = clean(ws.getCell(r, c).value).toLowerCase();
+        if (!h) continue;
+        if (!unter.anz && /^anzahl/.test(h)) unter.anz = c;
+        if (!unter.name && /^name/.test(h)) unter.name = c;
+        if (!unter.zeit && /^einsatzzeit/.test(h)) unter.zeit = c;
+      }
+    }
+    if (unter.anz) { col.anz = unter.anz; col.name = unter.name || unter.anz + 1; col.zeit = unter.zeit || unter.anz + 2; }
+    else if (unter.name) { col.name = unter.name; col.zeit = unter.zeit || unter.name + 1; col.anz = Math.max(1, unter.name - 1); }
     // Weitere Spalten (Bemerkungen, Hybrid, Diskussionsanlage, Zusatz …) mit Überschrift merken
     const used = new Set([col.anz, col.name, col.zeit, col.va, col.buch, col.einlass, col.vazeit, ...col.rooms.map((x) => x[0])]);
     const label = (c) => {
@@ -224,6 +238,6 @@
     return { importedAt: new Date().toISOString(), days };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 6 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 7 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

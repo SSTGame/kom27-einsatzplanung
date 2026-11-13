@@ -36,15 +36,18 @@
       if (t - t0 < 4800) requestAnimationFrame(bild); else c.remove();
     })(t0);
   }
-  // Einmal am Tag kurz Feuerwerk, wenn Jens heute nicht im Haus eingetragen ist
+  // Bei jedem Öffnen kurz Feuerwerk, wenn Jens heute nicht im Haus eingetragen ist
+  let fwGezeigt = '';
   function jensCheck() {
     try {
       if (!S.user || !S.plan) return;
-      const heute = todayISO(); if (ls.get('kom27-fw') === heute) return;
+      const heute = todayISO();
+      const sig = (S.user.email || '') + '|' + heute;
+      if (fwGezeigt === sig) return; // einmal pro Besuch, nicht bei jeder Aktualisierung
       const d = (S.plan.days || []).find((y) => y.date === heute);
       if (!d || d.free || d.cancelled || !(d.kom || []).length) return; // nur wenn klar ist, wer vom KOM27 da ist
       if ((d.kom || []).some((n) => /jens/i.test(n))) return;
-      ls.set('kom27-fw', heute); setTimeout(feuerwerk, 900);
+      fwGezeigt = sig; setTimeout(feuerwerk, 900);
     } catch (e) { /* Spielkram darf nie stören */ }
   }
 

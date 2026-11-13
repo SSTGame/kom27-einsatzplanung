@@ -427,12 +427,14 @@ function x40Toggle() {
 }
 (function () {
   let buf = '';
+  const angemeldet = () => !!S.user && !document.querySelector('.card.login'); // auf der Anmeldeseite reagiert der Code nicht
   document.addEventListener('keydown', (e) => {
-    if (e.key.length !== 1 || e.metaKey || e.ctrlKey) return;
+    if (!angemeldet() || e.key.length !== 1 || e.metaKey || e.ctrlKey) return;
     buf = (buf + e.key.toLowerCase()).slice(-12);
     if (buf.endsWith(X40_CODE)) { buf = ''; x40Toggle(); }
   });
   document.addEventListener('input', (e) => {
+    if (!angemeldet()) return;
     const t = e.target; if (!t || !t.value || typeof t.value !== 'string') return;
     if (t.value.toLowerCase().trim().endsWith(X40_CODE)) { t.value = t.value.slice(0, -X40_CODE.length).trim(); x40Toggle(); }
   });

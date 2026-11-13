@@ -54,10 +54,21 @@
   /* ---------------- Saal versenken ---------------- */
   const N = 8;
   const FLOTTE = [['LED-Wand', 4], ['Rednerpult', 3], ['Mediacart', 3], ['Funkstrecke', 2], ['Presenter', 2]];
-  const SEITE = { pam: 'PAM-Technik', kom: 'KOM27' };
+  // zwei Plätze: „pam“ ist der Herausforderer, „kom“ der Gegner – wer sie besetzt, steht im Spielstand
   const G = { offen: false, solo: false, state: null, sel: null, quer: true };
-  const ich = () => (G.solo ? 'pam' : S.viewer ? 'kom' : 'pam'); // KOM27 gegen alle von PAM (Master und Techniker)
+  const meMail = () => String((S.user || {}).email || '').toLowerCase();
+  const meName = () => { try { return myShortName() || meMail().split('@')[0] || 'Ich'; } catch (e) { return meMail().split('@')[0] || 'Ich'; } };
   const gegner = (s) => (s === 'pam' ? 'kom' : 'pam');
+  const nameOf = (st, s) => (st && st[s] && st[s].name) || (s === 'pam' ? 'Herausforderer' : 'Gegner');
+  const ich = () => { if (G.solo) return 'pam'; const st = G.state; if (!st) return 'pam';
+    if ((st.pam || {}).email === meMail()) return 'pam';
+    if ((st.kom || {}).email === meMail()) return 'kom';
+    return null; }; // noch nicht dabei
+  const ZIELE = { kom: 'das KOM27', tech: 'die Techniker', alle: 'alle' };
+  const darfMit = (st) => { const z = (st || {}).ziel || 'alle';
+    if (z === 'kom') return !!S.viewer;
+    if (z === 'tech') { try { return !!myTech() || !!S.admin; } catch (e) { return !!S.admin; } }
+    return true; };
   function wuerfeln() {
     const belegt = new Set(); const schiffe = [];
     FLOTTE.forEach(([name, len]) => { for (let v = 0; v < 200; v++) {
@@ -67,7 +78,8 @@
       cells.forEach((z) => belegt.add(z)); schiffe.push({ name, cells }); break; } });
     return schiffe;
   }
-  const leer = () => ({ status: 'setup', turn: 'kom', winner: null, msg: '', von: '', pam: { ships: null, shots: [] }, kom: { ships: null, shots: [] } });
+  const leer = (ziel) => ({ status: 'setup', turn: 'kom', winner: null, msg: '', ziel: ziel || 'alle',
+    pam: { ships: null, shots: [], email: meMail(), name: meName() }, kom: { ships: null, shots: [], email: '', name: '' } });
   const versenkt = (schiff, schuesse) => schiff.cells.every((z) => schuesse.includes(z));
   const alleWeg = (seite, schuesse) => (seite.ships || []).every((s) => versenkt(s, schuesse));
   async function speichern() {
@@ -80,9 +92,9 @@
     st[von].shots.push(z);
     const tr = (ziel.ships || []).find((s) => s.cells.includes(z));
     if (tr) { const weg = versenkt(tr, st[von].shots);
-      st.msg = `${SEITE[von]}: Treffer${weg ? ' – ' + tr.name + ' versenkt!' : '!'}`;
-      if (alleWeg(ziel, st[von].shots)) { st.status = 'done'; st.winner = von; st.msg = `${SEITE[von]} hat das ganze Haus versenkt 🎉`; }
-    } else { st.msg = `${SEITE[von]}: daneben.`; st.turn = gegner(von); }
+      st.msg = `${nameOf(st, von)}: Treffer${weg ? ' – ' + tr.name + ' versenkt!' : '!'}`;
+      if (alleWeg(ziel, st[von].shots)) { st.status = 'done'; st.winner = von; st.msg = `${nameOf(st, von)} hat das ganze Haus versenkt 🎉`; }
+    } else { st.msg = `${nameOf(st, von)}: daneben.`; st.turn = gegner(von); }
     return true;
   }
   // Computer: erst rund um Treffer suchen, sonst würfeln
@@ -138,19 +150,23 @@
   function zeichnen() {
     let o = document.getElementById('svSpiel'); if (!G.offen) { if (o) o.remove(); return; }
     if (!o) { o = document.createElement('div'); o.id = 'svSpiel'; document.body.appendChild(o); }
-    const st = G.state; const me = ich(); const er = gegner(me);
-    const darfDuell = !!S.user; // Master, Techniker und KOM27 dürfen gegeneinander
+    const st = G.state; const me = ich(); const er = me ? gegner(me) : null;
     let inhalt;
     if (!st || !st.status) {
+      const ziele = S.viewer ? [['tech', 'Techniker herausfordern'], ['alle', 'Alle herausfordern']] : [['kom', 'KOM27 herausfordern'], ['tech', 'Andere Techniker herausfordern']];
       inhalt = `<p class="sv-txt">Schiffe versenken im KOM27: Wer trifft zuerst LED-Wand, Rednerpult, Mediacart, Funkstrecke und Presenter des anderen?</p>
-        <div class="sv-btns">${darfDuell ? `<button class="big primary solid" data-svneu="duell">${SEITE[er]} herausfordern</button>` : ''}<button class="big ghost" data-svneu="solo">Gegen den Computer</button></div>`;
+        <div class="sv-btns">${ziele.map(([z, t], i) => `<button class="big ${i ? 'ghost' : 'primary solid'}" data-svneu="${z}">${t}</button>`).join('')}<button class="big ghost" data-svneu="solo">Gegen den Computer</button></div>`;
+    } else if (!me) {
+      const frei = !(st.kom || {}).email && st.status === 'setup';
+      inhalt = `<p class="sv-txt">${frei ? `${esc(nameOf(st, 'pam'))} fordert ${ZIELE[st.ziel] || 'alle'} heraus.` : `Gerade spielt ${esc(nameOf(st, 'pam'))} gegen ${esc(nameOf(st, 'kom'))}.`}</p>
+        <div class="sv-btns">${frei && darfMit(st) ? '<button class="big primary solid" data-svmit>Mitspielen</button>' : ''}<button class="big ghost" data-svneu="solo">Gegen den Computer</button>${S.admin ? '<button class="btn" data-svende>Spiel beenden</button>' : ''}</div>`;
     } else if (st.status === 'setup') {
       const bereit = !!st[me].ready;
       if (!st[me].ships) st[me].ships = [];
       const da = (n) => st[me].ships.some((x) => x.name === n);
       const voll = st[me].ships.length === FLOTTE.length;
       if (G.sel == null || G.sel >= 0 && da(FLOTTE[G.sel] && FLOTTE[G.sel][0])) { const i = FLOTTE.findIndex(([n]) => !da(n)); G.sel = i; }
-      inhalt = `<p class="sv-txt">${bereit ? `Deine Flotte liegt bereit. Warte auf ${SEITE[er]} …` : voll ? 'Alles aufgestellt. Tippe ein Schiff an, um es noch einmal zu versetzen – oder los.' : 'Stell deine Flotte auf: Schiff wählen, dann ins Haus tippen. Mit „Drehen“ liegt es quer oder längs.'}</p>
+      inhalt = `<p class="sv-txt">${bereit ? ((st[er] || {}).email ? `Deine Flotte liegt bereit. Warte auf ${esc(nameOf(st, er))} …` : `Deine Flotte liegt bereit. Warte auf ${ZIELE[st.ziel] || 'einen Gegner'} …`) : voll ? 'Alles aufgestellt. Tippe ein Schiff an, um es noch einmal zu versetzen – oder los.' : 'Stell deine Flotte auf: Schiff wählen, dann ins Haus tippen. Mit „Drehen“ liegt es quer oder längs.'}</p>
         ${bereit ? '' : `<div class="sv-flotte">${FLOTTE.map(([n, len], i) => `<button class="sv-wahl${G.sel === i ? ' on' : ''}${da(n) ? ' da' : ''}" data-svs="${i}"><span class="sv-mini" style="width:${len * 22}px">${schiffSvg(len, true)}</span>${esc(n)}</button>`).join('')}
           <button class="btn" data-svdreh>↻ Drehen: ${G.quer === false ? 'längs' : 'quer'}</button></div>`}
         <div class="sv-felder eins"><div><h4>Dein Haus</h4>${brett(me, true, !bereit)}</div></div>
@@ -158,9 +174,9 @@
     } else {
       const dran = st.turn === me;
       const rest = (s) => (st[s].ships || []).filter((x) => !versenkt(x, st[gegner(s)].shots)).length;
-      inhalt = `<p class="sv-status ${st.status === 'done' ? 'ende' : dran ? 'dran' : ''}">${st.status === 'done' ? (st.winner === me ? '🏆 Gewonnen! ' : 'Verloren. ') + esc(st.msg) : (dran ? 'Du bist dran – tippe ins gegnerische Haus. ' : `${SEITE[er]} ist dran … `) + esc(st.msg || '')}</p>
+      inhalt = `<p class="sv-status ${st.status === 'done' ? 'ende' : dran ? 'dran' : ''}">${st.status === 'done' ? (st.winner === me ? '🏆 Gewonnen! ' : 'Verloren. ') + esc(st.msg) : (dran ? 'Du bist dran – tippe ins gegnerische Haus. ' : `${esc(nameOf(st, er))} ist dran … `) + esc(st.msg || '')}</p>
         <div class="sv-felder">
-          <div><h4>Haus von ${SEITE[er]} <small>noch ${rest(er)} von ${FLOTTE.length}</small></h4>${brett(er, st.status === 'done')}</div>
+          <div><h4>Haus von ${esc(nameOf(st, er))} <small>noch ${rest(er)} von ${FLOTTE.length}</small></h4>${brett(er, st.status === 'done')}</div>
           <div><h4>Dein Haus <small>noch ${rest(me)} von ${FLOTTE.length}</small></h4>${brett(me, true)}</div>
         </div>
         <div class="sv-btns"><button class="btn" data-svende>${st.status === 'done' ? 'Neues Spiel' : 'Spiel abbrechen'}</button></div>`;
@@ -168,15 +184,23 @@
     o.innerHTML = `<div class="sv-karte" role="dialog" aria-label="Saal versenken"><div class="sv-kopf"><b>🚢 Saal versenken${G.solo ? ' · gegen den Computer' : ''}</b><button class="btn small" data-svzu>Schließen</button></div>${inhalt}</div>`;
     o.querySelector('[data-svzu]').onclick = () => { G.offen = false; zeichnen(); };
     o.querySelectorAll('[data-svneu]').forEach((b) => (b.onclick = async () => {
-      G.solo = b.dataset.svneu === 'solo'; G.state = leer();
-      if (G.solo) { G.state.kom.ships = wuerfeln(); G.state.kom.ready = true; G.state.turn = 'pam'; }
+      const z = b.dataset.svneu; G.solo = z === 'solo';
+      G.state = leer(G.solo ? 'alle' : z);
+      if (G.solo) { G.state.kom = { ships: wuerfeln(), shots: [], ready: true, email: 'computer', name: 'Computer' }; G.state.turn = 'pam'; }
       else {
-        G.state.von = myShortName ? myShortName() || SEITE[me] : SEITE[me];
-        if (me === 'kom') notify('kom', (S.techs || []).filter((t) => t.active !== false).map((t) => t.id), '🚢 Saal versenken', `${G.state.von} vom KOM27 fordert euch heraus – in der App „versenken“ tippen.`, 'sv');
-        else notify('admins', [], '🚢 Saal versenken', `${G.state.von} fordert das KOM27 heraus.`, 'sv');
+        const ids = (S.techs || []).filter((t) => t.active !== false && t.email && t.email.toLowerCase() !== meMail()).map((t) => t.id);
+        const txt = `${meName()} fordert ${ZIELE[z] || 'alle'} heraus – in der App „versenken“ tippen.`;
+        if ((z === 'tech' || z === 'alle') && ids.length) notify(S.viewer ? 'kom' : 'techs', ids, '🚢 Saal versenken', txt, 'sv');
+        if (!S.admin) notify('admins', [], '🚢 Saal versenken', txt, 'sv');
       }
       await speichern(); zeichnen();
     }));
+    const mit = o.querySelector('[data-svmit]'); if (mit) mit.onclick = async () => {
+      try { const neu = await store.gameLoad(); if (neu && neu.status) G.state = neu; } catch (e) { /* dann der eigene Stand */ }
+      if ((G.state.kom || {}).email) return zeichnen(); // jemand war schneller
+      G.state.kom = Object.assign({ ships: null, shots: [] }, G.state.kom, { email: meMail(), name: meName() });
+      await speichern(); zeichnen();
+    };
     const wf = o.querySelector('[data-svwurf]'); if (wf) wf.onclick = () => { G.state[me].ships = wuerfeln(); G.sel = -1; zeichnen(); };
     o.querySelectorAll('[data-svs]').forEach((b) => (b.onclick = () => { const i = +b.dataset.svs; G.state[me].ships = G.state[me].ships.filter((x) => x.name !== FLOTTE[i][0]); G.sel = i; zeichnen(); }));
     const dr = o.querySelector('[data-svdreh]'); if (dr) dr.onclick = () => { G.quer = G.quer === false; zeichnen(); };
@@ -202,8 +226,10 @@
       if (!schuss(me, +b.dataset.svz)) return zeichnen();
       await speichern(); zeichnen();
       if (G.state.status === 'done') { if (G.state.winner === me) konfetti();
-        if (!G.solo && me === 'kom') notify('kom', (S.techs || []).filter((t) => t.active !== false).map((t) => t.id), '🚢 Saal versenken', G.state.msg, 'sv');
-        else if (!G.solo) notify('admins', [], '🚢 Saal versenken', G.state.msg, 'sv'); }
+        if (!G.solo) { const gm = (G.state[gegner(me)] || {}).email;
+          const t = (S.techs || []).find((x) => (x.email || '').toLowerCase() === gm);
+          if (t) notify(S.viewer ? 'kom' : 'techs', [t.id], '🚢 Saal versenken', G.state.msg, 'sv');
+          else if (!S.admin) notify('admins', [], '🚢 Saal versenken', G.state.msg, 'sv'); } }
       else if (G.solo) setTimeout(computerZug, 700);
     }));
   }
@@ -212,7 +238,7 @@
     G.offen = true;
     const lokal = ls.get('kom27-sv');
     let duell = null;
-    if (S.admin || S.viewer) { try { duell = await store.gameLoad(); } catch (e) { duell = null; } }
+    try { duell = await store.gameLoad(); } catch (e) { duell = null; }
     if (duell && duell.status) { G.solo = false; G.state = duell; }
     else if (lokal && lokal.status && lokal.status !== 'done') { G.solo = true; G.state = lokal; }
     else { G.solo = false; G.state = null; }
@@ -223,14 +249,18 @@
   let weg = '';
   function banner() {
     const alt = document.getElementById('svTipp'); const st = S.game;
-    const me = ich();
     let txt = '', dringend = false;
-    if (st && st.status === 'setup' && !G.offen) {
-      if (!(st[me] || {}).ready) { txt = `${esc(st.von || SEITE[gegner(me)])} fordert dich heraus – Saal versenken`; dringend = true; }
-      else txt = `Warten auf ${SEITE[gegner(me)]} …`;
-    } else if (st && st.status === 'play' && !G.offen) {
-      txt = st.turn === me ? 'Du bist dran – Saal versenken' : `${SEITE[gegner(me)]} ist am Zug`;
-      dringend = st.turn === me;
+    if (st && st.status && !G.offen) {
+      const mir = st.pam && st.pam.email === meMail() ? 'pam' : st.kom && st.kom.email === meMail() ? 'kom' : null;
+      if (!mir) {
+        if (st.status === 'setup' && !(st.kom || {}).email && darfMit(st)) { txt = `${nameOf(st, 'pam')} fordert dich heraus – Saal versenken`; dringend = true; }
+      } else if (st.status === 'setup') {
+        txt = !(st[mir] || {}).ready ? 'Saal versenken: Flotte aufstellen' : `Warten auf ${nameOf(st, gegner(mir))} …`;
+        dringend = !(st[mir] || {}).ready;
+      } else if (st.status === 'play') {
+        txt = st.turn === mir ? 'Du bist dran – Saal versenken' : `${nameOf(st, gegner(mir))} ist am Zug`;
+        dringend = st.turn === mir;
+      }
     }
     const sig = JSON.stringify([txt, dringend]);
     if (!txt || weg === sig) { if (alt) alt.remove(); return; }
@@ -250,17 +280,19 @@
     if (!neu) return;
     const war = G.state && G.state.status === 'play' ? G.state.turn : null;
     if (JSON.stringify(neu) === JSON.stringify(G.state || {})) return;
-    const meinsOffen = G.state && G.state.status === 'setup' && G.state[ich()] && !G.state[ich()].ready && neu.status === 'setup';
-    if (meinsOffen) { neu[ich()] = G.state[ich()]; if (document.querySelector('#svSpiel [data-svp]') && neu[gegner(ich())].ready === (G.state[gegner(ich())] || {}).ready) { G.state = neu; return; } }
+    const mir = ich();
+    const meinsOffen = mir && G.state && G.state.status === 'setup' && G.state[mir] && !G.state[mir].ready && neu.status === 'setup';
+    if (meinsOffen) { neu[mir] = G.state[mir]; if (document.querySelector('#svSpiel [data-svp]') && (neu[gegner(mir)] || {}).ready === (G.state[gegner(mir)] || {}).ready) { G.state = neu; return; } }
     G.state = neu.status ? neu : null; zeichnen(); banner();
-    if (G.state && G.state.status === 'done' && G.state.winner === ich() && war) konfetti();
+    if (G.state && G.state.status === 'done' && mir && G.state.winner === mir && war) konfetti();
   }
 
   // Codewort
   (function () {
     const CODE = 'versenken'; let buf = '';
-    document.addEventListener('keydown', (e) => { if (e.key.length !== 1 || e.metaKey || e.ctrlKey) return; buf = (buf + e.key.toLowerCase()).slice(-12); if (buf.endsWith(CODE)) { buf = ''; oeffnen(); } });
-    document.addEventListener('input', (e) => { const t = e.target; if (!t || typeof t.value !== 'string' || !t.value) return; if (t.value.toLowerCase().trim().endsWith(CODE)) { t.value = t.value.slice(0, -CODE.length).trim(); t.blur(); oeffnen(); } });
+    const angemeldet = () => !!S.user && !document.querySelector('.card.login'); // auf der Anmeldeseite passiert nichts
+    document.addEventListener('keydown', (e) => { if (!angemeldet() || e.key.length !== 1 || e.metaKey || e.ctrlKey) return; buf = (buf + e.key.toLowerCase()).slice(-12); if (buf.endsWith(CODE)) { buf = ''; oeffnen(); } });
+    document.addEventListener('input', (e) => { if (!angemeldet()) return; const t = e.target; if (!t || typeof t.value !== 'string' || !t.value) return; if (t.value.toLowerCase().trim().endsWith(CODE)) { t.value = t.value.slice(0, -CODE.length).trim(); t.blur(); oeffnen(); } });
   })();
 
   window.KOM27Fun = { konfetti, feuerwerk, sync, oeffnen };

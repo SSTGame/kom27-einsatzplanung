@@ -2474,8 +2474,8 @@ function komAlarmCard() {
   return `<section class="dpanel alarm-card"><h2 class="sec">⏰ ${w}: Gong und Recording${l.length ? ` <span class="np-n">${l.length}</span>` : ''}</h2>
     ${l.length ? `<div class="ak-list">${l.map((a) => {
       const rest = dt === today ? mins(a.at_time) - jetzt : null;      // Minuten bis zur Uhrzeit
-      const vorbei = rest != null && rest < -3;
-      const istJetzt = rest != null && rest <= 0 && rest >= -3;        // genau jetzt abspielen
+      const vorbei = rest != null && rest < -1;
+      const istJetzt = rest != null && rest <= 0 && rest >= -1;        // genau jetzt – läuft nur 1 Minute nach
       const bald = rest != null && rest > 0 && rest <= Math.max(a.lead_min || 5, 1);
       const va = a.scope.slice(11);
       return `<div class="ak-row${vorbei ? ' vorbei' : ''}${bald ? ' bald' : ''}${istJetzt ? ' jetzt' : ''}">

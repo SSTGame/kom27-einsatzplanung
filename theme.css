@@ -502,10 +502,15 @@ table.grid td.sum, table.grid th.sum { min-width: 46px; padding: 0 4px; }
 .clock { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap; flex: none; }
 .clock b { font-family: var(--f-num); font-stretch: 112%; font-size: 17px; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .clock small { font-size: 12px; color: var(--muted); font-weight: 600; }
+/* Wetter am Haus – hängt mit in der Uhr-Kachel */
+.clock .wx { display: inline-flex; align-items: baseline; gap: 3px; font-size: 13px; font-weight: 700; color: var(--muted); padding-left: 7px; margin-left: 1px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.clock .wx i { font-style: normal; font-size: 14px; line-height: 1; }
+@media (max-width: 440px) { .clock .wx { padding-left: 5px; font-size: 12.5px; } }
 @media (min-width: 1100px) {
   body.is-master .top-inner > .brand { order: -3; } body.is-master .top-inner > .live { order: -2; }
   body.is-master .clock { order: -1; align-self: stretch; justify-content: center; margin: 0 4px 14px; padding: 8px 10px; }
   body.is-master .clock b { font-size: 22px; }
+  body.is-master .clock { flex-wrap: wrap; row-gap: 2px; }
 }
 @media (max-width: 1099px) {
   .clock { padding: 4px 8px; } .clock b { font-size: 16px; }

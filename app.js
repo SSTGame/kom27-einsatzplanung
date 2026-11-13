@@ -741,13 +741,49 @@ function renderLogin(msg) {
   new MutationObserver(() => { if (locked && !document.getElementById('sheet')) document.body.classList.remove('noscroll'); }).observe(document.body, { childList: true });
 })();
 // Live-Uhr oben im Kopf
-const clockHtml = () => { const d = new Date(); return `<b>${pad(d.getHours())}:${pad(d.getMinutes())}</b><small>${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.</small>`; };
+const clockHtml = () => { const d = new Date(); return `<b>${pad(d.getHours())}:${pad(d.getMinutes())}</b><small>${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.</small>${wetterHtml()}`; };
+/* ---- Wetter am Haus (Mauerstraße, Berlin) – kostenlos von open-meteo.com, ohne Konto ---- */
+const WX = { 0: ['☀️', '🌙', 'klar'], 1: ['🌤️', '🌙', 'meist klar'], 2: ['⛅', '☁️', 'wolkig'], 3: ['☁️', '☁️', 'bedeckt'],
+  45: ['🌫️', '🌫️', 'Nebel'], 48: ['🌫️', '🌫️', 'Reifnebel'],
+  51: ['🌦️', '🌧️', 'leichter Niesel'], 53: ['🌦️', '🌧️', 'Niesel'], 55: ['🌧️', '🌧️', 'starker Niesel'],
+  56: ['🌨️', '🌨️', 'gefrierender Niesel'], 57: ['🌨️', '🌨️', 'gefrierender Niesel'],
+  61: ['🌦️', '🌧️', 'leichter Regen'], 63: ['🌧️', '🌧️', 'Regen'], 65: ['🌧️', '🌧️', 'starker Regen'],
+  66: ['🌨️', '🌨️', 'gefrierender Regen'], 67: ['🌨️', '🌨️', 'gefrierender Regen'],
+  71: ['🌨️', '🌨️', 'leichter Schnee'], 73: ['🌨️', '🌨️', 'Schnee'], 75: ['❄️', '❄️', 'starker Schnee'], 77: ['🌨️', '🌨️', 'Schneegriesel'],
+  80: ['🌦️', '🌧️', 'Schauer'], 81: ['🌧️', '🌧️', 'Schauer'], 82: ['⛈️', '⛈️', 'kräftige Schauer'],
+  85: ['🌨️', '🌨️', 'Schneeschauer'], 86: ['❄️', '❄️', 'Schneeschauer'],
+  95: ['⛈️', '⛈️', 'Gewitter'], 96: ['⛈️', '⛈️', 'Gewitter mit Hagel'], 99: ['⛈️', '⛈️', 'Gewitter mit Hagel'] };
+function wetterHtml() {
+  const w = S.wx; if (!w || w.t == null) return '';
+  const k = WX[w.code] || ['🌡️', '🌡️', ''];
+  const titel = `${k[2] ? k[2] + ' · ' : ''}${w.t}° in Berlin${w.max != null ? ` · heute ${w.min}° bis ${w.max}°` : ''}`;
+  return `<span class="wx" title="${esc(titel)}"><i aria-hidden="true">${w.tag ? k[0] : k[1]}</i>${w.t}°</span>`;
+}
+let wxLaeuft = false;
+async function wetterLaden() {
+  if (wxLaeuft) return;
+  const c = ls.get('kom27-wetter');
+  if (c && c.w && Date.now() - c.at < 20 * 60000) { if (!S.wx) { S.wx = c.w; clockTick(); } return; }
+  if (!navigator.onLine) return;
+  wxLaeuft = true;
+  try {
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=52.5105&longitude=13.3855&current=temperature_2m,is_day,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FBerlin&forecast_days=1');
+    if (!r.ok) throw new Error('Wetterdienst ' + r.status);
+    const d = await r.json();
+    S.wx = { t: Math.round(d.current.temperature_2m), code: d.current.weather_code, tag: !!d.current.is_day,
+      max: Math.round(d.daily.temperature_2m_max[0]), min: Math.round(d.daily.temperature_2m_min[0]) };
+    ls.set('kom27-wetter', { at: Date.now(), w: S.wx });
+    clockTick();
+  } catch (e) { /* ohne Wetter läuft die Seite genauso */ }
+  wxLaeuft = false;
+}
 // Die Uhr stellt sich zur nächsten vollen Minute – und sofort, wenn das Gerät wieder aufwacht
 let clockT = null;
 function clockTick() {
   const c = document.getElementById('clock');
   if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; }
   try { akPaint(); } catch (e) { /* Karte ist nicht überall da */ }
+  wetterLaden();
   clearTimeout(clockT);
   clockT = setTimeout(clockTick, Math.max(1000, Math.min(15000, 1000 * (60 - new Date().getSeconds()) + 150)));
 }

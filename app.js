@@ -449,17 +449,20 @@ function x40Toggle() {
   });
 })();
 let akTimer = null; let akFilter = null;
+// Erinnerungskarte neu zeichnen (Minuten bis zur Uhrzeit, „bald“, „JETZT“)
+function akPaint() {
+  const karten = document.querySelectorAll('.alarm-card');
+  if (!karten.length) return false;
+  const tmp = document.createElement('div'); tmp.innerHTML = komAlarmCard(akFilter);
+  const neu = tmp.querySelector('.alarm-card'); if (!neu) return true;
+  karten.forEach((e) => (e.innerHTML = neu.innerHTML));
+  return true;
+}
 function wireAlarmCard(erlaubt) {
   akFilter = erlaubt || null;
   clearInterval(akTimer); akTimer = null;
   if (!document.querySelector('.alarm-card')) return;
-  akTimer = setInterval(() => {
-    const karten = document.querySelectorAll('.alarm-card');
-    if (!karten.length) { clearInterval(akTimer); akTimer = null; return; }
-    const tmp = document.createElement('div'); tmp.innerHTML = komAlarmCard(akFilter);
-    const neu = tmp.querySelector('.alarm-card'); if (!neu) return;
-    karten.forEach((e) => (e.innerHTML = neu.innerHTML));
-  }, 15000);
+  akTimer = setInterval(() => { if (!akPaint()) { clearInterval(akTimer); akTimer = null; } }, 15000);
 }
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 // Nach einer Absage steht der Tag auch im Plan als „kann nicht“ – so sieht die Planung sofort, dass der Techniker weg ist
@@ -736,7 +739,19 @@ function renderLogin(msg) {
 })();
 // Live-Uhr oben im Kopf
 const clockHtml = () => { const d = new Date(); return `<b>${pad(d.getHours())}:${pad(d.getMinutes())}</b><small>${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.</small>`; };
-setInterval(() => { const c = document.getElementById('clock'); if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; } }, 5000);
+// Die Uhr stellt sich zur nächsten vollen Minute – und sofort, wenn das Gerät wieder aufwacht
+let clockT = null;
+function clockTick() {
+  const c = document.getElementById('clock');
+  if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; }
+  try { akPaint(); } catch (e) { /* Karte ist nicht überall da */ }
+  clearTimeout(clockT);
+  clockT = setTimeout(clockTick, Math.max(1000, Math.min(15000, 1000 * (60 - new Date().getSeconds()) + 150)));
+}
+clockTick();
+setInterval(clockTick, 15000); // falls ein Timer unterwegs hängen bleibt
+document.addEventListener('visibilitychange', () => { if (!document.hidden) clockTick(); });
+['pageshow', 'focus', 'online'].forEach((e) => window.addEventListener(e, clockTick));
 function header(extra) {
   return `<header class="top"><div class="top-inner">
     <a class="brand" href="./" data-home title="Zur Startseite"><span class="b-t">KOM27<span class="b-x"> Einsatzplanung</span></span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>

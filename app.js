@@ -1148,7 +1148,7 @@ function renderPlan() {
   const mi = months.indexOf(S.month);
   const monthDays = allDays().filter((d) => d.date.startsWith(S.month));
   const fromDate = S.showPast ? '' : today;
-  const visDays = monthDays.filter((d) => d.date >= fromDate && !d.free);
+  const visDays = monthDays.filter((d) => d.date >= fromDate);
   const cnt = { alle: 0, leer: 0, geplant: 0, angefragt: 0, zugesagt: 0, abgesagt: 0 };
   visDays.forEach((d) => !d.cancelled && d.slots.forEach((s) => { cnt[slotState(s)]++; cnt.alle++; }));
   // Wer ist an welchem Tag schon eingeteilt? (für Konflikthinweise in der Auswahl)
@@ -1184,8 +1184,9 @@ function renderPlan() {
     const groups = [];
     d.slots.forEach((s) => { const k = s.va || s.label || '–'; let g = groups.find((x) => x.k === k); if (!g) groups.push((g = { k, slots: [] })); g.slots.push(s); });
     if (!groups.length) {
-      if (S.filter !== 'alle' || !d.vas.length) return;
-      groups.push({ k: [...new Set(d.vas)].join(' · '), slots: [], none: true });
+      // Tage ohne PAM-Platz stehen trotzdem in der Liste – mit den KOM27-Leuten, die an dem Tag da sind
+      if (S.filter !== 'alle') return;
+      groups.push({ k: d.vas.length ? [...new Set(d.vas)].join(' · ') : '', slots: [], none: true, leer: !d.vas.length });
     }
     const keep = S.keep || new Set();
     const show = S.filter === 'alle' ? groups : groups.filter((g) => g.slots.some((s) => slotState(s) === S.filter || keep.has(s.key)));
@@ -1199,14 +1200,16 @@ function renderPlan() {
       const gd = s0.group ? gDays[s0.group] : null;
       const tag = gd ? `<span class="tag">Tag ${gd.indexOf(d.date) + 1}/${gd.length}</span>` : '';
       const room = roomsOf(d.info);
-      html += `<div ${gi === 0 ? `id="d-${d.date}"` : ''} class="row ${d.date < today ? 'past' : ''} ${d.date === today ? 'today' : ''} ${d.cancelled ? 'cancel' : ''} ${g.none ? 'none' : ''}">
+      html += `<div ${gi === 0 ? `id="d-${d.date}"` : ''} class="row ${d.date < today ? 'past' : ''} ${d.date === today ? 'today' : ''} ${d.cancelled ? 'cancel' : ''} ${g.none ? 'none' : ''} ${g.leer ? 'leer' : ''} ${d.free ? 'frei' : ''}">
         <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
-          <div class="va-id">${esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
-          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 ? '🏢 ' + esc(d.kom.join(', ')) : ''].filter(Boolean).join(' · ')}
+          <div class="va-id">${g.leer ? (d.free ? '<span class="muted">frei</span>' : '<span class="muted">keine Veranstaltung</span>') : esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
+          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 && !g.none ? '🏢 ' + esc(d.kom.join(', ')) : ''].filter(Boolean).join(' · ')}
             ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
         </div>
-        <div class="c-slots">${g.none ? '<span class="muted small">kein Techniker angefordert</span>' : g.slots.map((s) => {
+        <div class="c-slots">${g.none ? (d.kom && d.kom.length
+          ? `<span class="komonly" title="So steht es in der KOM27-Excel">🏢 ${esc(d.kom.join(', '))}<small>ohne PAM</small></span>`
+          : `<span class="muted small">${g.leer ? '–' : 'kein Techniker angefordert'}</span>`) : g.slots.map((s) => {
           const a = S.asg[s.key]; const st = slotState(s); const t = a && a.tech_id ? techById(a.tech_id) : null;
           const excelDiff = s.excelName && (!t || matchTech(s.excelName) !== t);
           const cf = t && a.status !== 'abgesagt' && !d.cancelled ? conflictsFor(t.id, s, TL) : [];

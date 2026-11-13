@@ -206,6 +206,13 @@ table.grid td.sum, table.grid th.sum { font-weight: 700; padding: 0 10px; border
 .row.none .c-date, .row.none .c-va, .row.none .c-slots { padding-top: 6px; padding-bottom: 6px; }
 .row.none .va-id { font-weight: 500; font-size: 13px; }
 .row.none .va-sub { display: none; }
+/* Tage ohne PAM-Platz: KOM27-Besetzung aus der Excel, leere Tage nur angedeutet */
+.komonly { display: inline-flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.komonly small { font-weight: 500; opacity: .75; }
+.row.leer { font-size: 12.5px; }
+.row.leer .c-date { opacity: .75; }
+.row.frei .c-date b { color: var(--muted); }
+.row.leer.frei { opacity: .62; }
 
 /* ---------- Techniker-Ansicht ---------- */
 .mine { max-width: 560px; margin: 0 auto; padding-bottom: 40px; }

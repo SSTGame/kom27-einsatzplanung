@@ -1148,7 +1148,10 @@ function renderPlan() {
   const mi = months.indexOf(S.month);
   const monthDays = allDays().filter((d) => d.date.startsWith(S.month));
   const fromDate = S.showPast ? '' : today;
-  const visDays = monthDays.filter((d) => d.date >= fromDate);
+  // Samstag und Sonntag nur zeigen, wenn an dem Tag wirklich etwas steht
+  const amWochenende = (iso) => { const g = new Date(iso + 'T12:00:00').getDay(); return g === 0 || g === 6; };
+  const nixDrin = (d) => !d.slots.length && !(d.vas || []).length && !(d.kom || []).length && !d.info && !d.cancelled;
+  const visDays = monthDays.filter((d) => d.date >= fromDate && !(amWochenende(d.date) && nixDrin(d)));
   const cnt = { alle: 0, leer: 0, geplant: 0, angefragt: 0, zugesagt: 0, abgesagt: 0 };
   visDays.forEach((d) => !d.cancelled && d.slots.forEach((s) => { cnt[slotState(s)]++; cnt.alle++; }));
   // Wer ist an welchem Tag schon eingeteilt? (für Konflikthinweise in der Auswahl)

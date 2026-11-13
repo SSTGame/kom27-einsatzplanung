@@ -661,3 +661,11 @@ drop policy if exists fg_all on public.fun_games;
 create policy fg_all on public.fun_games for all to authenticated
   using (is_admin() or is_viewer() or my_tech_id() is not null)
   with check (is_admin() or is_viewer() or my_tech_id() is not null);
+
+-- ---------------------------------------------------------------------------
+-- v31: Passwort eines Kontos neu setzen (ohne E-Mail)
+-- Dafür gibt es keine Tabelle: die Edge Function "setpw" prüft mit is_admin(),
+-- ob der Aufruf vom Master kommt, und setzt das Passwort über die Admin-API
+-- (supabase.auth.admin.updateUserById). Im Master-Bereich unter „Techniker“.
+-- Deployen: supabase functions deploy setpw
+-- ---------------------------------------------------------------------------

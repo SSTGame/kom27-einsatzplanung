@@ -822,8 +822,11 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .sv-tipp.dringend { background: var(--st-zugesagt); }
 .sv-tipp.dringend .sv-tipp-go, .sv-tipp.dringend .sv-tipp-x { color: #fff; }
 
-/* Passwort ändern (Sheet) */
-.pw-ed input:not([type=checkbox]) { width: 100%; font-size: 16px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); box-sizing: border-box; }
-.pw-ed label:not(.chk) { display: block; margin: 12px 0 4px; font-weight: 600; font-size: 14px; }
-.pw-ed .chk { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
-.pw-ed p.small { margin: 6px 0 0; }
+/* Passwort für ein Konto setzen (Master) */
+.pwset { padding: 14px; }
+.pwset-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.pwset label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 13px; }
+.pwset select, .pwset input { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); box-sizing: border-box; }
+.pwset #pwMail { margin-top: 8px; }
+.pwset .btn { min-height: 44px; white-space: nowrap; }
+@media (max-width: 700px) { .pwset-row { grid-template-columns: 1fr; align-items: stretch; } .pwset .btn { width: 100%; } }

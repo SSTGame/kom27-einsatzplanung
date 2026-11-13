@@ -30,6 +30,7 @@ const DemoStore = {
   async signUp(email) { return this.signIn(email); },
   async reset() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
   async setPassword() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
+  async setUserPassword() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
   async signOut() { ls.del(this.U); },
   async isAdmin(email) { return email === CFG.demoAdmin; },
   async isViewer(email) { return (this.d().viewers || []).some((v) => v.email === email); },
@@ -119,6 +120,13 @@ function makeSupabaseStore() {
     async signUp(email, pw) { const d = chk(await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: APP_URL() } })); return d.session ? { email: email.toLowerCase() } : null; },
     async reset(email) { chk(await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL() })); },
     async setPassword(pw) { chk(await sb.auth.updateUser({ password: pw })); },
+    // Master setzt das Passwort eines anderen Kontos – der Dienst prüft selbst, ob der Aufruf vom Master kommt
+    async setUserPassword(email, pw) {
+      const { data, error } = await sb.functions.invoke('setpw', { body: { email, password: pw } });
+      if (error) { let m = error.message || String(error); try { const j = await error.context.json(); if (j && j.error) m = j.error; } catch (e2) {} throw new Error(m); }
+      if (data && data.error) throw new Error(data.error);
+      return data;
+    },
     async signOut() { await sb.auth.signOut(); },
     async deleteMe() { chk(await sb.rpc('delete_my_account')); await sb.auth.signOut(); },
     async isAdmin() { return !!chk(await sb.rpc('is_admin')); },
@@ -532,7 +540,7 @@ function autoAssign() {
 
 /* ---------------- Render: Login ---------------- */
 // Datenschutz / Impressum / Konto löschen – unten auf jeder Seite
-const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-pwchg>Passwort ändern</button><span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
+const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
 function privacyNote() {
   if (ls.get('kom27-info-ok') || document.querySelector('.privbar')) return;
   const d = document.createElement('div'); d.className = 'privbar'; d.setAttribute('role', 'note');
@@ -540,34 +548,6 @@ function privacyNote() {
   d.querySelector('button').onclick = () => { ls.set('kom27-info-ok', 1); d.remove(); };
   document.body.appendChild(d);
 }
-// Passwort ändern – ohne E-Mail, direkt im angemeldeten Konto
-function pwSheet() {
-  const mail = (S.user && S.user.email) || '';
-  const html = `<div class="sheet-bg" id="sheet"><div class="sheet pw-ed" role="dialog" aria-modal="true" aria-label="Passwort ändern">
-    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><b>Passwort ändern</b></div>
-    <p class="muted small">Für <b>${esc(mail)}</b> – das Konto, das auf diesem Gerät angemeldet ist. Es wird keine E-Mail verschickt.</p>
-    <label>Neues Passwort (mindestens 8 Zeichen)</label><input id="pwA" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-    <label>Noch einmal zur Sicherheit</label><input id="pwB" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-    <label class="chk"><input type="checkbox" id="pwShow"> Passwort anzeigen</label>
-    <p class="muted small">Angemeldete Geräte bleiben angemeldet. Beim nächsten Anmelden gilt das neue Passwort.</p>
-    <div class="sh-actions"><button class="big yes" id="pwSave">Passwort speichern</button><button class="big ghost" data-close>Abbrechen</button></div>
-  </div></div>`;
-  const old = $('#sheet'); if (old) old.remove();
-  document.body.insertAdjacentHTML('beforeend', html);
-  const sh = $('#sheet'); const close = () => sh.remove();
-  sh.querySelectorAll('[data-close]').forEach((b) => (b.onclick = close)); sh.onclick = (ev) => { if (ev.target === sh) close(); };
-  $('#pwShow').onchange = (ev) => { const t = ev.target.checked ? 'text' : 'password'; $('#pwA').type = t; $('#pwB').type = t; };
-  setTimeout(() => $('#pwA') && $('#pwA').focus(), 50);
-  $('#pwSave').onclick = async () => {
-    const a = $('#pwA').value, b = $('#pwB').value;
-    if (a.length < 8) { $('#pwA').focus(); return toast('Bitte mindestens 8 Zeichen'); }
-    if (a !== b) { $('#pwB').focus(); return toast('Die beiden Eingaben sind nicht gleich'); }
-    const btn = $('#pwSave'); btn.disabled = true; btn.textContent = 'Speichert …';
-    try { await store.setPassword(a); close(); toast('Passwort geändert ✓'); }
-    catch (e) { btn.disabled = false; btn.textContent = 'Passwort speichern'; toast('Hat nicht geklappt: ' + (e.message || e)); }
-  };
-}
-document.addEventListener('click', (ev) => { if (ev.target.closest('[data-pwchg]')) pwSheet(); });
 document.addEventListener('click', async (ev) => {
   if (!ev.target.closest('[data-delacc]')) return;
   if (!confirm('Konto wirklich löschen?\n\nDeine Anmeldung und Push-Benachrichtigungen werden sofort gelöscht. Deine Einsätze und Arbeitszeiten bleiben bei der Planung, soweit sie für die Abrechnung nötig sind.\n\nDu kannst später jederzeit ein neues Konto anlegen.')) return;
@@ -1569,7 +1549,19 @@ function renderTechs() {
     ${(S.viewers || []).map((v) => `<tr><td data-l="Name">${esc(v.name)}</td><td data-l="E-Mail">${esc(v.email)}</td><td class="td-del"><button class="btn small" data-vdel="${esc(v.email)}">Entfernen</button></td></tr>`).join('')}
     <tr class="tr-add"><td><input type="text" id="vName" placeholder="Name, z. B. Jens"></td><td><input type="email" id="vMail" placeholder="E-Mail"></td><td><button class="btn" id="vAdd">+ Zugang anlegen</button></td></tr>
   </tbody></table></div>
-  <p class="note">Jeder Techniker meldet sich mit genau dieser E-Mail an. Beim ersten Mal klickt er auf „Konto anlegen“ und wählt sein Passwort selbst. Er sieht nur seine eigenen Einsätze.</p>`;
+  <p class="note">Jeder Techniker meldet sich mit genau dieser E-Mail an. Beim ersten Mal klickt er auf „Konto anlegen“ und wählt sein Passwort selbst. Er sieht nur seine eigenen Einsätze.</p>
+  <h2 class="sec">🔑 Passwort für ein Konto neu setzen</h2>
+  <p class="note">Nur du kannst das – ohne E-Mail. Praktisch, wenn ein Passwort vergessen wurde oder niemand mehr weiß, wie das Regie-iPad angemeldet ist: Du tippst hier ein neues ein und sagst es der Person weiter. Beim nächsten Anmelden gilt es, bereits angemeldete Geräte bleiben angemeldet.</p>
+  <div class="card pwset">
+    <div class="pwset-row">
+      <div><label for="pwWho">Konto</label>
+        <select id="pwWho">${pwKonten().map((k) => `<option value="${esc(k.email)}">${esc(k.name)} · ${esc(k.email)}</option>`).join('')}<option value="">Andere E-Mail …</option></select>
+        <input type="email" id="pwMail" placeholder="name@…" hidden></div>
+      <div><label for="pwNeu">Neues Passwort (mind. 8 Zeichen)</label>
+        <input type="text" id="pwNeu" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z. B. etwas, das man sich sagen kann"></div>
+      <div><button class="btn" id="pwGo">Passwort setzen</button></div>
+    </div>
+  </div>`;
   const save = async (t) => { try { const r = await store.saveTech(t); const i = S.techs.findIndex((x) => x.id === r.id); if (i >= 0) S.techs[i] = r; else S.techs.push(r); } catch (e) { toast(e.message); } };
   m.querySelectorAll('tr[data-id] input').forEach((inp) => (inp.onchange = async () => {
     const t = Object.assign({}, techById(inp.closest('tr').dataset.id));
@@ -1593,6 +1585,30 @@ function renderTechs() {
   };
   m.querySelectorAll('[data-vdel]').forEach((b) => (b.onclick = async () => { if (!confirm(`Zugang ${b.dataset.vdel} entfernen?`)) return; try { await store.deleteViewer(b.dataset.vdel); S.viewers = await store.getViewers(); renderMaster(); } catch (e) { toast(e.message); } }));
   m.querySelectorAll('[data-addname]').forEach((b) => (b.onclick = () => add(b.dataset.addname)));
+  if ($('#pwWho')) {
+    const mailFeld = $('#pwMail');
+    $('#pwWho').onchange = () => { const frei = !$('#pwWho').value; mailFeld.hidden = !frei; if (frei) mailFeld.focus(); };
+    $('#pwGo').onclick = async () => {
+      const email = ($('#pwWho').value || mailFeld.value).trim().toLowerCase();
+      const pw = $('#pwNeu').value;
+      if (!/^\S+@\S+\.\S+$/.test(email)) { mailFeld.focus(); return toast('Bitte ein Konto wählen oder eine E-Mail eintragen'); }
+      if (pw.length < 8) { $('#pwNeu').focus(); return toast('Bitte mindestens 8 Zeichen'); }
+      if (!confirm(`Für ${email} wirklich ein neues Passwort setzen?\n\nDas alte gilt dann nicht mehr.`)) return;
+      const b = $('#pwGo'); b.disabled = true; b.textContent = 'Setzt …';
+      try { await store.setUserPassword(email, pw); $('#pwNeu').value = ''; toast(`Neues Passwort für ${email} gesetzt ✓`); }
+      catch (e) { toast('Hat nicht geklappt: ' + (e.message || e)); }
+      b.disabled = false; b.textContent = 'Passwort setzen';
+    };
+  }
+}
+// Konten, für die der Master ein Passwort setzen kann
+function pwKonten() {
+  const l = []; const seen = new Set();
+  const add = (name, email) => { const e = (email || '').trim().toLowerCase(); if (!e || seen.has(e)) return; seen.add(e); l.push({ name, email: e }); };
+  S.techs.forEach((t) => add(t.name, t.email));
+  (S.viewers || []).forEach((v) => add(v.name + ' (KOM27)', v.email));
+  if (S.user) add('Du selbst', S.user.email);
+  return l;
 }
 
 /* ---------------- Render: Techniker ---------------- */

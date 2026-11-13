@@ -655,3 +655,9 @@ alter table public.fun_games enable row level security;
 drop policy if exists fg_all on public.fun_games;
 create policy fg_all on public.fun_games for all to authenticated using (is_admin() or is_viewer()) with check (is_admin() or is_viewer());
 do $$ begin alter publication supabase_realtime add table public.fun_games; exception when others then null; end $$;
+
+-- Saal versenken: auch Techniker dürfen mitspielen
+drop policy if exists fg_all on public.fun_games;
+create policy fg_all on public.fun_games for all to authenticated
+  using (is_admin() or is_viewer() or my_tech_id() is not null)
+  with check (is_admin() or is_viewer() or my_tech_id() is not null);

@@ -57,7 +57,7 @@ const DemoStore = {
     const viewer = (d.viewers || []).some((v) => v.email === ls.get(this.U));
     const isAdm = ls.get(this.U) === (CFG.demoAdmin || '').toLowerCase();
     const msgs = (d.messages || []).filter((x) => x.to_all || isAdm || (viewer && x.sender_role === 'kom') || (me && (x.tech_ids || []).includes(me.id)) || x.sender_email === ls.get(this.U));
-    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [], alarms: d.alarms || [], cat: d.cat && d.cat.length ? d.cat : DEMO_CAT.map((x, i) => Object.assign({ id: i + 1 }, x)), vreq: d.vreq || [],
+    return { plan: d.plan, techs: viewer ? [] : d.techs || [], asg: viewer ? {} : d.asg || {}, unav: viewer ? [] : d.unav || [], coll, offers: d.offers || [], kb: d.kb, kom, edits: Object.values(d.edits || {}), msgs, done: d.done || [], notes: d.notes || [], alarms: d.alarms || [], cat: d.cat && d.cat.length ? d.cat : DEMO_CAT.map((x, i) => Object.assign({ id: i + 1 }, x)), vreq: d.vreq || [], game: d.game || null,
       interest: (d.interest || []).filter((i) => !me || S.admin || i.tech_id === me.id) };
   },
   async saveOffers(rows) { const d = this.d(); d.offers = (d.offers || []).filter((o) => !rows.some((r) => r.slot_key === o.slot_key)).concat(rows); this.w(d); },
@@ -151,7 +151,7 @@ function makeSupabaseStore() {
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
       const dn = await sb.from('equip_done').select('*').gte('scope', addDays(todayISO(), -14)); // abgehakte Aufbau-Punkte (gemeinsam)
-      const fg = (S.admin || S.viewer) ? await sb.from('fun_games').select('state').eq('id', 1).maybeSingle() : { error: true }; // Saal versenken
+      const fg = await sb.from('fun_games').select('state').eq('id', 1).maybeSingle(); // Saal versenken
       const ct = await sb.from('equip_catalog').select('*').order('sort'); // Technik-Katalog (versteckter Planungsbereich)
       const vq = await sb.from('va_requests').select('*').gte('day', addDays(todayISO(), -60)).order('day');
       const al = await sb.from('alarms').select('*').gte('scope', addDays(todayISO(), -2)).order('at_time'); // Erinnerungen (Gong, Recording)

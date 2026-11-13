@@ -29,6 +29,7 @@ const DemoStore = {
   async signIn(email) { ls.set(this.U, email.trim().toLowerCase()); return { email }; },
   async signUp(email) { return this.signIn(email); },
   async reset() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
+  async setPassword() { throw new Error('Im Demo-Modus nicht verfügbar.'); },
   async signOut() { ls.del(this.U); },
   async isAdmin(email) { return email === CFG.demoAdmin; },
   async isViewer(email) { return (this.d().viewers || []).some((v) => v.email === email); },
@@ -531,7 +532,7 @@ function autoAssign() {
 
 /* ---------------- Render: Login ---------------- */
 // Datenschutz / Impressum / Konto löschen – unten auf jeder Seite
-const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
+const legalFoot = () => `<nav class="legal-links"><a href="datenschutz.html">Datenschutz</a>${S.user && !DEMO && !S.preview ? '<span>·</span><button type="button" class="linkbtn" data-pwchg>Passwort ändern</button><span>·</span><button type="button" class="linkbtn" data-delacc>Konto löschen</button>' : ''}</nav>`;
 function privacyNote() {
   if (ls.get('kom27-info-ok') || document.querySelector('.privbar')) return;
   const d = document.createElement('div'); d.className = 'privbar'; d.setAttribute('role', 'note');
@@ -539,6 +540,34 @@ function privacyNote() {
   d.querySelector('button').onclick = () => { ls.set('kom27-info-ok', 1); d.remove(); };
   document.body.appendChild(d);
 }
+// Passwort ändern – ohne E-Mail, direkt im angemeldeten Konto
+function pwSheet() {
+  const mail = (S.user && S.user.email) || '';
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet pw-ed" role="dialog" aria-modal="true" aria-label="Passwort ändern">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button><b>Passwort ändern</b></div>
+    <p class="muted small">Für <b>${esc(mail)}</b> – das Konto, das auf diesem Gerät angemeldet ist. Es wird keine E-Mail verschickt.</p>
+    <label>Neues Passwort (mindestens 8 Zeichen)</label><input id="pwA" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+    <label>Noch einmal zur Sicherheit</label><input id="pwB" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+    <label class="chk"><input type="checkbox" id="pwShow"> Passwort anzeigen</label>
+    <p class="muted small">Angemeldete Geräte bleiben angemeldet. Beim nächsten Anmelden gilt das neue Passwort.</p>
+    <div class="sh-actions"><button class="big yes" id="pwSave">Passwort speichern</button><button class="big ghost" data-close>Abbrechen</button></div>
+  </div></div>`;
+  const old = $('#sheet'); if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+  const sh = $('#sheet'); const close = () => sh.remove();
+  sh.querySelectorAll('[data-close]').forEach((b) => (b.onclick = close)); sh.onclick = (ev) => { if (ev.target === sh) close(); };
+  $('#pwShow').onchange = (ev) => { const t = ev.target.checked ? 'text' : 'password'; $('#pwA').type = t; $('#pwB').type = t; };
+  setTimeout(() => $('#pwA') && $('#pwA').focus(), 50);
+  $('#pwSave').onclick = async () => {
+    const a = $('#pwA').value, b = $('#pwB').value;
+    if (a.length < 8) { $('#pwA').focus(); return toast('Bitte mindestens 8 Zeichen'); }
+    if (a !== b) { $('#pwB').focus(); return toast('Die beiden Eingaben sind nicht gleich'); }
+    const btn = $('#pwSave'); btn.disabled = true; btn.textContent = 'Speichert …';
+    try { await store.setPassword(a); close(); toast('Passwort geändert ✓'); }
+    catch (e) { btn.disabled = false; btn.textContent = 'Passwort speichern'; toast('Hat nicht geklappt: ' + (e.message || e)); }
+  };
+}
+document.addEventListener('click', (ev) => { if (ev.target.closest('[data-pwchg]')) pwSheet(); });
 document.addEventListener('click', async (ev) => {
   if (!ev.target.closest('[data-delacc]')) return;
   if (!confirm('Konto wirklich löschen?\n\nDeine Anmeldung und Push-Benachrichtigungen werden sofort gelöscht. Deine Einsätze und Arbeitszeiten bleiben bei der Planung, soweit sie für die Abrechnung nötig sind.\n\nDu kannst später jederzeit ein neues Konto anlegen.')) return;

@@ -6,6 +6,7 @@ window.KOM27_CONFIG = {
   appUrl: 'https://kom27-einsatzplanung.kom27.workers.dev/',             // Adresse dieser Seite, z. B. 'https://sstgame.github.io/kom27-einsatzplanung/'
   senderName: 'Basti',      // Name unter den Anfrage-Mails
   sharepointUrl: 'https://kom27-my.sharepoint.com/:x:/r/personal/jens_neumann-cornelius_kom27_de/_layouts/15/doc2.aspx?sourcedoc=%7BDC377344-F0DA-4CEA-ADBD-EE8F1B8943A1%7D&file=Medientechnik_KOM27_VA-Kalender%202026.xlsx&action=default&mobileredirect=true',
+  sharepointUrl2027: 'https://kom27-my.sharepoint.com/:x:/g/personal/jens_neumann-cornelius_kom27_de/IQCLw52ftmymRoCgeRI5BiA9AegdiTX5jrShw0xw8hfgQwU?e=gMoMRL',  // zweite Liste (2027)
   demoAdmin: 'master@demo.de',
   // Anmeldung mit Benutzername statt E-Mail (z. B. „admin“ fürs iPad): wird zu dieser Adresse umgewandelt
   userLogins: { admin: 'basti.hellfritz@gmail.com' }, // feste Benutzernamen → Konto (iPad: „admin“ = Master-Konto)

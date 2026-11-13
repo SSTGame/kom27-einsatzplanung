@@ -1,5 +1,5 @@
 /* KOM27 Einsatzplanung – Master- und Techniker-Ansicht */
-const CFG = Object.assign({ supabaseUrl: '', supabaseAnonKey: '', appUrl: '', senderName: 'Basti', sharepointUrl: '', demoAdmin: 'master@demo.de' }, window.KOM27_CONFIG || {});
+const CFG = Object.assign({ supabaseUrl: '', supabaseAnonKey: '', appUrl: '', senderName: 'Basti', sharepointUrl: '', sharepointUrl2027: '', demoAdmin: 'master@demo.de' }, window.KOM27_CONFIG || {});
 const DEMO = !(CFG.supabaseUrl && CFG.supabaseAnonKey);
 const APP_URL = () => CFG.appUrl || location.href.split('#')[0].split('?')[0];
 
@@ -188,10 +188,13 @@ function makeSupabaseStore() {
     async addInterest(key, tech_id) { chk(await sb.from('offer_interest').upsert({ slot_key: key, tech_id })); },
     async removeInterest(key, tech_id) { chk(await sb.from('offer_interest').delete().eq('slot_key', key).eq('tech_id', tech_id)); },
     async logTime(_email, key, st, en, brk, note) { chk(await sb.rpc('log_time', { p_slot: key, p_start: st, p_end: en, p_break: brk, p_note: note || '' })); },
-    async getSync() { const r = await sb.from('excel_sync').select('share_url, hash, fetched_at, changed_at, last_try, last_error').eq('id', 1).maybeSingle(); return r.error ? null : r.data; },
-    async getSyncFile() { return chk(await sb.from('excel_file').select('hash, b64').eq('id', 1).maybeSingle()); },
+    // Es können mehrere Listen hinterlegt sein (z. B. 2026 und 2027) – id 1, 2, 3 …
+    async getSync() { const r = await sb.from('excel_sync').select('id, label, share_url, hash, fetched_at, changed_at, last_try, last_error').order('id'); return r.error ? [] : r.data; },
+    async getSyncFile(id) { return chk(await sb.from('excel_file').select('hash, b64').eq('id', id || 1).maybeSingle()); },
     async syncNow() { const { data, error } = await sb.functions.invoke('excel-sync', { body: {} }); if (error) throw error; return data || {}; },
-    async setShareUrl(u) { chk(await sb.from('excel_sync').upsert({ id: 1, share_url: u || null })); },
+    async setShareUrl(u, id, label) { const row = { id: id || 1, share_url: u || null }; if (label !== undefined) row.label = label || null;
+      if (!u) Object.assign(row, { hash: null, changed_at: null, last_error: null });
+      chk(await sb.from('excel_sync').upsert(row)); },
     async saveKb(e) { return chk(await sb.from('kb_entries').upsert(e).select().single()); },
     async deleteKb(id) { chk(await sb.from('kb_entries').delete().eq('id', id)); },
     async savePush(row) { chk(await sb.from('push_subscriptions').upsert(row)); },
@@ -203,7 +206,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.cat = d.cat || []; S.vreq = d.vreq || []; S.game = d.game || null; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; if (window.KOM27Fun) KOM27Fun.sync(); }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.cat = d.cat || []; S.vreq = d.vreq || []; S.game = d.game || null; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => []) : []; if (window.KOM27Fun) KOM27Fun.sync(); }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -217,7 +220,7 @@ function dataSig() {
   const kbs = kms + (S.kb || []).map((x) => x.id + (x.updated_at || '')).sort().join('|');
   const eds = Object.values(S.edits || {}).map((x) => x.slot_key + JSON.stringify(x.removed) + JSON.stringify(x.added)).sort().join('|');
   const o = (S.offers || []).map((x) => x.slot_key).sort().join('|') + '#' + (S.interest || []).map((x) => x.slot_key + x.tech_id).sort().join('|');
-  return [a, u, t, o, kbs, eds, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', S.sync ? (S.sync.hash || '') + (S.sync.last_error || '') + (S.sync.share_url ? 1 : 0) : '', (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|'), (S.done || []).map((x) => x.scope + x.item_id + x.done_by).sort().join('|'), (S.msgs || []).map((x) => x.id).join(',')].join('§');
+  return [a, u, t, o, kbs, eds, S.plan ? S.plan.importedAt + '/' + rmCount(S.plan) : '', (Array.isArray(S.sync) ? S.sync : []).map((y) => y.id + (y.hash || '') + (y.last_error || '') + (y.share_url ? 1 : 0)).join('|'), (S.coll || []).map((c) => c.slot_key + c.name + c.status).sort().join('|'), (S.done || []).map((x) => x.scope + x.item_id + x.done_by).sort().join('|'), (S.msgs || []).map((x) => x.id).join(',')].join('§');
 }
 // neu zeichnen, ohne dass die Seite springt: ein Element (anchor) bleibt an derselben Stelle im Bildschirm
 function paint(anchorSel) {
@@ -805,27 +808,39 @@ function importBar() {
       <span>${when ? 'Excel-Stand: <b>' + esc(when) + '</b>' : '<b>Noch keine Excel eingelesen</b>'}</span>
       ${(S.plan && S.plan.files || []).length > 1 ? `<span class="muted listen">· ${esc((S.plan.files).map((f) => f.von.slice(0, 4) === f.bis.slice(0, 4) ? f.von.slice(0, 4) : f.von.slice(0, 4) + '–' + f.bis.slice(0, 4)).join(' + '))} aus ${S.plan.files.length} Listen</span>` : '<span class="muted hide-sm">· neue Datei einfach hierher ziehen oder</span>'}
       <span class="spacer"></span>
-      ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint ↗</a>` : ''}
+      ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint${CFG.sharepointUrl2027 ? ' 2026' : ''} ↗</a>` : ''}
+      ${CFG.sharepointUrl2027 ? `<a class="btn small" href="${esc(CFG.sharepointUrl2027)}" target="_blank" rel="noopener">SharePoint 2027 ↗</a>` : ''}
       <label class="btn small">Excel einlesen<input type="file" id="file" accept=".xlsx" hidden></label>
     </div>${syncBar()}`;
 }
-// automatischer Abgleich mit SharePoint (nur online, nur Master)
+// automatischer Abgleich mit SharePoint (nur online, nur Master) – eine Zeile je Liste
+const syncName = (y) => y.label || (y.id === 1 ? 'Liste 1' : 'Liste ' + y.id);
+const syncHash = (id) => (S.plan && S.plan.srcHash && S.plan.srcHash[id]) || (id === 1 && S.plan ? S.plan.sourceHash : null) || null;
 function syncBar() {
   if (DEMO || !store.getSync) return '';
-  const y = S.sync; const t = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
-  if (!y || !y.share_url) return `<div class="syncline muted"><span>🔗 Automatischer Abgleich mit SharePoint ist aus.</span><span class="spacer"></span><button class="btn small" id="syncCfg">Link hinterlegen</button></div>`;
-  const neu = y.hash && (!S.plan || S.plan.sourceHash !== y.hash);
-  const veraltet = !neu && y.hash && S.plan && (S.plan.pv || 0) < (window.KOM27Parser.VERSION || 0);
-  if (veraltet) return `<div class="syncline new"><span>✨ <b>Das Einlesen wurde verbessert</b> – Excel einmal neu übernehmen, damit alles angezeigt wird</span><span class="spacer"></span><button class="btn small primary" id="syncApply">Neu übernehmen</button></div>`;
-  if (neu) return `<div class="syncline new"><span>📥 <b>Neue Version auf SharePoint</b> (geändert ${esc(t(y.changed_at))})</span><span class="spacer"></span><button class="btn small primary" id="syncApply">Übernehmen</button></div>`;
-  return `<div class="syncline ${y.last_error ? 'err' : 'muted'}"><span>${y.last_error ? '⚠️ Abruf fehlgeschlagen: ' + esc(y.last_error) : '✓ Aktuell mit SharePoint · zuletzt geprüft ' + esc(t(y.last_try))}</span><span class="spacer"></span><button class="btn small ghost" id="syncNow">Jetzt prüfen</button><button class="btn small ghost" id="syncApply" title="Die zuletzt abgeholte Excel noch einmal einlesen">Neu einlesen</button><button class="btn small ghost" id="syncCfg" title="SharePoint-Link ändern">⚙</button></div>`;
+  const liste = (Array.isArray(S.sync) ? S.sync : S.sync ? [S.sync] : []).filter((y) => y.share_url);
+  const t = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+  const mehr = (n) => n < 4 ? `<button class="btn small" data-synccfg="neu" title="Weitere Excel-Liste hinterlegen">+ Liste</button>` : '';
+  if (!liste.length) return `<div class="syncline muted"><span>🔗 Automatischer Abgleich mit SharePoint ist aus.</span><span class="spacer"></span><button class="btn small" data-synccfg="1">Link hinterlegen</button></div>`;
+  const zeilen = liste.map((y, i) => {
+    const wie = liste.length > 1 ? ' · ' + esc(syncName(y)) : '';
+    const neu = y.hash && syncHash(y.id) !== y.hash;
+    const veraltet = !neu && y.hash && S.plan && (S.plan.pv || 0) < (window.KOM27Parser.VERSION || 0);
+    const knoepfe = `<button class="btn small" data-synccfg="${y.id}" title="Link ändern">⚙</button>${i === liste.length - 1 ? mehr(liste.length) + '<button class="btn small" id="syncNow">Jetzt prüfen</button>' : ''}`;
+    if (veraltet) return `<div class="syncline new"><span>✨ <b>Das Einlesen wurde verbessert</b>${wie} – Excel einmal neu übernehmen, damit alles angezeigt wird</span><span class="spacer"></span><button class="btn small primary" data-syncapply="${y.id}">Neu übernehmen</button>${knoepfe}</div>`;
+    if (neu) return `<div class="syncline new"><span>📥 <b>Neue Version auf SharePoint${wie}</b> (geändert ${esc(t(y.changed_at))})</span><span class="spacer"></span><button class="btn small primary" data-syncapply="${y.id}">Übernehmen</button>${knoepfe}</div>`;
+    return `<div class="syncline ${y.last_error ? 'err' : 'muted'}"><span>${y.last_error ? '⚠️ Abruf' + wie + ' fehlgeschlagen: ' + esc(y.last_error) : '✓ Aktuell mit SharePoint' + wie + ' · zuletzt geprüft ' + esc(t(y.last_try))}</span><span class="spacer"></span>${knoepfe}</div>`;
+  });
+  return zeilen.join('');
 }
 const sha256hex = async (buf) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((x) => x.toString(16).padStart(2, '0')).join('');
-async function applySync() {
+async function applySync(id) {
+  const sid = id || 1;
+  const y = (Array.isArray(S.sync) ? S.sync : []).find((x) => x.id === sid) || { id: sid };
   toast('Hole Excel von SharePoint …');
-  const f = await store.getSyncFile(); if (!f || !f.b64) throw new Error('Noch keine Datei abgeholt');
+  const f = await store.getSyncFile(sid); if (!f || !f.b64) throw new Error('Noch keine Datei abgeholt');
   const bin = atob(f.b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-  await importFile(new File([u], 'VA-Kalender (SharePoint).xlsx'), f.hash);
+  await importFile(new File([u], `VA-Kalender ${y.label ? y.label + ' ' : ''}(SharePoint).xlsx`), f.hash, sid);
 }
 
 let excelLib;
@@ -834,7 +849,7 @@ async function loadExcelJS() {
   if (!excelLib) excelLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'vendor/exceljs.min.js'; s.onload = res; s.onerror = () => rej(new Error('ExcelJS konnte nicht geladen werden')); document.head.appendChild(s); });
   await excelLib;
 }
-async function importFile(file, srcHash) {
+async function importFile(file, srcHash, sid) {
   try {
     toast('Lese Excel …');
     await loadExcelJS();
@@ -843,7 +858,11 @@ async function importFile(file, srcHash) {
     await wb.xlsx.load(buf);
     const plan = window.KOM27Parser.parseWorkbook(wb);
     plan.fileName = file.name;
-    try { plan.sourceHash = srcHash || await sha256hex(buf); } catch (e) {}
+    try {
+      const h = srcHash || await sha256hex(buf);
+      plan.srcHash = Object.assign({}, (S.plan && S.plan.srcHash) || null, sid ? { [sid]: h } : null);
+      plan.sourceHash = sid && sid !== 1 ? (S.plan && S.plan.sourceHash) || null : h;
+    } catch (e) {}
     plan.pv = window.KOM27Parser.VERSION || 0;
     mischen(plan); // mehrere Listen (z. B. 2026 und 2027) laufen nebeneinander
     const old = S.plan; const back = applyRemovals(plan, old && old.removed);
@@ -865,9 +884,29 @@ async function importFile(file, srcHash) {
 }
 function wireImport() {
   const btn = (id, fn) => { const b = $(id); if (b) b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { toast('Fehler: ' + (e.message || e)); } finally { b.disabled = false; } }; };
-  btn('#syncApply', applySync);
-  btn('#syncNow', async () => { toast('Prüfe SharePoint …'); const r = await store.syncNow(); S.sync = await store.getSync(); toast(r.error ? 'Abruf fehlgeschlagen: ' + r.error : r.changed ? 'Neue Version gefunden 📥' : 'Keine Änderung – alles aktuell ✓'); renderMaster(); });
-  btn('#syncCfg', async () => { const u = prompt('SharePoint-Link der Excel („Jeder mit dem Link kann anzeigen“). Leer lassen zum Ausschalten:', (S.sync && S.sync.share_url) || ''); if (u === null) return; await store.setShareUrl(u.trim()); if (u.trim()) await store.syncNow(); S.sync = await store.getSync(); renderMaster(); });
+  const wrap = (el, fn) => { el.onclick = async () => { el.disabled = true; try { await fn(); } catch (e) { toast('Fehler: ' + (e.message || e)); } finally { el.disabled = false; } }; };
+  document.querySelectorAll('[data-syncapply]').forEach((b) => wrap(b, () => applySync(+b.dataset.syncapply)));
+  btn('#syncNow', async () => {
+    toast('Prüfe SharePoint …'); const r = await store.syncNow(); S.sync = await store.getSync();
+    const fehler = (r.listen || []).filter((x) => x.error);
+    toast(r.error ? 'Abruf fehlgeschlagen: ' + r.error : fehler.length ? 'Abruf fehlgeschlagen: ' + fehler.map((x) => (x.label ? x.label + ': ' : '') + x.error).join(' · ')
+      : r.changed ? 'Neue Version gefunden 📥' : 'Keine Änderung – alles aktuell ✓');
+    renderMaster();
+  });
+  document.querySelectorAll('[data-synccfg]').forEach((b) => wrap(b, async () => {
+    const liste = Array.isArray(S.sync) ? S.sync : [];
+    const neuDazu = b.dataset.synccfg === 'neu';
+    const id = neuDazu ? Math.max(1, ...liste.map((x) => x.id)) + 1 : +b.dataset.synccfg;
+    const y = liste.find((x) => x.id === id) || {};
+    const name = prompt('Name der Liste (z. B. das Jahr – steht nur zur Unterscheidung dabei):', y.label || (neuDazu ? String(new Date().getFullYear() + 1) : ''));
+    if (name === null) return;
+    const u = prompt('SharePoint-Link der Excel („Jeder mit dem Link kann anzeigen“). Leer lassen zum Ausschalten:', y.share_url || '');
+    if (u === null) return;
+    await store.setShareUrl(u.trim(), id, name.trim());
+    if (u.trim()) await store.syncNow();
+    S.sync = await store.getSync(); renderMaster();
+    toast(u.trim() ? 'Liste gespeichert – wird jetzt stündlich geprüft' : 'Liste ausgeschaltet');
+  }));
   const drop = $('#drop'); const zone = $('#main'); if (!drop || !zone) return;
   $('#file').onchange = (e) => e.target.files[0] && importFile(e.target.files[0]);
   zone.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };

@@ -51,23 +51,34 @@ async function pushAdmins(db: DB, title: string, body: string) {
   return sent;
 }
 
-async function sync(db: DB) {
+type Cfg = { id: number; label: string | null; share_url: string; hash: string | null };
+
+async function syncOne(db: DB, cfg: Cfg) {
   const now = new Date().toISOString();
-  const { data: cfg } = await db.from("excel_sync").select("share_url, hash").eq("id", 1).maybeSingle();
-  if (!cfg?.share_url) return { error: "Kein SharePoint-Link hinterlegt" };
+  const name = cfg.label ? ` (${cfg.label})` : "";
   try {
     const buf = await download(cfg.share_url);
     const hash = hex(await crypto.subtle.digest("SHA-256", buf));
-    if (hash === cfg.hash) { await db.from("excel_sync").update({ last_try: now, last_error: null }).eq("id", 1); return { changed: false, hash }; }
-    await db.from("excel_file").upsert({ id: 1, hash, b64: b64(buf), fetched_at: now });
-    await db.from("excel_sync").update({ hash, fetched_at: now, changed_at: now, last_try: now, last_error: null }).eq("id", 1);
-    const first = !cfg.hash;
-    if (!first) await pushAdmins(db, "📥 VA-Kalender geändert", "Auf SharePoint gibt es eine neue Version – in der App mit einem Klick übernehmen.");
+    if (hash === cfg.hash) { await db.from("excel_sync").update({ last_try: now, last_error: null }).eq("id", cfg.id); return { changed: false, hash }; }
+    await db.from("excel_file").upsert({ id: cfg.id, hash, b64: b64(buf), fetched_at: now });
+    await db.from("excel_sync").update({ hash, fetched_at: now, changed_at: now, last_try: now, last_error: null }).eq("id", cfg.id);
+    if (cfg.hash) await pushAdmins(db, "📥 VA-Kalender geändert" + name, "Auf SharePoint gibt es eine neue Version – in der App mit einem Klick übernehmen.");
     return { changed: true, hash, bytes: buf.length };
   } catch (e) {
-    await db.from("excel_sync").update({ last_try: now, last_error: String((e as Error).message ?? e) }).eq("id", 1);
+    await db.from("excel_sync").update({ last_try: now, last_error: String((e as Error).message ?? e) }).eq("id", cfg.id);
     return { error: String((e as Error).message ?? e) };
   }
+}
+
+// Alle hinterlegten Listen nacheinander abholen (z. B. 2026 und 2027)
+async function sync(db: DB) {
+  const { data: rows } = await db.from("excel_sync").select("id, label, share_url, hash").order("id");
+  const aktiv = ((rows ?? []) as Cfg[]).filter((r) => r.share_url);
+  if (!aktiv.length) return { error: "Kein SharePoint-Link hinterlegt" };
+  const listen: Record<string, unknown>[] = [];
+  for (const cfg of aktiv) listen.push({ id: cfg.id, label: cfg.label, ...(await syncOne(db, cfg)) });
+  const alleFehler = listen.every((x) => !!x.error);
+  return { changed: listen.some((x) => !!x.changed), listen, ...(alleFehler ? { error: String(listen[0].error) } : {}) };
 }
 
 Deno.serve(async (req) => {

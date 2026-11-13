@@ -647,3 +647,11 @@ update public.equip_catalog set rooms = '{"Saal 1","Saal 2","Saal 3","Saal 4","S
 
 -- Zweite Mitteilung genau zur Uhrzeit (Gong): merken, wann die Vorab-Mitteilung raus ist
 alter table public.alarms add column if not exists sent_lead_at timestamptz;
+
+-- v30: Saal versenken – ein gemeinsames Spiel PAM gegen KOM27
+create table if not exists public.fun_games (id int primary key default 1 check (id = 1), state jsonb not null default '{}'::jsonb, updated_at timestamptz not null default now());
+insert into public.fun_games (id, state) values (1, '{}'::jsonb) on conflict do nothing;
+alter table public.fun_games enable row level security;
+drop policy if exists fg_all on public.fun_games;
+create policy fg_all on public.fun_games for all to authenticated using (is_admin() or is_viewer()) with check (is_admin() or is_viewer());
+do $$ begin alter publication supabase_realtime add table public.fun_games; exception when others then null; end $$;

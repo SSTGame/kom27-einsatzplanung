@@ -43,6 +43,8 @@ const DemoStore = {
     if (i < 0) d.cat.push(Object.assign({ id: Date.now(), grp: 'Sonstiges', hint: '', stock: null, sort: 999, active: true }, row, { id: row.id || Date.now() })); else d.cat[i] = Object.assign({}, d.cat[i], row); this.w(d); },
   async saveVr(row) { const d = this.d(); d.vreq = d.vreq || []; const i = d.vreq.findIndex((x) => row.id && x.id === row.id);
     if (i < 0) d.vreq.push(Object.assign({}, row, { id: row.id || Date.now() })); else d.vreq[i] = Object.assign({}, d.vreq[i], row); this.w(d); },
+  async gameLoad() { return this.d().game || {}; },
+  async gameSave(state) { const d = this.d(); d.game = state; this.w(d); },
   async delVr(id) { const d = this.d(); d.vreq = (d.vreq || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
   async addAlarm(row) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => !(x.scope === row.scope && x.at_time === row.at_time && x.label === row.label)).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sent_at: null, auto: false, author_email: ls.get(this.U) || '' }, row)]); this.w(d); },
   async delAlarm(id) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
@@ -132,6 +134,8 @@ function makeSupabaseStore() {
     async saveVr(row) { const r = Object.assign({}, row, { updated_at: nowISO() }); const id = r.id; delete r.id; delete r.author_email;
       chk(id ? await sb.from('va_requests').update(r).eq('id', id) : await sb.from('va_requests').insert(r)); },
     async delVr(id) { chk(await sb.from('va_requests').delete().eq('id', id)); },
+    async gameLoad() { const r = await sb.from('fun_games').select('state').eq('id', 1).maybeSingle(); return r.error || !r.data ? {} : r.data.state || {}; },
+    async gameSave(state) { chk(await sb.from('fun_games').update({ state, updated_at: nowISO() }).eq('id', 1)); },
     async addAlarm(row) { chk(await sb.from('alarms').upsert(row, { onConflict: 'scope,at_time,label' })); },
     async delAlarm(id) { chk(await sb.from('alarms').delete().eq('id', id)); },
     async setDone(scope, item_id, on, by) { if (on) chk(await sb.from('equip_done').upsert({ scope, item_id, done_by: by, done_at: nowISO() })); else chk(await sb.from('equip_done').delete().eq('scope', scope).eq('item_id', item_id)); },
@@ -147,11 +151,12 @@ function makeSupabaseStore() {
       const ko = await sb.rpc('kom_overview'); // nur für KOM27-Zugänge: wer ist wo eingeteilt (Name + Status)
       const ms = await sb.from('messages').select('*').order('created_at', { ascending: false }).limit(60); // eigene Nachrichten zum Nachlesen
       const dn = await sb.from('equip_done').select('*').gte('scope', addDays(todayISO(), -14)); // abgehakte Aufbau-Punkte (gemeinsam)
+      const fg = (S.admin || S.viewer) ? await sb.from('fun_games').select('state').eq('id', 1).maybeSingle() : { error: true }; // Saal versenken
       const ct = await sb.from('equip_catalog').select('*').order('sort'); // Technik-Katalog (versteckter Planungsbereich)
       const vq = await sb.from('va_requests').select('*').gte('day', addDays(todayISO(), -60)).order('day');
       const al = await sb.from('alarms').select('*').gte('scope', addDays(todayISO(), -2)).order('at_time'); // Erinnerungen (Gong, Recording)
       const hn = await sb.from('handover_notes').select('*').gte('scope', addDays(todayISO(), -21)).order('created_at'); // Übergabe-Notizen (fehlt die Tabelle: leer)
-      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data, alarms: al.error ? [] : al.data, cat: ct.error ? [] : ct.data, vreq: vq.error ? [] : vq.data };
+      return { plan: chk(p) ? p.data.data : null, techs: chk(t), asg, unav: u.error ? [] : u.data, pushEmails: ps.error ? [] : ps.data.map((x) => x.email.toLowerCase()), coll: co.error ? [] : co.data || [], offers: of.error ? [] : of.data, interest: oi.error ? [] : oi.data, kb: kb.error ? [] : kb.data, kom: ko.error ? [] : ko.data || [], edits: ee.error ? [] : ee.data || [], msgs: ms.error ? [] : ms.data || [], done: dn.error ? [] : dn.data || [], notes: hn.error ? [] : hn.data, alarms: al.error ? [] : al.data, cat: ct.error ? [] : ct.data, vreq: vq.error ? [] : vq.data, game: fg.error || !fg.data ? null : fg.data.state };
     },
     async saveEdit(row) { chk(await sb.from('equip_edits').upsert({ slot_key: row.slot_key, removed: row.removed, added: row.added })); },
     async setUnav(tech_id, day, note, confirmed) { chk(await sb.from('unavailability').upsert({ tech_id, day, note: note || '', confirmed: !!confirmed })); },
@@ -189,7 +194,7 @@ const store = DEMO ? DemoStore : makeSupabaseStore();
 /* ---------------- Zustand ---------------- */
 const S = { user: null, admin: false, plan: null, techs: [], asg: {}, unav: [], tab: 'plan', month: '', onlyOpen: false, recovery: false };
 
-async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.cat = d.cat || []; S.vreq = d.vreq || []; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; }
+async function reload() { const d = await store.loadAll(); S.plan = d.plan && window.KOM27Parser && KOM27Parser.mergeDays ? Object.assign({}, d.plan, { days: KOM27Parser.mergeDays(d.plan.days) }) : d.plan; S.techs = d.techs; S.asg = d.asg; S.unav = d.unav || []; S.pushEmails = new Set(d.pushEmails || []); S.coll = d.coll || []; S.offers = d.offers || []; S.interest = d.interest || []; S.kb = d.kb || []; S.msgs = d.msgs || []; S.done = d.done || []; S.notes = d.notes || []; S.alarms = d.alarms || []; S.cat = d.cat || []; S.vreq = d.vreq || []; S.game = d.game || null; S.edits = {}; (d.edits || []).forEach((x) => (S.edits[x.slot_key] = x)); S.komAsg = {}; (d.kom || []).forEach((x) => (S.komAsg[x.slot_key] = x)); S.viewers = (S.admin || S.viewer) && store.getViewers ? await store.getViewers() : []; S.sync = S.admin && store.getSync ? await store.getSync().catch(() => null) : null; if (window.KOM27Fun) KOM27Fun.sync(); }
 const offerOf = (key) => (S.offers || []).find((o) => o.slot_key === key);
 const interestOf = (key) => (S.interest || []).filter((i) => i.slot_key === key);
 
@@ -1921,6 +1926,7 @@ function openJob(key, list) {
     const before = (S.done || []).slice();
     S.done = (S.done || []).filter((x) => !(x.scope === sc && x.item_id === id)); if (on) S.done.push({ scope: sc, item_id: id, done_by: who, done_at: nowISO() });
     c.closest('li').classList.toggle('done', on);
+    if (on && window.KOM27Fun && [...box.querySelectorAll('[data-chk]')].every((x) => x.checked)) KOM27Fun.konfetti(); // alles aufgebaut
     const sp = c.closest('label').querySelector('span'); const ex = sp.querySelector('.eq-by'); if (ex) ex.remove(); if (on && who) sp.insertAdjacentHTML('beforeend', `<em class="eq-by">✓ ${esc(who)}</em>`);
     store.setDone(sc, id, on, who).catch((x) => { S.done = before; c.checked = !on; c.closest('li').classList.toggle('done', !on); toast('Abhaken hat nicht geklappt – bitte nochmal'); });
   }));
@@ -2884,6 +2890,7 @@ function renderTech() {
       await Promise.all(keys.map((k) => store.respond(S.user.email, k, status, note || '')));
       notify('admins', [], `${firstName(t)} hat ${status === 'zugesagt' ? 'zugesagt ✓' : 'abgesagt ✗'}`, dates.join(', ') + (note ? ' – „' + note + '“' : ''), 'answer-' + t.id);
       if (status === 'abgesagt') { await offAfterDecline(t, keys, note); paint(jc ? '#openSec' : null); }
+      else if (window.KOM27Fun && !Object.values(S.asg).some((a) => a.tech_id === t.id && a.status === 'angefragt' && a.slot_key >= todayISO())) KOM27Fun.konfetti(); // alles beantwortet
       calm(1500);
     } catch (e) { keys.forEach((k, i) => (S.asg[k] = prev[i])); paint(); toast('Nicht gespeichert: ' + e.message); }
   };
@@ -3031,7 +3038,11 @@ async function liveRefresh() {
   }
   if ((ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) && ae.closest('#app')) || document.querySelector('.jc-reason:not(.hidden), .jc-one:not(.hidden), .stmenu, #sheet') || Date.now() < (S.calmUntil || 0)) return scheduleLive(2500);
   const oldAsg = S.asg; const oldUnav = new Set(S.unav.map((u) => u.tech_id + '|' + u.day));
+  // Konfetti für den Master, wenn die nächsten 7 Tage gerade komplett zugesagt wurden
+  const offen7 = () => { const t = todayISO(), e = addDays(t, 7); return allSlots().filter((x) => x.date >= t && x.date <= e && !x.day.cancelled && !(S.asg[x.key] && S.asg[x.key].status === 'zugesagt')).length; };
+  const vorher7 = S.admin && S.plan ? offen7() : 0;
   try { await reload(); } catch (e) { return; }
+  if (S.admin && vorher7 > 0 && offen7() === 0 && window.KOM27Fun) KOM27Fun.konfetti();
   const msgs = [];
   if (S.admin) {
     const slotByKey = {}; allSlots().forEach((x) => (slotByKey[x.key] = x));
@@ -3069,7 +3080,7 @@ function startLive() {
     window.addEventListener('storage', (e) => { if (e.key === DemoStore.K) scheduleLive(); });
   } else {
     const ch = store.sb.channel('kom27-live');
-    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes', 'alarms', 'equip_catalog', 'va_requests'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
+    ['assignments', 'unavailability', 'technicians', 'plan', 'offers', 'offer_interest', 'excel_sync', 'kb_entries', 'equip_edits', 'messages', 'equip_done', 'handover_notes', 'alarms', 'equip_catalog', 'va_requests', 'fun_games'].forEach((tb) => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, () => scheduleLive()));
     ch.subscribe((st) => { const d = $('#liveDot'); if (d) d.classList.toggle('on', st === 'SUBSCRIBED'); S.liveState = st; });
   }
   // Sicherheitsnetz: jede Minute und beim Zurückkehren zum Tab auffrischen

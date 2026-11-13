@@ -772,3 +772,24 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .ak-row.jetzt .ak-s { font-size: 14px; font-weight: 800; letter-spacing: .04em; }
 @keyframes akpuls { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
 @media (prefers-reduced-motion: reduce) { .ak-row.bald, .ak-row.jetzt { animation: none; } }
+
+/* ---------- Saal versenken (Code: versenken) ---------- */
+#svSpiel { position: fixed; inset: 0; z-index: 900; background: rgba(0,0,0,.45); display: grid; place-items: center; padding: 12px; overflow: auto; }
+.sv-karte { background: var(--panel); color: var(--ink); border-radius: 20px; padding: 16px; width: min(760px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.sv-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 17px; }
+.sv-txt { color: var(--muted); margin: 6px 0 14px; }
+.sv-status { font-weight: 650; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); margin: 0 0 12px; }
+.sv-status.dran { background: color-mix(in srgb, var(--st-zugesagt) 14%, var(--panel)); color: var(--st-zugesagt); }
+.sv-status.ende { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.sv-felder { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.sv-felder h4 { margin: 0 0 6px; font-size: 14px; display: flex; justify-content: space-between; }
+.sv-felder h4 small { color: var(--muted); font-weight: 500; }
+.sv-brett { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+.sv-z { aspect-ratio: 1; border: 0; border-radius: 6px; background: var(--panel-2); color: var(--muted); font-size: 16px; padding: 0; display: grid; place-items: center; }
+.sv-z[data-svz] { cursor: pointer; background: color-mix(in srgb, var(--accent) 12%, var(--panel-2)); }
+.sv-z[data-svz]:hover { background: color-mix(in srgb, var(--accent) 30%, var(--panel-2)); }
+.sv-z.ship { background: #8e8e93; }
+.sv-z.miss { background: var(--panel-2); opacity: .6; }
+.sv-z.hit { background: #ff9500; color: #fff; }
+.sv-z.weg { background: #ff3b30; color: #fff; }
+.sv-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }

@@ -159,7 +159,8 @@
         const base = slotRows[slotRows.length - 1] || d.rows[0];
         slotRows.push({ ...base, name: '', also: [], zeit: base.zeit || '' });
       }
-      if (!d.anzahl && slotRows.length && !slotRows.some((s) => s.zeit)) slotRows.length = 0;
+      // Ohne Zahl in „Anzahl PAM“ zählt ein eingetragener Name als ein Platz; bloße Notizen ohne Name und Zeit nicht
+      if (!d.anzahl && slotRows.length && !slotRows.some((s) => s.zeit || s.name)) slotRows.length = 0;
       const dayVa = (d.rows.find((r) => r._va) || {})._va || null;
       slotRows.forEach((s, idx) => {
         let va = s._va || null, color = s.color;
@@ -223,6 +224,6 @@
     return { importedAt: new Date().toISOString(), days };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 5 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 6 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

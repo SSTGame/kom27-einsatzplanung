@@ -448,14 +448,15 @@ function x40Toggle() {
     if (t.value.toLowerCase().trim().endsWith(X40_CODE)) { t.value = t.value.slice(0, -X40_CODE.length).trim(); x40Toggle(); }
   });
 })();
-let akTimer = null;
-function wireAlarmCard() {
+let akTimer = null; let akFilter = null;
+function wireAlarmCard(erlaubt) {
+  akFilter = erlaubt || null;
   clearInterval(akTimer); akTimer = null;
   if (!document.querySelector('.alarm-card')) return;
   akTimer = setInterval(() => {
     const karten = document.querySelectorAll('.alarm-card');
     if (!karten.length) { clearInterval(akTimer); akTimer = null; return; }
-    const tmp = document.createElement('div'); tmp.innerHTML = komAlarmCard();
+    const tmp = document.createElement('div'); tmp.innerHTML = komAlarmCard(akFilter);
     const neu = tmp.querySelector('.alarm-card'); if (!neu) return;
     karten.forEach((e) => (e.innerHTML = neu.innerHTML));
   }, 15000);
@@ -2478,11 +2479,14 @@ function komNoPamCard() {
   </section>`;
 }
 // Gong- und Recording-Zeiten des Tages – damit die Regie den Ablauf auf einen Blick hat
-function komAlarmCard() {
+// erlaubt(datum): nur für Techniker gesetzt – sie sehen die Liste an ihren eigenen Einsatztagen
+function komAlarmCard(erlaubt) {
+  const ok = erlaubt || (() => true);
   const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
-  const ofDay = (dt) => (S.alarms || []).filter((a) => a.scope.slice(0, 10) === dt).sort((x, y) => x.at_time.localeCompare(y.at_time));
+  const ofDay = (dt) => (ok(dt) ? (S.alarms || []).filter((a) => a.scope.slice(0, 10) === dt) : []).sort((x, y) => x.at_time.localeCompare(y.at_time));
   let dt = today; let l = ofDay(today);
   if (!l.length && now.getHours() >= 14 && ofDay(tom).length) { dt = tom; l = ofDay(tom); }
+  if (erlaubt && !ok(dt) && !(now.getHours() >= 14 && ok(tom))) return '';
   const w = dt === today ? 'Heute' : 'Morgen';
   const jetzt = now.getHours() * 60 + now.getMinutes();
   const mins = (t) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
@@ -2901,6 +2905,7 @@ function renderTech() {
     </section>
     <div class="dash"><div class="dash-main">
     ${todayCard(t) || nextCard(t)}
+    ${komAlarmCard((d) => slotsOfTech(t.id, d).some((x) => x.date === d && S.asg[x.key] && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled))}
     ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid <span class="sec-n">${nOpen}</span></h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
     ${team.length ? `<button class="big ghost" id="toTeam">👥 Zu den Freigaben für dein Team</button>` : ''}
     ${waiting.length ? `<h2 class="sec">⏳ Wartet auf Freigabe durch ${esc(mgrLabel(t))}</h2><div class="mini-list">${waiting.map((s) => line(s, 'wait')).join('')}</div>` : ''}
@@ -3009,6 +3014,7 @@ function renderTech() {
   }));
   if ($('#ics')) $('#ics').onclick = () => calSheet(t, yes);
   wireTechCal(t);
+  wireAlarmCard((d) => slotsOfTech(t.id, d).some((x) => x.date === d && S.asg[x.key] && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled));
   fillPushBox(false);
 }
 

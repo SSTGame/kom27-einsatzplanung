@@ -59,12 +59,15 @@ Deno.serve(async (req) => {
       const rows = recordingRows(day, d);
       if (rows.length) await db.from("alarms").upsert(rows, { onConflict: "scope,at_time,label", ignoreDuplicates: true });
     }
-    const { data: al } = await db.from("alarms").select("*").like("scope", day + "#%").is("sent_at", null);
-    const due = (al ?? []).filter((a) => now >= toMin(a.at_time) - a.lead_min);
-    if (!due.length) return json({ day, now, due: 0 });
-    const fresh = due.filter((a) => now <= toMin(a.at_time) + 20);
+    const { data: al } = await db.from("alarms").select("*").like("scope", day + "#%").or("sent_at.is.null,sent_lead_at.is.null");
+    // zwei Mitteilungen je Erinnerung: einmal vorher („in 5 Minuten") und einmal genau zur Uhrzeit („jetzt")
+    const vor = (al ?? []).filter((a) => !a.sent_lead_at && a.lead_min > 0 && now >= toMin(a.at_time) - a.lead_min && now < toMin(a.at_time));
+    const jetzt = (al ?? []).filter((a) => !a.sent_at && now >= toMin(a.at_time));
+    const faellig = [...vor.map((a) => ({ a, art: "vor" as const })), ...jetzt.map((a) => ({ a, art: "jetzt" as const }))];
+    if (!faellig.length) return json({ day, now, due: 0 });
+    const frisch = faellig.filter((x) => now <= toMin(x.a.at_time) + 20);
     let sent = 0;
-    if (fresh.length) {
+    if (frisch.length) {
       const { data: asg } = await db.from("assignments").select("tech_id").like("slot_key", day + "#%").eq("status", "zugesagt");
       const ids = [...new Set((asg ?? []).map((a) => a.tech_id))];
       const tl = ids.length ? (await db.from("technicians").select("email").in("id", ids)).data : [];
@@ -73,16 +76,16 @@ Deno.serve(async (req) => {
       const { data: k } = await db.from("push_config").select("public_key, private_key").eq("id", 1).maybeSingle();
       if (k) {
         webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") ?? "mailto:kom27@example.com", k.public_key, k.private_key);
-        for (const a of fresh) {
+        for (const { a, art } of frisch) {
           const mins = toMin(a.at_time) - now;
           const va = String(a.scope).slice(11);
-          const title = `⏰ ${a.label} um ${a.at_time}`;
-          const body = (mins > 0 ? `in ${mins} Minute${mins === 1 ? "" : "n"}` : "jetzt") + (va ? " · " + va : "");
+          const title = art === "jetzt" ? `🔔 Jetzt: ${a.label}` : `⏰ ${a.label} um ${a.at_time}`;
+          const body = (art === "jetzt" ? `${a.at_time} Uhr – jetzt abspielen` : `in ${mins} Minute${mins === 1 ? "" : "n"} (${a.at_time} Uhr)`) + (va ? " · " + va : "");
           for (const m of mails) {
             const { data: subs } = await db.from("push_subscriptions").select("*").ilike("email", m);
             for (const s of subs ?? []) {
               try {
-                await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title, body, tag: "alarm-" + a.id, url: "./" }), { TTL: 900, urgency: "high" });
+                await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title, body, tag: "alarm-" + a.id + "-" + art, url: "./" }), { TTL: 900, urgency: "high" });
                 sent++;
               } catch (e) {
                 const code = (e as { statusCode?: number }).statusCode;
@@ -93,8 +96,10 @@ Deno.serve(async (req) => {
         }
       }
     }
-    await db.from("alarms").update({ sent_at: new Date().toISOString() }).in("id", due.map((a) => a.id));
-    return json({ day, now, due: due.length, sent });
+    const nowIso = new Date().toISOString();
+    if (vor.length) await db.from("alarms").update({ sent_lead_at: nowIso }).in("id", vor.map((a) => a.id));
+    if (jetzt.length) await db.from("alarms").update({ sent_at: nowIso, sent_lead_at: nowIso }).in("id", jetzt.map((a) => a.id));
+    return json({ day, now, vor: vor.length, jetzt: jetzt.length, sent });
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 500);
   }

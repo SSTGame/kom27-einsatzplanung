@@ -753,3 +753,22 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .miccount { font-size: 13px; font-weight: 650; color: var(--st-zugesagt); background: color-mix(in srgb, var(--st-zugesagt) 12%, var(--panel)); border-radius: 999px; padding: 6px 12px; }
 .miccount.voll { color: var(--st-angefragt); background: color-mix(in srgb, var(--st-angefragt) 14%, var(--panel)); }
 .mic-note { margin: 0 0 12px; }
+
+/* ---------- Gong- und Recording-Zeiten im KOM27-Dashboard ---------- */
+.ak-list { display: grid; gap: 6px; }
+.ak-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); }
+.ak-row.vorbei { opacity: .55; }
+.ak-row.jetzt { background: color-mix(in srgb, var(--st-angefragt) 14%, var(--panel)); }
+.ak-t { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 17px; min-width: 52px; }
+.ak-m { flex: 1; min-width: 0; display: grid; }
+.ak-m b { font-size: 15px; overflow-wrap: anywhere; }
+.ak-m small { color: var(--muted); font-size: 12.5px; }
+.ak-s { font-size: 13px; font-weight: 650; color: var(--st-angefragt); white-space: nowrap; }
+.ak-row.vorbei .ak-s { color: var(--st-zugesagt); font-size: 15px; }
+.ak-foot { margin: 8px 0 0; }
+.ak-row.bald { background: color-mix(in srgb, var(--st-angefragt) 16%, var(--panel)); box-shadow: inset 0 0 0 1.5px var(--st-angefragt); animation: akpuls 2s ease-in-out infinite; }
+.ak-row.jetzt { background: var(--st-zugesagt); color: #fff; animation: akpuls 1s ease-in-out infinite; }
+.ak-row.jetzt .ak-m small, .ak-row.jetzt .ak-s { color: rgba(255,255,255,.92); }
+.ak-row.jetzt .ak-s { font-size: 14px; font-weight: 800; letter-spacing: .04em; }
+@keyframes akpuls { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
+@media (prefers-reduced-motion: reduce) { .ak-row.bald, .ak-row.jetzt { animation: none; } }

@@ -644,3 +644,6 @@ insert into public.equip_catalog (grp, name, hint, stock, sort, active, rooms, m
 values ('Ton','Deckenmikrofon','fest installiert – in Seminar 2 und 3 das einzige Mikrofon',null,15,true,'{"Seminar 2","Seminar 3"}',1)
 on conflict do nothing;
 update public.equip_catalog set rooms = '{"Saal 1","Saal 2","Saal 3","Saal 4","Seminar 1","Foyer","Konferenzzone"}', maxroom = 4 where name = 'Shure Axient (Funkstrecke)';
+
+-- Zweite Mitteilung genau zur Uhrzeit (Gong): merken, wann die Vorab-Mitteilung raus ist
+alter table public.alarms add column if not exists sent_lead_at timestamptz;

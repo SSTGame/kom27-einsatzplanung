@@ -432,6 +432,18 @@ function x40Toggle() {
     if (t.value.toLowerCase().trim().endsWith(X40_CODE)) { t.value = t.value.slice(0, -X40_CODE.length).trim(); x40Toggle(); }
   });
 })();
+let akTimer = null;
+function wireAlarmCard() {
+  clearInterval(akTimer); akTimer = null;
+  if (!document.querySelector('.alarm-card')) return;
+  akTimer = setInterval(() => {
+    const karten = document.querySelectorAll('.alarm-card');
+    if (!karten.length) { clearInterval(akTimer); akTimer = null; return; }
+    const tmp = document.createElement('div'); tmp.innerHTML = komAlarmCard();
+    const neu = tmp.querySelector('.alarm-card'); if (!neu) return;
+    karten.forEach((e) => (e.innerHTML = neu.innerHTML));
+  }, 15000);
+}
 const unavOf = (techId, day) => S.unav.find((u) => u.tech_id === techId && u.day === day);
 // Nach einer Absage steht der Tag auch im Plan als „kann nicht“ – so sieht die Planung sofort, dass der Techniker weg ist
 async function offAfterDecline(t, keys, note) {
@@ -2388,6 +2400,32 @@ function komNoPamCard() {
       : `<p class="muted">✓ Alle Veranstaltungen ${w === 'Heute' ? 'heute' : 'morgen'} haben einen PAM-Techniker.</p>`}
   </section>`;
 }
+// Gong- und Recording-Zeiten des Tages – damit die Regie den Ablauf auf einen Blick hat
+function komAlarmCard() {
+  const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
+  const ofDay = (dt) => (S.alarms || []).filter((a) => a.scope.slice(0, 10) === dt).sort((x, y) => x.at_time.localeCompare(y.at_time));
+  let dt = today; let l = ofDay(today);
+  if (!l.length && now.getHours() >= 14 && ofDay(tom).length) { dt = tom; l = ofDay(tom); }
+  const w = dt === today ? 'Heute' : 'Morgen';
+  const jetzt = now.getHours() * 60 + now.getMinutes();
+  const mins = (t) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
+  const naechste = dt === today ? l.find((a) => mins(a.at_time) >= jetzt) : l[0];
+  return `<section class="dpanel alarm-card"><h2 class="sec">⏰ ${w}: Gong und Recording${l.length ? ` <span class="np-n">${l.length}</span>` : ''}</h2>
+    ${l.length ? `<div class="ak-list">${l.map((a) => {
+      const rest = dt === today ? mins(a.at_time) - jetzt : null;      // Minuten bis zur Uhrzeit
+      const vorbei = rest != null && rest < -3;
+      const istJetzt = rest != null && rest <= 0 && rest >= -3;        // genau jetzt abspielen
+      const bald = rest != null && rest > 0 && rest <= Math.max(a.lead_min || 5, 1);
+      const va = a.scope.slice(11);
+      return `<div class="ak-row${vorbei ? ' vorbei' : ''}${bald ? ' bald' : ''}${istJetzt ? ' jetzt' : ''}">
+        <span class="ak-t">${esc(a.at_time)}</span>
+        <span class="ak-m"><b>${esc(a.label)}</b><small>${esc([va, a.auto ? 'aus der Excel' : a.author].filter(Boolean).join(' · '))}</small></span>
+        <span class="ak-s">${istJetzt ? 'JETZT' : vorbei ? '✓' : rest == null ? '' : rest <= 60 ? 'in ' + rest + ' Min' : ''}</span></div>`;
+    }).join('')}</div>
+    <p class="muted small ak-foot">Mitteilung kommt vorher und noch einmal genau zur Uhrzeit.</p>`
+    : `<p class="muted">${w} sind keine Gong- oder Recording-Zeiten eingetragen. Du trägst sie in der Veranstaltung unter „⏰ Erinnerungen" ein.</p>`}
+  </section>`;
+}
 function komTodayCard() {
   const today = todayISO(); const tom = addDays(today, 1); const now = new Date();
   const daySl = (d) => allSlots().filter((s) => s.date === d && !s.day.cancelled);
@@ -2679,7 +2717,7 @@ function renderKom() {
   const wOpen = wSl.filter((s) => !komOf(s.key)).length;
   const me = (S.user.email || '').split('@')[0];
   const v = S.preview ? ((S.viewers || [])[0] || { name: 'Jens' }) : (S.viewers || []).find((x) => x.email === S.user.email) || { name: me.charAt(0).toUpperCase() + me.slice(1) };
-  const tc = komTodayCard() + komNoPamCard();
+  const tc = komTodayCard() + komNoPamCard() + komAlarmCard();
   const wkPanel = `<section class="dpanel"><h2 class="sec">Nächste 7 Tage</h2>${week.length ? week.map((d) => `<button class="kn-row" ${d.slots[0] ? `data-open="${esc(d.slots[0].key)}"` : `data-va="${d.date}|${esc((vaListOf(d)[0] || {}).va || '')}"`}>${dateBox(d.date)}<span><span class="kn-who">${d.slots.map((s) => { const k = komOf(s.key); return k ? `<i class="kw-n ${k.status}">${esc(k.name.split(' ')[0])}${k.status === 'angefragt' ? ' ?' : ''}</i>` : '<i class="kw-n offen">offen</i>'; }).join('') || '<i class="kw-n nopam">ohne PAM-Techniker</i>'}</span>${vaListOf(d).map((x) => `<small>${esc(x.rooms.join(', ') || 'Raum ?')}${x.zeit ? ' · VA ' + esc(niceTime(x.zeit)) : ''}${x.pam ? '' : ' · <em>ohne PAM</em>'}</small>`).join('')}</span></button>`).join('') : '<p class="muted">Keine Termine.</p>'}</section>`;
   m.innerHTML = pvBar() + vt + (tc ? `<div class="only-m">${tc}</div>` : '') + `
     <section class="hello hi-kom">
@@ -2700,6 +2738,7 @@ function renderKom() {
     </aside></div>
     <p class="note center">Fragen zur Einteilung? Einfach ${esc(CFG.senderName)} anrufen.</p>${legalFoot()}`;
   wire();
+  wireAlarmCard();
 }
 
 function renderTech() {

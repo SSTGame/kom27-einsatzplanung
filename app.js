@@ -1357,8 +1357,10 @@ function slotsOfTech(id, from) {
 const slotLine = (s) => `${fmtDate(s.date, true)}, ${s.zeit || 'Zeit folgt'}${s.va ? ' – ' + s.va : ''}${s.group ? ' (mehrtägig)' : ''}`;
 
 /* E-Mails können im Standard-Mailprogramm oder in Outlook geöffnet werden – Einstellung je Gerät */
-const MAILAPPS = [['mailto', 'Standard-Mailprogramm'], ['owa', 'Outlook im Browser (Arbeit)'], ['live', 'Outlook.com (privat)'], ['app', 'Outlook-App']];
-const mailApp = () => ls.get('kom27-mailapp') || 'mailto';
+const amHandy = () => /iPad|iPhone|iPod|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Der ms-outlook-Link füllt nur auf iPhone, iPad und Android eine neue Mail aus; am Rechner öffnet er Outlook bloß.
+const mailApps = () => [['mailto', 'Standard-Mailprogramm'], ['owa', 'Outlook im Browser (Arbeit)'], ['live', 'Outlook.com (privat)']].concat(amHandy() ? [['app', 'Outlook-App']] : []);
+const mailApp = () => { const a = ls.get('kom27-mailapp') || 'mailto'; return a === 'app' && !amHandy() ? 'mailto' : a; };
 function mailUrl(m, art) {
   const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
   if (art === 'owa') return 'https://outlook.office.com/mail/deeplink/compose?' + q({ to: m.to, cc: m.cc, subject: m.subject, body: m.body });
@@ -1612,8 +1614,8 @@ function renderReq() {
       <div class="cw-act"><button class="btn danger-solid" data-cwok="${esc(s.key)}">Absage freigeben</button><button class="btn" data-cwno="${esc(s.key)}">Ablehnen – bleibt eingeteilt</button></div></div>`; }).join('')}</div>` : '';
   m.innerHTML = `<div id="pushBox"></div>${wishHtml}${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div>
   <div class="bar mailapp"><label for="mailApp">✉️ E-Mails öffnen in</label>
-    <select id="mailApp">${MAILAPPS.map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <span class="note">Gilt nur auf diesem Gerät. Die <b>Outlook-App</b> klappt auf iPhone/iPad und mit dem neuen Outlook; mit dem klassischen Outlook am PC stell Outlook in den Windows-Einstellungen als Standard-Mailprogramm ein und nimm hier „Standard-Mailprogramm“.</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+    <select id="mailApp">${mailApps().map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+    <span class="note">Gilt nur auf diesem Gerät.${amHandy() ? ' Die <b>Outlook-App</b> füllt die Mail direkt aus, wenn sie auf dem Gerät installiert ist.' : ' Damit <b>Standard-Mailprogramm</b> Outlook öffnet, muss Outlook in Windows unter Einstellungen → Apps → Standard-Apps als E-Mail-Programm eingestellt sein. Am Rechner kann die Outlook-App eine fertige Mail nicht übernehmen – dafür gibt es „Outlook im Browser“.'}</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}
@@ -1645,7 +1647,7 @@ function renderReq() {
     if (hasPush(r.t)) toast(`Erinnerung per Push an ${firstName(r.t)} gesendet`);
     mailOpen(mailFor(r.t, r.wait, true));
   }));
-  if ($('#mailApp')) $('#mailApp').onchange = (e) => { ls.set('kom27-mailapp', e.target.value); toast('E-Mails öffnen jetzt in: ' + (MAILAPPS.find(([k]) => k === e.target.value) || [, ''])[1]); };
+  if ($('#mailApp')) $('#mailApp').onchange = (e) => { ls.set('kom27-mailapp', e.target.value); toast('E-Mails öffnen jetzt in: ' + (mailApps().find(([k]) => k === e.target.value) || [, ''])[1]); };
   fillPushBox(true);
   wireMsgBox(m);
   const cwDecide = (key, ok) => decideCancel(key, ok);

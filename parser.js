@@ -47,7 +47,7 @@
     for (let r = 1; r <= 20; r++) if (clean(ws.getCell(r, 1).value).toLowerCase() === 'tag') { head = r; break; }
     if (!head) return [];
     // Spalten anhand der Kopfzeile bestimmen
-    const col = { anz: 4, name: 5, zeit: 6, va: 9, buch: 0, einlass: 0, vazeit: 0, rooms: [] };
+    const col = { anz: 4, name: 5, zeit: 6, va: 9, buch: 0, einlass: 0, vazeit: 0, anwesend: 0, zusatz: 0, rooms: [] };
     for (let c = 1; c <= 30; c++) {
       const h = clean(ws.getCell(head, c).value).toLowerCase();
       if (!h) continue;
@@ -72,6 +72,15 @@
     }
     if (unter.anz) { col.anz = unter.anz; col.name = unter.name || unter.anz + 1; col.zeit = unter.zeit || unter.anz + 2; }
     else if (unter.name) { col.name = unter.name; col.zeit = unter.zeit || unter.name + 1; col.anz = Math.max(1, unter.name - 1); }
+    // „Anwesend laut Planung“ (Ersatz für eine fehlende Einsatzzeit) und „Zusatz / Anmerkung“ (z. B. „externes Haus“)
+    for (let r = head; r <= head + 2; r++) {
+      for (let c = 1; c <= 30; c++) {
+        const h = clean(ws.getCell(r, c).value).toLowerCase();
+        if (!h) continue;
+        if (!col.anwesend && /^anwesend/.test(h)) col.anwesend = c;
+        if (!col.zusatz && /(zusatz|anmerkung)/.test(h)) col.zusatz = c;
+      }
+    }
     // Weitere Spalten (Bemerkungen, Hybrid, Diskussionsanlage, Zusatz …) mit Überschrift merken
     const used = new Set([col.anz, col.name, col.zeit, col.va, col.buch, col.einlass, col.vazeit, ...col.rooms.map((x) => x[0])]);
     const label = (c) => {
@@ -105,10 +114,16 @@
       if (fillOf(cells.e) === 'TH1' || fillOf(cells.d) === 'TH1') cur.blocked = true;
       if ([cells.d, cells.e, cells.i].some((c) => fillOf(c) === CANCEL)) cur.cancelled = true;
       const rooms = col.rooms.map(([c, n]) => { const v = clean(ws.getCell(r, c).value); return v ? n + ': ' + v : ''; }).filter(Boolean);
+      const anwesend = col.anwesend ? clean(ws.getCell(r, col.anwesend).value) : '';
+      const zusatz = col.zusatz ? clean(ws.getCell(r, col.zusatz).value) : '';
+      // Manche Tage haben keine Einsatzzeit, aber „Anwesend laut Planung“ – dann gilt die
+      const zeitRoh = clean(cells.f.value) || (/\d{1,2}[.:]\d{2}/.test(anwesend) ? anwesend : '');
       cur.rows.push({
         row: r,
         name: clean(cells.e.value),
-        zeit: clean(cells.f.value).replace(/\./g, ':'),
+        anwesend,
+        zusatz,
+        zeit: zeitRoh.replace(/\./g, ':'),
         va: clean(cells.i.value),
         color: MULTI[fillOf(cells.e)] || MULTI[fillOf(cells.i)] || null,
         vazeit: col.vazeit ? clean(ws.getCell(r, col.vazeit).value) : '',
@@ -127,7 +142,12 @@
     let prev = null;
     for (const d of days) {
       const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, kom: d.kom || [], vas: [], info: '', slots: [] };
-      d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id; });
+      d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id;
+        // „externes Haus“ / „interne Betreuung“ stehen als Text in Name, Zusatz oder Anmerkung – für KOM27 wichtig
+        const txt = [r.name, r.zusatz, r.anwesend].filter(Boolean).join(' · ');
+        if (!day.extern && /extern/i.test(txt)) day.extern = (/extern/i.test(r.zusatz || '') ? r.zusatz : /extern/i.test(r.name || '') ? r.name : r.anwesend).trim();
+        if (!day.intern && /intern\w*\s*betreu/i.test(txt)) day.intern = ((/intern/i.test(r.zusatz || '') ? r.zusatz : r.name) || '').trim();
+      });
       day.vazeit = (d.rows.find((r) => r.vazeit) || {}).vazeit || '';
       // Zeilen mit Einsatzzeit oder Name = Slots; "Marcel/Basti" splitten
       const slotRows = [];
@@ -225,6 +245,7 @@
       m.vazeit = [...new Set([m.vazeit, d.vazeit].filter(Boolean))].join(' / ');
       m.anzahl = (+m.anzahl || 0) + (+d.anzahl || 0);
       m.free = !!(m.free && d.free); m.blocked = !!(m.blocked || d.blocked); m.cancelled = !!(m.cancelled && d.cancelled);
+      m.extern = m.extern || d.extern; m.intern = m.intern || d.intern;
     });
     return out;
   }
@@ -235,9 +256,25 @@
     wb.eachSheet((ws) => { if (MONTHS.includes(ws.name.trim().toLowerCase())) all = all.concat(parseSheet(ws)); });
     all.sort((a, b) => a.date.localeCompare(b.date));
     const days = mergeDays(buildSlots(all));
-    return { importedAt: new Date().toISOString(), days };
+    // Tippfehler in VA-Nummern fallen sonst erst auf, wenn mehrtägige Veranstaltungen nicht zusammenfinden:
+    // die Ziffern einer VA-Nummer sind das Datum (JJMMTT, bei mehrtägigen JJMMTTTT)
+    const passt = (zif, date) => {
+      const y = date.slice(2, 4) + date.slice(5, 7), t = date.slice(8, 10);
+      if (zif.length === 6) return zif === y + t;
+      if (zif.length === 8) return zif.slice(0, 4) === y && (zif.slice(4, 6) === t || zif.slice(6, 8) === t);
+      return false;
+    };
+    const tage = new Map();                                        // VA-Nummer -> Tage, an denen sie vorkommt
+    days.forEach((d) => [...new Set((d.vas || []).concat(d.slots.map((s) => s.va || '')))].filter(Boolean)
+      .forEach((roh) => (String(roh).match(/VA\s?\d{4,10}\s?-\s?\d{1,2}/gi) || [])   // freier Text wie „Preisverleihung“ bleibt außen vor
+        .forEach((tok) => { const v = tok.replace(/\s/g, ''); if (!tage.has(v)) tage.set(v, new Set()); tage.get(v).add(d.date); })));
+    const vaWarn = [...tage.entries()].filter(([v, dts]) => {
+      const m = v.match(/^VA(\d+)-(\d{1,2})$/i);
+      return m && ![...dts].some((dt) => passt(m[1], dt));           // passt zu keinem ihrer Tage = vermutlich Zahlendreher
+    }).map(([v, dts]) => ({ va: v, date: [...dts].sort()[0] }));
+    return { importedAt: new Date().toISOString(), days, vaWarn };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 7 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 8 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

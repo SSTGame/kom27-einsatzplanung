@@ -517,9 +517,11 @@ nav.tabs .tic { font-style: normal; display: none; }
 .syncline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 14px;padding:8px 12px;border-radius:10px;font-size:13px;background:var(--panel);border:1px solid var(--line)}
 .syncline.new{background:#eef6ff;border-color:#9cc3f5;color:#0b3d75}
 .syncline.err{background:#fff4f2;border-color:#f3b3a8;color:#8a1f0f}
+.syncline.warn{background:#fff8e8;border-color:#f0d08a;color:#7a5200}
 .syncline .spacer{flex:1}
 :root[data-theme="dark"] .syncline.new {background:#0f2a47;color:#cfe3ff;border-color:#2f5d93}
 :root[data-theme="dark"] .syncline.err {background:#3a1712;color:#ffd1c8;border-color:#7a3226}
+:root[data-theme="dark"] .syncline.warn {background:#3a2e12;color:#ffe9b8;border-color:#7a6326}
 
 /* v7 Tage/Plätze entfernen */
 .va-id .rm{margin-left:6px;border:0;background:none;cursor:pointer;font-size:13px;opacity:.35;padding:2px 4px;border-radius:6px}
@@ -886,3 +888,9 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .bar.mailapp { gap: 10px; align-items: center; flex-wrap: wrap; }
 .bar.mailapp label { font-weight: 600; font-size: 14px; }
 .bar.mailapp select { font: inherit; font-size: 15px; padding: 8px 10px; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); }
+
+/* „externes Haus“ / „interne Betreuung“ aus dem VA-Kalender */
+.btr { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.btr.extern { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.btr.intern { background: color-mix(in srgb, var(--st-zugesagt) 14%, var(--panel)); color: var(--st-zugesagt); border: 1px solid color-mix(in srgb, var(--st-zugesagt) 35%, transparent); }
+.nopam-card .btr { margin: 0 0 8px; }

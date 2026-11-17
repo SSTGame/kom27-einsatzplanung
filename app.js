@@ -847,7 +847,13 @@ function importBar() {
       ${CFG.sharepointUrl ? `<a class="btn small" href="${esc(CFG.sharepointUrl)}" target="_blank" rel="noopener">SharePoint${CFG.sharepointUrl2027 ? ' 2026' : ''} ↗</a>` : ''}
       ${CFG.sharepointUrl2027 ? `<a class="btn small" href="${esc(CFG.sharepointUrl2027)}" target="_blank" rel="noopener">SharePoint 2027 ↗</a>` : ''}
       <label class="btn small">Excel einlesen<input type="file" id="file" accept=".xlsx" hidden></label>
-    </div>${syncBar()}`;
+    </div>${syncBar()}${vaWarnBar()}`;
+}
+// Zahlendreher in VA-Nummern: fällt sonst erst auf, wenn mehrtägige Veranstaltungen auseinanderfallen
+function vaWarnBar() {
+  const w = (S.plan && S.plan.vaWarn) || [];
+  if (!w.length || ls.get('kom27-vawarn-weg') === (S.plan || {}).importedAt) return '';
+  return `<div class="syncline warn"><span>⚠️ ${w.length === 1 ? 'Eine VA-Nummer passt' : w.length + ' VA-Nummern passen'} nicht zum Datum: ${w.slice(0, 4).map((x) => `<b>${esc(x.va)}</b> am ${esc(fmtDate(x.date))}`).join(', ')}${w.length > 4 ? ' …' : ''} – vermutlich ein Tippfehler in der Excel.</span><span class="spacer"></span><button class="btn small" id="vaWarnOk">Verstanden</button></div>`;
 }
 // automatischer Abgleich mit SharePoint (nur online, nur Master) – eine Zeile je Liste
 const syncName = (y) => y.label || (y.id === 1 ? 'Liste 1' : 'Liste ' + y.id);
@@ -922,6 +928,7 @@ function wireImport() {
   const btn = (id, fn) => { const b = $(id); if (b) b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { toast('Fehler: ' + (e.message || e)); } finally { b.disabled = false; } }; };
   const wrap = (el, fn) => { el.onclick = async () => { el.disabled = true; try { await fn(); } catch (e) { toast('Fehler: ' + (e.message || e)); } finally { el.disabled = false; } }; };
   document.querySelectorAll('[data-syncapply]').forEach((b) => wrap(b, () => applySync(+b.dataset.syncapply)));
+  btn('#vaWarnOk', async () => { ls.set('kom27-vawarn-weg', (S.plan || {}).importedAt); renderMaster(); });
   btn('#syncNow', async () => {
     toast('Prüfe SharePoint …'); const r = await store.syncNow(); S.sync = await store.getSync();
     const fehler = (r.listen || []).filter((x) => x.error);
@@ -1208,6 +1215,7 @@ function renderPlan() {
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
           <div class="va-id">${g.leer ? (d.free ? '<span class="muted">frei</span>' : '<span class="muted">keine Veranstaltung</span>') : esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
           <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 && !g.none ? '🏢 ' + esc(d.kom.join(', ')) : ''].filter(Boolean).join(' · ')}
+            ${gi === 0 ? betreuungTag(d) : ''}
             ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
         </div>
         <div class="c-slots">${g.none ? (d.kom && d.kom.length
@@ -1402,6 +1410,24 @@ function mailFor(t, slots, reminder) {
   const subj = (reminder ? 'Erinnerung: ' : '') + 'KOM27 Einsatzanfrage – ' + (slots.length === 1 ? fmtDate(slots[0].date, true) : slots.length + ' Termine');
   const body2 = hasMgr(t) ? body.replace('Bitte bestätige kurz hier, ob du kannst:', `Die verbindliche Zusage gibt ${mgrLabel(t)} (in Kopie) – bitte dort oder hier freigeben:`) : body;
   return { to: t.email, cc: hasMgr(t) ? mgrMail(t) : '', subject: subj, body: body2 };
+}
+
+// Mail an die KOM27-Leute: welche Veranstaltungen der nächsten Wochen ohne PAM-Techniker laufen
+function komNoPamMail(tage) {
+  // Bei Auf- und Abbau zählt nur, was in seiner eigenen Zeile steht – sonst stünde dort die Zeit der Veranstaltung daneben
+  const zeilen = tage.map(({ d, list }) => `${fmtDate(d.date, true)}: ` + list.map((x) => {
+    const bau = /^(auf|ab)bau/i.test(x.va); const det = (d.vaDet || {})[x.va] || {};
+    const zeit = bau ? det.buch || det.vazeit || '' : x.zeit;
+    const rooms = bau ? [...new Set((det.rooms || []).map((r) => String(r[0] || '').trim()).filter(Boolean))] : x.rooms || [];
+    return x.va + (zeit ? ' (' + niceTime(zeit) + ')' : '') + (rooms.length ? ' – ' + rooms.join(', ') : '');
+  }).join(' · ') + (betreuung(d) ? ' – ' + betreuung(d).txt : ''));
+  const body = `Hallo zusammen,\n\nzur Info: An diesen Tagen läuft laut VA-Kalender eine Veranstaltung, für die kein PAM-Techniker angefordert ist.\n\n${zeilen.join('\n')}\n\nFalls doch jemand gebraucht wird, meldet euch kurz – dann schauen wir, ob wir das noch einteilen können.\n\nViele Grüße\n${CFG.senderName}`;
+  return { to: (S.viewers || []).map((v) => v.email).filter(Boolean).join(','), cc: '', subject: `KOM27: ${tage.length === 1 ? '1 Veranstaltung' : tage.length + ' Tage'} ohne PAM-Techniker`, body };
+}
+function komNoPamTage(tageVoraus) {
+  const today = todayISO(); const bis = addDays(today, tageVoraus || 14);
+  return allDays().filter((d) => d.date >= today && d.date <= bis && !d.cancelled && (d.vas || []).length)
+    .map((d) => ({ d, list: vaListOf(d).filter((x) => !x.pam) })).filter((x) => x.list.length);
 }
 
 /* ---------------- Neuigkeiten ---------------- */
@@ -1613,6 +1639,7 @@ function renderReq() {
     ${wishes.map((s) => { const a = S.asg[s.key]; const t = techById(a.tech_id); return `<div class="cw-row"><div><b>${esc(t ? t.name : '?')}</b> · ${esc(slotLine(s))}${a.tech_reply_note ? `<small>„${esc(a.tech_reply_note)}“</small>` : ''}<small class="muted">beantragt ${esc(ago(a.tech_reply_at))}</small></div>
       <div class="cw-act"><button class="btn danger-solid" data-cwok="${esc(s.key)}">Absage freigeben</button><button class="btn" data-cwno="${esc(s.key)}">Ablehnen – bleibt eingeteilt</button></div></div>`; }).join('')}</div>` : '';
   m.innerHTML = `<div id="pushBox"></div>${wishHtml}${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div>
+  ${(() => { const t = DEMO ? [] : komNoPamTage(14); return t.length ? `<div class="bar nopam-bar"><span class="note">🏢 In den nächsten 14 Tagen laufen <b>${t.reduce((a, x) => a + x.list.length, 0)} Veranstaltungen an ${t.length} Tagen</b> ohne PAM-Techniker. KOM27 bekommt am Vorabend automatisch eine Mitteilung.</span><span class="spacer"></span><button class="btn small" id="komMail" ${(S.viewers || []).some((v) => v.email) ? '' : 'disabled'}>✉️ KOM27 informieren</button></div>` : ''; })()}
   <div class="bar mailapp"><label for="mailApp">✉️ E-Mails öffnen in</label>
     <select id="mailApp">${mailApps().map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
     <span class="note">Gilt nur auf diesem Gerät.${amHandy() ? ' Die <b>Outlook-App</b> füllt die Mail direkt aus, wenn sie auf dem Gerät installiert ist.' : ' Damit <b>Standard-Mailprogramm</b> Outlook öffnet, muss Outlook in Windows unter Einstellungen → Apps → Standard-Apps als E-Mail-Programm eingestellt sein. Am Rechner kann die Outlook-App eine fertige Mail nicht übernehmen – dafür gibt es „Outlook im Browser“.'}</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
@@ -1647,6 +1674,7 @@ function renderReq() {
     if (hasPush(r.t)) toast(`Erinnerung per Push an ${firstName(r.t)} gesendet`);
     mailOpen(mailFor(r.t, r.wait, true));
   }));
+  if ($('#komMail')) $('#komMail').onclick = () => { const t = komNoPamTage(14); if (!t.length) return toast('Nichts ohne PAM in den nächsten 14 Tagen 👍'); mailOpen(komNoPamMail(t)); };
   if ($('#mailApp')) $('#mailApp').onchange = (e) => { ls.set('kom27-mailapp', e.target.value); toast('E-Mails öffnen jetzt in: ' + (mailApps().find(([k]) => k === e.target.value) || [, ''])[1]); };
   fillPushBox(true);
   wireMsgBox(m);
@@ -1755,7 +1783,7 @@ function pwKonten() {
 /* ---------------- Render: Techniker ---------------- */
 const MON_S = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const dateBox = (iso) => { const d = new Date(iso + 'T12:00:00'); return `<div class="dbox"><span>${WD[d.getDay()]}</span><b>${d.getDate()}</b><span>${MON_S[d.getMonth()]}</span></div>`; };
-const niceTime = (z) => (z ? z.replace(/\s*-\s*/, ' – ') + ' Uhr' : 'Zeit folgt');
+const niceTime = (z) => (z ? String(z).replace(/(\d{1,2})\.(\d{2})/g, '$1:$2').replace(/\s*[-–]\s*/, ' – ') + ' Uhr' : 'Zeit folgt');
 
 function icsFor(slots, t) {
   const pad2 = (n) => String(n).padStart(2, '0');
@@ -2574,6 +2602,12 @@ function kbEdit(id) {
 
 /* ---------------- KOM27-Ansicht (Jens, Felix): alle Termine ansehen, nichts zusagen ---------------- */
 const komOf = (key) => (S.komAsg || {})[key] || null;
+// „externes Haus“ oder „interne Betreuung“ – steht so im VA-Kalender und ist für KOM27 wichtig
+const betreuung = (d) => (d && d.extern ? { kl: 'extern', ic: '🏠', txt: d.extern } : d && d.intern ? { kl: 'intern', ic: '🏢', txt: d.intern } : null);
+function betreuungTag(d) {
+  const b = betreuung(d); if (!b) return '';
+  return `<span class="btr ${b.kl}" title="So steht es im VA-Kalender">${b.ic} ${esc(b.txt)}</span>`;
+}
 // Alle Veranstaltungen eines Tages – auch die ohne PAM-Techniker
 function vaListOf(d) {
   if (!d) return [];
@@ -2598,7 +2632,7 @@ function openVa(date, va) {
   const vd = (d.vaDet || {})[va];
   const rooms = vd && vd.rooms && vd.rooms.length ? vd.rooms : String(x.info || '').split(' · ').filter(Boolean).map((r) => { const i = r.indexOf(': '); return i > 0 ? [r.slice(0, i), r.slice(i + 2)] : ['', r]; });
   openJob({ key: 'va#' + date + '#' + va, date, day: Object.assign({}, d, { info: x.info || d.info }), va, label: (vd && vd.label) || va, zeit: (vd && vd.zeit) || '', nopam: true,
-    note: 'Für diese Veranstaltung ist laut VA-Kalender kein PAM-Techniker angefordert.',
+    note: 'Für diese Veranstaltung ist laut VA-Kalender kein PAM-Techniker angefordert.' + (betreuung(d) ? ' Eingetragen ist: ' + betreuung(d).txt + '.' : ''),
     det: { vazeit: (vd && vd.vazeit) || x.zeit || '', einlass: (vd && vd.einlass) || '', buch: (vd && vd.buch) || '', rooms, extras: (vd && vd.extras) || [] } });
 }
 // Feld unter „Heute im Haus“: Veranstaltungen ohne PAM-Techniker am selben Tag
@@ -2614,6 +2648,7 @@ function komNoPamCard() {
   const list = vaListOf(d).filter((x) => !x.pam);
   const w = dt === today ? 'Heute' : 'Morgen';
   return `<section class="dpanel nopam-card"><h2 class="sec">${w} ohne PAM-Techniker${list.length ? ` <span class="np-n">${list.length}</span>` : ''}</h2>
+    ${betreuungTag(d)}
     ${list.length ? `<div class="np-list">${list.map((x) => `<button class="np-row" data-va="${d.date}|${esc(x.va)}"><span><b>${esc(x.va)}</b><small>${[roomsOf(x.info), x.zeit ? 'VA ' + niceTime(x.zeit) : ''].filter(Boolean).map(esc).join(' · ')}</small></span><span class="jc-more">Details ›</span></button>`).join('')}</div>`
       : `<p class="muted">✓ Alle Veranstaltungen ${w === 'Heute' ? 'heute' : 'morgen'} haben einen PAM-Techniker.</p>`}
   </section>`;
@@ -2660,7 +2695,7 @@ function komTodayCard() {
     <div class="td-top"><span class="td-tag">${w === 'heute' ? 'HEUTE IM HAUS' : 'MORGEN IM HAUS'}</span><span class="td-state">${esc(longDate(dv.date))}</span></div>
     <div class="td-where" style="margin-top:8px">📍 ${esc(roomsOf(dv.info) || 'KOM27')}</div>
     <div class="tk-list">${vaListOf(dv).map((x) => `<button class="tk-row" data-va="${dv.date}|${esc(x.va)}"><b>${esc(x.va)}</b><span>${x.zeit ? esc(niceTime(x.zeit)) : ''} ›</span></button>`).join('')}</div>
-    <p class="td-note">Kein PAM-Techniker angefordert.</p>
+    <p class="td-note">Kein PAM-Techniker angefordert.${betreuung(dv) ? ' ' + betreuung(dv).ic + ' ' + esc(betreuung(dv).txt) : ''}</p>
     <div class="td-more"><button class="td-link" data-gokb>📘 KOM27-Infos</button></div>
   </section>`;
   }

@@ -698,3 +698,11 @@ on conflict (id) do update set share_url = excluded.share_url, label = excluded.
 --     body := '{}'::jsonb) $$);
 -- Deployen: supabase functions deploy komnopam
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- v34: Zeitänderungen bleiben beim Techniker sichtbar
+alter table public.assignments
+  add column if not exists chg_txt text,       -- „Mi 18.11.: Zeit 08:00-17:00 → 09:30-19:00“
+  add column if not exists chg_at timestamptz; -- wann der Master informiert hat
+-- Abgehakt wird im Browser des Technikers (kom27-chg-ack), damit keine Schreibrechte nötig sind.
+-- ---------------------------------------------------------------------------

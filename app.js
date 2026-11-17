@@ -394,27 +394,30 @@ function wireChanges() {
   if (!$('#chg')) return; const c = S.plan.changes;
   $('#chgHide').onclick = () => { ls.set('kom27-chg-seen', c.at); renderMaster(); };
   if ($('#chgNotify')) $('#chgNotify').onclick = async () => {
-    const by = {}, askBy = {};
+    const by = {}, askBy = {}; const stamp = nowISO(); const upd = {};
+    // gespeichert wird beides in einem Rutsch: die neue Anfrage und der Hinweis, der beim Techniker stehen bleibt
+    const merke = (k, extra) => { const a = S.asg[k]; if (!a) return; upd[k] = Object.assign({}, upd[k] || a, extra, { updated_at: stamp }); };
     c.items.filter((i) => i.notify && i.tech_id).forEach((i) => {
       // wer nur eingeplant ist, wird bei einer Zeitänderung gleich mit angefragt – sonst käme eine Mitteilung zu einem Einsatz, den er in der App gar nicht sieht
       const a = i.key && S.asg[i.key];
       const nurGeplant = a && a.tech_id === i.tech_id && a.status === 'geplant';
       if (nurGeplant && i.type !== 'time') return; // entfallener Einsatz, den er nie gesehen hat
-      (by[i.tech_id] = by[i.tech_id] || []).push(i.text.replace(/ · [^:]+:/, ':'));
-      if (nurGeplant) (askBy[i.tech_id] = askBy[i.tech_id] || []).push(i.key);
+      const txt = i.text.replace(/ · [^:]+:/, ':');
+      (by[i.tech_id] = by[i.tech_id] || []).push(txt);
+      if (a && a.tech_id === i.tech_id && i.type !== 'gone') merke(i.key, { chg_txt: txt, chg_at: stamp });
+      if (nurGeplant) { (askBy[i.tech_id] = askBy[i.tech_id] || []).push(i.key); merke(i.key, { status: 'angefragt', requested_at: a.requested_at || stamp }); }
     });
-    const ask = Object.values(askBy).flat();
-    if (ask.length) {
-      const ch = ask.map((k) => Object.assign({}, S.asg[k], { status: 'angefragt', requested_at: S.asg[k].requested_at || nowISO(), updated_at: nowISO() }));
-      try { await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a)); }
-      catch (e) { return toast('Anfragen konnten nicht gespeichert werden – bitte nochmal'); }
+    const liste = Object.values(upd);
+    if (liste.length) {
+      try { await store.saveAssignments(liste); liste.forEach((x) => (S.asg[x.slot_key] = x)); }
+      catch (e) { return toast('Konnte nicht gespeichert werden – bitte nochmal'); }
     }
     Object.entries(by).forEach(([id, l]) => {
       const neu = !!askBy[id];
       notify('techs', [id], neu ? 'Neue Einsatzanfrage KOM27' : 'Änderung im KOM27-Plan',
-        l.slice(0, 3).join(' · ') + (l.length > 3 ? ' …' : '') + (neu ? ' – bitte in der App zu- oder absagen.' : ''), 'chg-' + c.at);
+        l.slice(0, 3).join(' · ') + (l.length > 3 ? ' …' : '') + (neu ? ' – bitte in der App zu- oder absagen.' : ' – steht auch in der App bei deinem Einsatz.'), 'chg-' + c.at);
     });
-    toast(`${Object.keys(by).length} Techniker informiert${ask.length ? `, davon ${Object.keys(askBy).length} direkt angefragt` : ''}`);
+    toast(`${Object.keys(by).length} Techniker informiert${Object.keys(askBy).length ? `, davon ${Object.keys(askBy).length} direkt angefragt` : ''}`);
     paint();
   };
   document.querySelectorAll('[data-chgdel]').forEach((b) => (b.onclick = () => { const k = b.dataset.chgdel; const prev = S.asg[k]; optimistic(() => delete S.asg[k], () => store.deleteAssignments([k]), '#chg', () => (S.asg[k] = prev)); }));
@@ -1359,6 +1362,22 @@ function renderPlan() {
   };
 }
 
+/* ---- Geänderte Zeiten: der Techniker sieht sie an seinem Einsatz, bis er sie abhakt ---- */
+const chgAck = () => ls.get('kom27-chg-ack') || {};
+function chgOf(key) {
+  const a = S.asg[key];
+  if (!a || !a.chg_txt || !a.chg_at || a.status === 'abgesagt') return null;
+  return chgAck()[key] === a.chg_at ? null : { txt: a.chg_txt, at: a.chg_at };
+}
+const chgChip = (key) => (chgOf(key) ? '<span class="chg-chip" title="Die Zeiten haben sich seit deiner Zusage geändert">🕑 geändert</span>' : '');
+function chgBanner(t) {
+  const today = todayISO();
+  const l = slotsOfTech(t.id, today).map((s) => ({ s, c: chgOf(s.key) })).filter((x) => x.c);
+  if (!l.length) return '';
+  return `<div class="chg-tech" id="chgTech"><div class="ct-head"><b>🕑 ${l.length === 1 ? 'Eine Änderung' : l.length + ' Änderungen'} an deinen Einsätzen</b>
+    <button class="btn small" id="chgAckAll">Verstanden</button></div>
+    <ul>${l.map(({ s, c }) => `<li><button class="linkbtn" data-open="${esc(s.key)}">${esc(c.txt.replace(/^[A-Za-zÄÖÜ]{2}\s/, (m) => m))}</button></li>`).join('')}</ul></div>`;
+}
 function slotsOfTech(id, from) {
   return allSlots().filter((s) => (!from || s.date >= from) && S.asg[s.key] && S.asg[s.key].tech_id === id).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -2129,6 +2148,7 @@ function openJob(key, list) {
     <div class="facts">${fact(isOffer || S.viewer || S.mgrMode ? 'Einsatzzeit' : 'Deine Einsatzzeit', s.nopam ? s.zeit : s.zeit || '–', true)}${fact('Veranstaltung (VA-Zeit)', det.vazeit || s.day.vazeit, s.nopam && !s.zeit)}${fact('Einlass', det.einlass)}${fact('Raum gebucht', det.buch)}</div>
     ${timeline(s)}
     ${s.note ? `<div class="hint">📝 ${esc(s.note)}</div>` : ''}
+    ${chgOf(s.key) ? `<div class="hint chg">🕑 <b>Geändert:</b> ${esc(chgOf(s.key).txt)}${S.admin ? '' : ` <button class="linkbtn" data-chgack="${esc(s.key)}">Verstanden</button>`}</div>` : ''}
     ${isOffer ? '' : notesHtml(s)}
     ${isOffer ? '' : alarmsHtml(s)}
     <h3 class="eq-h">🛠 ${S.viewer || S.mgrMode ? 'Aufbau' : 'Das baust du auf'}${canEditEquip(s) ? `<button class="btn small eq-btn ${S.equipEdit === s.key ? 'primary' : ''}" data-eedit>${S.equipEdit === s.key ? '✓ Fertig' : '✏️ Bearbeiten'}</button>` : ''}</h3>
@@ -2159,6 +2179,11 @@ function openJob(key, list) {
   box.onclick = (e) => { if (e.target === box) close(); };
   box.querySelector('[data-close]').onclick = close;
   box.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => openJob(b.dataset.jump)));
+  box.querySelectorAll('[data-chgack]').forEach((b) => (b.onclick = () => {
+    const k = b.dataset.chgack; const c = chgOf(k); if (!c) return;
+    const ack = chgAck(); ack[k] = c.at; ls.set('kom27-chg-ack', ack);
+    const h = b.closest('.hint'); if (h) h.remove(); paint();
+  }));
   wireNotes(box, s);
   wireAlarms(box, s);
   box.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => {
@@ -2464,7 +2489,7 @@ function nextCard(t) {
   const det = s.det || {};
   return `<button class="tnext" data-open="${esc(s.key)}">
     <span class="tn-lbl">Nächster Einsatz · ${esc(untilTxt(s.date))}</span>
-    <span class="tn-time">${esc(fmtDate(s.date))} · ${esc(niceTime(s.zeit))}</span>
+    <span class="tn-time">${esc(fmtDate(s.date))} · ${esc(niceTime(s.zeit))}${chgChip(s.key)}</span>
     <span class="tn-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}</span>
     <span class="jc-more">Details ›</span>
   </button>`;
@@ -2497,7 +2522,8 @@ function todayCard(t) {
   const needTime = which === 'heute' && cls === 'tc-done' && !S.asg[s.key].actual_start;
   return `<section class="tcard ${cls} tc-${which}">
     <div class="td-top"><span class="td-tag">${which === 'heute' ? 'HEUTE' : 'MORGEN'}</span><span class="td-state">${cls === 'tc-live' ? '<i class="pulse"></i>' : ''}${esc(state)}</span></div>
-    <div class="td-time">${esc(niceTime(s.zeit))}</div>
+    <div class="td-time">${esc(niceTime(s.zeit))}${chgChip(s.key)}</div>
+    ${chgOf(s.key) ? `<div class="td-hint chg">🕑 ${esc(chgOf(s.key).txt)}</div>` : ''}
     <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}${det.einlass ? ' · Einlass ' + esc(det.einlass) : ''}</div>
     ${hints.map((i) => `<div class="td-hint">⚠️ ${esc(i.t)}</div>`).join('')}
     <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
@@ -3039,7 +3065,7 @@ function renderTech() {
       <div class="jc-head"><span class="jc-va">${esc(g.va || 'Einsatz')}</span>${multi ? `<span class="jc-badge">${g.slots.length} Tage hintereinander</span>` : ''}</div>
       <div class="jc-where">${where(s0)}</div>
       <div class="jc-days">${g.slots.map((s) => `<div class="jc-day" data-k="${esc(s.key)}">${dateBox(s.date)}
-        <button class="jc-time jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))}</b><small>deine Einsatzzeit${(s.det && s.det.vazeit) || s.day.vazeit ? ' · VA ' + esc((s.det && s.det.vazeit) || s.day.vazeit) : ''}</small><span class="jc-more">Details ›</span></button>
+        <button class="jc-time jc-open ${chgOf(s.key) ? 'ist-neu' : ''}" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))}</b>${chgChip(s.key)}<small>deine Einsatzzeit${(s.det && s.det.vazeit) || s.day.vazeit ? ' · VA ' + esc((s.det && s.det.vazeit) || s.day.vazeit) : ''}</small><span class="jc-more">Details ›</span></button>
         <div class="jc-one hidden"><button class="mini yes" data-one="zugesagt" data-k="${esc(s.key)}" aria-label="Kann ich">✓</button><button class="mini no" data-one="abgesagt" data-k="${esc(s.key)}" aria-label="Kann nicht">✗</button></div>
       </div>`).join('')}</div>
       <button class="jc-detail" data-open="${esc(s0.key)}">🛠 Was baue ich auf? · Zeiten & Details ›</button>
@@ -3052,7 +3078,7 @@ function renderTech() {
       ${multi ? `<button class="linkbtn" data-split>Ich kann nur an einzelnen Tagen</button>` : ''}
     </article>`;
   };
-  const line = (s, kind) => `<div class="mini-line">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} <span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
+  const line = (s, kind) => `<div class="mini-line${chgOf(s.key) ? ' ist-neu' : ''}">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} ${chgChip(s.key)}<span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
       ${kind === 'wait' ? `<button class="linkbtn" data-resig="${esc(s.key)}">ändern</button>` : boss ? '' : kind === 'yes' ? (S.asg[s.key].tech_reply === 'absage_wunsch' ? `<span class="cw-pend" title="${esc(CFG.senderName)} entscheidet">⏳ Absage beantragt</span>` : `<button class="linkbtn danger" data-cancelreq="${esc(s.key)}">Absage beantragen</button>`) : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
   const nNew = msgUnread().length;
@@ -3079,6 +3105,7 @@ function renderTech() {
       <div class="mypdf"><span>🖨 Stunden-PDF</span>${[addDays(mon + '-01', -1).slice(0, 7), mon].map((x) => `<button class="chip" data-mypdf="${x}">${MON[+x.slice(5, 7) - 1]}</button>`).join('')}</div>
     </section>
     <div class="dash"><div class="dash-main">
+    ${chgBanner(t)}
     ${todayCard(t) || nextCard(t)}
     ${komAlarmCard((d) => slotsOfTech(t.id, d).some((x) => x.date === d && S.asg[x.key] && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled))}
     ${open.length ? `<h2 class="sec" id="openSec">Bitte gib Bescheid <span class="sec-n">${nOpen}</span></h2>${open.map(card).join('')}` : `<div class="allgood" id="openSec">✓ Alles beantwortet – danke!<small>Neue Anfragen bekommst du per Push oder E-Mail.</small></div>`}
@@ -3188,6 +3215,11 @@ function renderTech() {
     answer([b.dataset.k], b.dataset.change);
   }));
   if ($('#ics')) $('#ics').onclick = () => calSheet(t, yes);
+  if ($('#chgAckAll')) $('#chgAckAll').onclick = () => {
+    const ack = chgAck();
+    slotsOfTech(t.id, todayISO()).forEach((s) => { const c = chgOf(s.key); if (c) ack[s.key] = c.at; });
+    ls.set('kom27-chg-ack', ack); paint();
+  };
   wireTechCal(t);
   wireAlarmCard((d) => slotsOfTech(t.id, d).some((x) => x.date === d && S.asg[x.key] && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled));
   fillPushBox(false);

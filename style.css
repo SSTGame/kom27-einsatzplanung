@@ -894,3 +894,18 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .btr.extern { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 .btr.intern { background: color-mix(in srgb, var(--st-zugesagt) 14%, var(--panel)); color: var(--st-zugesagt); border: 1px solid color-mix(in srgb, var(--st-zugesagt) 35%, transparent); }
 .nopam-card .btr { margin: 0 0 8px; }
+
+/* Geänderte Zeiten: Hinweis beim Techniker */
+.chg-tech { border: 1px solid color-mix(in srgb, var(--st-leer) 45%, var(--line)); background: color-mix(in srgb, var(--st-leer) 10%, var(--panel)); border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 14px; }
+.chg-tech .ct-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chg-tech .ct-head b { font-size: 15px; }
+.chg-tech .ct-head .btn { margin-left: auto; }
+.chg-tech ul { margin: 8px 0 0; padding-left: 18px; }
+.chg-tech li { margin: 3px 0; font-size: 14px; }
+.chg-tech li .linkbtn { text-align: left; }
+.chg-chip { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .02em;
+  background: color-mix(in srgb, var(--st-leer) 18%, var(--panel)); color: var(--st-leer); vertical-align: middle; }
+.jc-time.ist-neu, .mini-line.ist-neu { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--st-leer) 55%, transparent); border-radius: var(--r-sm); }
+.hint.chg { background: color-mix(in srgb, var(--st-leer) 12%, var(--panel)); border-color: color-mix(in srgb, var(--st-leer) 40%, var(--line)); }
+.td-hint.chg { background: color-mix(in srgb, var(--st-leer) 16%, transparent); }
+.tcard .td-time .chg-chip { background: rgba(255,255,255,.25); color: inherit; }

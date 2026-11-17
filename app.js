@@ -1356,12 +1356,30 @@ function slotsOfTech(id, from) {
 }
 const slotLine = (s) => `${fmtDate(s.date, true)}, ${s.zeit || 'Zeit folgt'}${s.va ? ' – ' + s.va : ''}${s.group ? ' (mehrtägig)' : ''}`;
 
+/* E-Mails können im Standard-Mailprogramm oder in Outlook geöffnet werden – Einstellung je Gerät */
+const MAILAPPS = [['mailto', 'Standard-Mailprogramm'], ['owa', 'Outlook im Browser (Arbeit)'], ['live', 'Outlook.com (privat)'], ['app', 'Outlook-App']];
+const mailApp = () => ls.get('kom27-mailapp') || 'mailto';
+function mailUrl(m, art) {
+  const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+  if (art === 'owa') return 'https://outlook.office.com/mail/deeplink/compose?' + q({ to: m.to, cc: m.cc, subject: m.subject, body: m.body });
+  if (art === 'live') return 'https://outlook.live.com/mail/0/deeplink/compose?' + q({ to: m.to, cc: m.cc, subject: m.subject, body: m.body });
+  if (art === 'app') return 'ms-outlook://compose?' + q({ to: m.to, cc: m.cc, subject: m.subject, body: m.body });
+  return 'mailto:' + encodeURIComponent(m.to) + '?' + q({ cc: m.cc, subject: m.subject, body: m.body });
+}
+function mailOpen(m) {
+  const art = mailApp(); const url = mailUrl(m, art);
+  if (art === 'owa' || art === 'live') {
+    const w = window.open(url, '_blank');
+    if (w) { try { w.opener = null; } catch (e) { /* egal */ } } else toast('Das Fenster wurde blockiert – bitte Pop-ups für diese Seite erlauben');
+    return;
+  }
+  location.href = url;
+}
 function mailFor(t, slots, reminder) {
   const body = `Hallo ${t.name.split(' ')[0]},\n\n${reminder ? 'kurze Erinnerung – ich brauche noch deine Rückmeldung zu diesen Einsätzen' : 'ich habe neue Einsatzanfragen für dich'} im KOM27 (ÖPP Mauerstraße, Medientechnik):\n\n${slots.map((s) => '• ' + slotLine(s)).join('\n')}\n\nBitte bestätige kurz hier, ob du kannst:\n${APP_URL()}\n\nDanke & Gruß\n${CFG.senderName}`;
   const subj = (reminder ? 'Erinnerung: ' : '') + 'KOM27 Einsatzanfrage – ' + (slots.length === 1 ? fmtDate(slots[0].date, true) : slots.length + ' Termine');
-  const cc = hasMgr(t) ? `&cc=${encodeURIComponent(mgrMail(t))}` : '';
   const body2 = hasMgr(t) ? body.replace('Bitte bestätige kurz hier, ob du kannst:', `Die verbindliche Zusage gibt ${mgrLabel(t)} (in Kopie) – bitte dort oder hier freigeben:`) : body;
-  return `mailto:${encodeURIComponent(t.email)}?subject=${encodeURIComponent(subj)}${cc}&body=${encodeURIComponent(body2)}`;
+  return { to: t.email, cc: hasMgr(t) ? mgrMail(t) : '', subject: subj, body: body2 };
 }
 
 /* ---------------- Neuigkeiten ---------------- */
@@ -1572,7 +1590,10 @@ function renderReq() {
   const wishHtml = wishes.length ? `<div class="card cw-card"><h3>🙋 Absage-Wünsche <span class="sec-n">${wishes.length}</span></h3><p class="note">Diese Techniker möchten einen zugesagten Einsatz abgeben. Der Einsatz bleibt zugesagt, bis du entscheidest.</p>
     ${wishes.map((s) => { const a = S.asg[s.key]; const t = techById(a.tech_id); return `<div class="cw-row"><div><b>${esc(t ? t.name : '?')}</b> · ${esc(slotLine(s))}${a.tech_reply_note ? `<small>„${esc(a.tech_reply_note)}“</small>` : ''}<small class="muted">beantragt ${esc(ago(a.tech_reply_at))}</small></div>
       <div class="cw-act"><button class="btn danger-solid" data-cwok="${esc(s.key)}">Absage freigeben</button><button class="btn" data-cwno="${esc(s.key)}">Ablehnen – bleibt eingeteilt</button></div></div>`; }).join('')}</div>` : '';
-  m.innerHTML = `<div id="pushBox"></div>${wishHtml}${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+  m.innerHTML = `<div id="pushBox"></div>${wishHtml}${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div>
+  <div class="bar mailapp"><label for="mailApp">✉️ E-Mails öffnen in</label>
+    <select id="mailApp">${MAILAPPS.map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+    <span class="note">Gilt nur auf diesem Gerät.</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}
@@ -1586,7 +1607,7 @@ function renderReq() {
       ${no.length ? `<button class="btn" data-replace="${t.id}">Ersatz automatisch suchen</button>` : ''}
     </div></div>`).join('') || '<div class="req muted">Nichts offen. Neue Einsätze erscheinen hier, sobald sie in der Planung eingeteilt sind.</div>'}</div>`;
   const markAsked = async (r, viaMail) => {
-    if (viaMail) location.href = mailFor(r.t, r.neu, false);
+    if (viaMail) mailOpen(mailFor(r.t, r.neu, false));
     const ch = r.neu.map((s) => Object.assign({}, S.asg[s.key], { status: 'angefragt', requested_at: nowISO(), updated_at: nowISO() }));
     try {
       await store.saveAssignments(ch); ch.forEach((a) => (S.asg[a.slot_key] = a));
@@ -1602,8 +1623,9 @@ function renderReq() {
     const r = rows.find((x) => x.t.id === b.dataset.remind);
     notify('techs', [r.t.id], 'Erinnerung: KOM27 Einsatzanfrage', `Bitte gib noch Bescheid zu ${r.wait.length === 1 ? '1 Termin' : r.wait.length + ' Terminen'}: ${r.wait.slice(0, 3).map((s) => fmtDate(s.date)).join(', ')}`, 'req');
     if (hasPush(r.t)) toast(`Erinnerung per Push an ${firstName(r.t)} gesendet`);
-    location.href = mailFor(r.t, r.wait, true);
+    mailOpen(mailFor(r.t, r.wait, true));
   }));
+  if ($('#mailApp')) $('#mailApp').onchange = (e) => { ls.set('kom27-mailapp', e.target.value); toast('E-Mails öffnen jetzt in: ' + (MAILAPPS.find(([k]) => k === e.target.value) || [, ''])[1]); };
   fillPushBox(true);
   wireMsgBox(m);
   const cwDecide = (key, ok) => decideCancel(key, ok);

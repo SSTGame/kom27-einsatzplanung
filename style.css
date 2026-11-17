@@ -881,3 +881,8 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .pwset #pwMail { margin-top: 8px; }
 .pwset .btn { min-height: 44px; white-space: nowrap; }
 @media (max-width: 700px) { .pwset-row { grid-template-columns: 1fr; align-items: stretch; } .pwset .btn { width: 100%; } }
+
+/* Auswahl, womit E-Mails geöffnet werden */
+.bar.mailapp { gap: 10px; align-items: center; flex-wrap: wrap; }
+.bar.mailapp label { font-weight: 600; font-size: 14px; }
+.bar.mailapp select { font: inherit; font-size: 15px; padding: 8px 10px; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); }

@@ -686,3 +686,15 @@ update public.excel_sync set label = '2026' where id = 1 and label is null;
 insert into public.excel_sync (id, share_url, label)
 values (2, 'https://kom27-my.sharepoint.com/:x:/g/personal/jens_neumann-cornelius_kom27_de/IQCLw52ftmymRoCgeRI5BiA9AegdiTX5jrShw0xw8hfgQwU?e=gMoMRL', '2027')
 on conflict (id) do update set share_url = excluded.share_url, label = excluded.label;
+
+-- ---------------------------------------------------------------------------
+-- v33: KOM27 wird über Veranstaltungen ohne PAM-Techniker informiert
+-- Edge Function "komnopam" (eigener Zeitplan, abends um 18:12 Uhr Berliner Zeit):
+--   select cron.schedule('kom27-ohne-pam', '12 17 * * *', $$ select net.http_post(
+--     url := '.../functions/v1/komnopam',
+--     headers := jsonb_build_object('Content-Type','application/json',
+--       'Authorization', 'Bearer <anon key>', 'apikey', '<anon key>',
+--       'x-kom27-cron', (select secret from public.cron_config where id = 1)),
+--     body := '{}'::jsonb) $$);
+-- Deployen: supabase functions deploy komnopam
+-- ---------------------------------------------------------------------------

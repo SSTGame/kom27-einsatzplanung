@@ -1373,6 +1373,26 @@ function mailOpen(m) {
     if (w) { try { w.opener = null; } catch (e) { /* egal */ } } else toast('Das Fenster wurde blockiert – bitte Pop-ups für diese Seite erlauben');
     return;
   }
+  // Outlook-App: eigener Link (ms-outlook://). Gibt es die App nicht, bleibt die Seite stehen –
+  // dann geht die Mail nach kurzer Wartezeit im Standard-Programm auf, statt eine Fehlerseite zu zeigen.
+  if (art === 'app') {
+    const zurueck = mailUrl(m, 'mailto');
+    let weg = false;
+    const merken = () => (weg = true);
+    window.addEventListener('blur', merken, { once: true });
+    document.addEventListener('visibilitychange', merken, { once: true });
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (iOS) { location.href = url; }
+    else { const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:absolute;width:0;height:0;border:0;left:-9999px';
+      f.src = url; document.body.appendChild(f); setTimeout(() => f.remove(), 1400); }
+    setTimeout(() => {
+      window.removeEventListener('blur', merken); document.removeEventListener('visibilitychange', merken);
+      if (weg || document.hidden) return;
+      toast('Die Outlook-App hat nicht reagiert – die Mail geht im Standard-Programm auf.');
+      location.href = zurueck;
+    }, 1600);
+    return;
+  }
   location.href = url;
 }
 function mailFor(t, slots, reminder) {
@@ -1593,7 +1613,7 @@ function renderReq() {
   m.innerHTML = `<div id="pushBox"></div>${wishHtml}${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div>
   <div class="bar mailapp"><label for="mailApp">✉️ E-Mails öffnen in</label>
     <select id="mailApp">${MAILAPPS.map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <span class="note">Gilt nur auf diesem Gerät.</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+    <span class="note">Gilt nur auf diesem Gerät. Die <b>Outlook-App</b> klappt auf iPhone/iPad und mit dem neuen Outlook; mit dem klassischen Outlook am PC stell Outlook in den Windows-Einstellungen als Standard-Mailprogramm ein und nimm hier „Standard-Mailprogramm“.</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}

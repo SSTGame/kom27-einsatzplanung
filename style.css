@@ -995,3 +995,7 @@ body.kiosk-on { overflow: hidden; }
 .abz-row:last-child { border-bottom: 0; }
 .abz-row > b { flex: 0 0 150px; font-weight: 600; }
 .abz-row .abz { margin-top: 0; }
+
+/* Knopf für die Winterdeko – nur in der Saison sichtbar */
+.deko-tg { padding: 4px 9px; font-size: 15px; line-height: 1; }
+.deko-tg.off { opacity: .4; }

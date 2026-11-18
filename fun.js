@@ -51,6 +51,56 @@
     } catch (e) { /* Spielkram darf nie stören */ }
   }
 
+  /* ---------------- Jahreszeiten-Deko: Schnee im Dezember, Feuerwerk zum Jahreswechsel ---------------- */
+  const DEKO_K = 'kom27-deko';
+  const dekoAn = () => { try { return localStorage.getItem(DEKO_K) !== 'aus'; } catch (e) { return true; } };
+  function dekoSaison(d) {
+    d = d || new Date(); const m = d.getMonth() + 1, t = d.getDate();
+    if ((m === 12 && t >= 30) || (m === 1 && t <= 1)) return 'silvester';
+    if (m === 12 || (m === 1 && t <= 6)) return 'schnee';
+    return null;
+  }
+  let schneeC = null, schneeRaf = null, fwT = null;
+  function schneeStart() {
+    if (schneeC || ruhig()) return;
+    const c = document.createElement('canvas');
+    c.setAttribute('aria-hidden', 'true');
+    c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9998;opacity:.45';
+    c.width = innerWidth; c.height = innerHeight; document.body.appendChild(c); schneeC = c;
+    const x = c.getContext('2d');
+    const neu = (start) => ({ x: Math.random() * c.width, y: start ? Math.random() * c.height : -8, r: 1.1 + Math.random() * 2.3, vy: 0.25 + Math.random() * 0.55, vx: (Math.random() - 0.5) * 0.25, w: Math.random() * 6.3, vw: 0.01 + Math.random() * 0.02 });
+    const f = Array.from({ length: 34 }, () => neu(true));
+    const farbe = () => (document.documentElement.getAttribute('data-theme') === 'dark' ? '#cfe0f2' : '#8fa8c2');
+    (function bild() {
+      if (!schneeC) return;
+      if (c.width !== innerWidth || c.height !== innerHeight) { c.width = innerWidth; c.height = innerHeight; }
+      x.clearRect(0, 0, c.width, c.height); x.fillStyle = farbe();
+      f.forEach((k, i) => { k.w += k.vw; k.y += k.vy; k.x += k.vx + Math.sin(k.w) * 0.35; if (k.y > c.height + 8) f[i] = neu(false);
+        x.beginPath(); x.arc(k.x, k.y, k.r, 0, 6.3); x.fill(); });
+      schneeRaf = requestAnimationFrame(bild);
+    })();
+  }
+  function dekoStop() {
+    if (schneeRaf) cancelAnimationFrame(schneeRaf); schneeRaf = null;
+    if (schneeC) schneeC.remove(); schneeC = null;
+    if (fwT) clearInterval(fwT); fwT = null;
+  }
+  function dekoStart() {
+    dekoStop();
+    const s = dekoSaison(); if (!s || !dekoAn() || ruhig()) return;
+    schneeStart();
+    // zum Jahreswechsel ab und zu ein Feuerwerk – nicht öfter, sonst nervt es
+    if (s === 'silvester') fwT = setInterval(() => { if (!document.hidden) feuerwerk(); }, 60000);
+  }
+  function dekoToggle() {
+    try { localStorage.setItem(DEKO_K, dekoAn() ? 'aus' : 'an'); } catch (e) {}
+    dekoStart();
+    document.querySelectorAll('#dekoTg').forEach((b) => { b.classList.toggle('off', !dekoAn()); b.title = dekoAn() ? 'Winterdeko ausschalten' : 'Winterdeko einschalten'; });
+  }
+  document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('#dekoTg'); if (b) { e.preventDefault(); dekoToggle(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { if (schneeRaf) cancelAnimationFrame(schneeRaf); schneeRaf = null; } else if (schneeC && !schneeRaf) { dekoStart(); } });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', dekoStart); else setTimeout(dekoStart, 300);
+
   /* ---------------- Saal versenken ---------------- */
   const N = 8;
   const FLOTTE = [['LED-Wand', 4], ['Rednerpult', 3], ['Mediacart', 3], ['Funkstrecke', 2], ['Presenter', 2]];
@@ -377,5 +427,5 @@
     document.addEventListener('input', (e) => { if (!angemeldet()) return; const t = e.target; if (!t || typeof t.value !== 'string' || !t.value) return; if (t.value.toLowerCase().trim().endsWith(CODE)) { t.value = t.value.slice(0, -CODE.length).trim(); t.blur(); oeffnen(); } });
   })();
 
-  window.KOM27Fun = { konfetti, feuerwerk, sync, oeffnen };
+  window.KOM27Fun = { konfetti, feuerwerk, sync, oeffnen, dekoSaison, dekoAn, dekoStart, dekoToggle };
 })();

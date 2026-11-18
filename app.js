@@ -800,7 +800,7 @@ function header(extra) {
     <a class="brand" href="./" data-home title="Zur Startseite"><span class="b-t">KOM27<span class="b-x"> Einsatzplanung</span></span><small>${DEMO ? 'Demo' : esc(S.user.email)}</small></a>
     <span class="live ${DEMO || S.liveState === 'SUBSCRIBED' ? 'on' : ''}" id="liveDot" title="Live: Änderungen erscheinen automatisch"><i></i>live</span>
     ${extra || ''}<div class="spacer"></div>
-    ${bellHtml()}${window.KOM27Theme ? KOM27Theme.btn() : ''}<span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
+    ${bellHtml()}${dekoBtn()}${window.KOM27Theme ? KOM27Theme.btn() : ''}<span class="clock" id="clock" aria-label="Aktuelle Uhrzeit">${clockHtml()}</span>
     <button class="btn small" id="logout" title="Abmelden"><span class="lo-t">Abmelden</span><span class="lo-i" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></span></button></div></header>`;
 }
 
@@ -2905,6 +2905,14 @@ function hpDay(dt) {
   return { d, byRoom, isToday, h };
 }
 // Zählt die Einlass-Ampeln jede Minute herunter, ohne die ganze Ansicht neu zu bauen
+// Winterdeko: Knopf erscheint nur in der Saison
+function dekoBtn() {
+  try {
+    if (!window.KOM27Fun || !KOM27Fun.dekoSaison || !KOM27Fun.dekoSaison()) return '';
+    const an = KOM27Fun.dekoAn();
+    return `<button type="button" class="btn small deko-tg ${an ? '' : 'off'}" id="dekoTg" title="${an ? 'Winterdeko ausschalten' : 'Winterdeko einschalten'}" aria-label="Winterdeko">❄</button>`;
+  } catch (e) { return ''; }
+}
 function hpTick() {
   document.querySelectorAll('.hp-cd[data-cd]').forEach((el) => {
     const min = Math.round((+el.dataset.cd - Date.now()) / 60000);

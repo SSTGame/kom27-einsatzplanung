@@ -5,7 +5,7 @@
   const RAEUME = ['Saal 1', 'Saal 2', 'Saal 3', 'Saal 4', 'Foyer', 'Seminar 1', 'Seminar 2', 'Seminar 3', 'Konferenzzone'];
   const MODES = [['pam', 'PAM-Techniker', 'wird angefragt'], ['selbst', 'Machen wir selbst', 'ohne PAM'], ['aufbau', 'Nur Aufbau', 'PAM baut auf, wir betreuen']];
   const ST = { entwurf: ['geplant', 'Entwurf'], gesendet: ['angefragt', 'bei PAM angefragt'], uebernommen: ['zugesagt', 'von PAM übernommen'], abgelehnt: ['abgesagt', 'abgelehnt'], abgesagt: ['abgesagt', 'abgesagt'] };
-  const KOM = ['Jens', 'Felix', 'Regie'];
+  const KOM = ['Jens', 'Felix', 'Regie', 'Service Haus 1'];
   // Wie viele kabellose Mikrofone ein Raum verträgt – die vier Shure Axient zählen extra
   const MIC_MAX = { 'Saal 1': 16, 'Saal 2': 16, 'Saal 3': 8, 'Saal 4': 8, 'Seminar 1': 3, 'Seminar 2': 0, 'Seminar 3': 0 };
   const AXIENT = 'Shure Axient (Funkstrecke)';

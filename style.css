@@ -909,3 +909,8 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .hint.chg { background: color-mix(in srgb, var(--st-leer) 12%, var(--panel)); border-color: color-mix(in srgb, var(--st-leer) 40%, var(--line)); }
 .td-hint.chg { background: color-mix(in srgb, var(--st-leer) 16%, transparent); }
 .tcard .td-time .chg-chip { background: rgba(255,255,255,.25); color: inherit; }
+
+/* „Service Haus 1“ im Hausplan: schmale Kachel wie die Seminarräume */
+.hp-srvrow { display: flex; }
+.hp-srvrow .hp-t { flex: 0 1 230px; min-height: 92px; }
+.hp-srvrow .hp-t small { line-height: 1.25; }

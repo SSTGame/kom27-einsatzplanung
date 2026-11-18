@@ -4,6 +4,7 @@
   const MULTI = { 'FFFFFF00': 'gelb', 'FFFFC000': 'orange', 'FFFDE9D9': 'rosa' };
   const FREE = 'FF00B0F0';      // Frei bzw. Setuptage (blau)
   const CANCEL = 'FFFF0000';    // VA abgesagt (rot)
+  const HAUS = 'FF92D050';      // grün in „Service Haus 1“: Betreuung durch Medientechnik KOM27 – dort findet eine Veranstaltung statt
 
   const fillOf = (cell) => {
     const f = cell && cell.fill;
@@ -79,6 +80,7 @@
         if (!h) continue;
         if (!col.anwesend && /^anwesend/.test(h)) col.anwesend = c;
         if (!col.zusatz && /(zusatz|anmerkung)/.test(h)) col.zusatz = c;
+        if (!col.haus && /service\s*haus/.test(h)) col.haus = c;
       }
     }
     // Weitere Spalten (Bemerkungen, Hybrid, Diskussionsanlage, Zusatz …) mit Überschrift merken
@@ -107,12 +109,14 @@
         cur = { date: iso(aVal), rows: [], free: fillOf(ws.getCell(r, 1)) === FREE, cancelled: false, blocked: false, anzahl: 0, kom: [] };
         days.push(cur);
       } else if (!cur) continue;
-      komCols.forEach(([c, n]) => { if (/^x+$/i.test(clean(ws.getCell(r, c).value)) && !cur.kom.includes(n)) cur.kom.push(n); });
+      // „x“ heißt: der ist an dem Tag im Haus. Grün in „Service Haus 1“ heißt dasselbe – dort steht kein x, nur die Farbe.
+      komCols.forEach(([c, n]) => { const cl = ws.getCell(r, c); if ((/^x+$/i.test(clean(cl.value)) || fillOf(cl) === HAUS) && !cur.kom.includes(n)) cur.kom.push(n); });
       const cells = { d: ws.getCell(r, col.anz), e: ws.getCell(r, col.name), f: ws.getCell(r, col.zeit), i: ws.getCell(r, col.va) };
       const anz = parseInt(clean(cells.d.value), 10);
       if (aVal instanceof Date && !isNaN(anz)) cur.anzahl = anz;
       if (fillOf(cells.e) === 'TH1' || fillOf(cells.d) === 'TH1') cur.blocked = true;
       if ([cells.d, cells.e, cells.i].some((c) => fillOf(c) === CANCEL)) cur.cancelled = true;
+      if (col.haus && fillOf(ws.getCell(r, col.haus)) === HAUS) cur.haus = true;
       const rooms = col.rooms.map(([c, n]) => { const v = clean(ws.getCell(r, c).value); return v ? n + ': ' + v : ''; }).filter(Boolean);
       const anwesend = col.anwesend ? clean(ws.getCell(r, col.anwesend).value) : '';
       const zusatz = col.zusatz ? clean(ws.getCell(r, col.zusatz).value) : '';
@@ -141,13 +145,15 @@
     const out = [];
     let prev = null;
     for (const d of days) {
-      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, kom: d.kom || [], vas: [], info: '', slots: [] };
+      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, haus: !!d.haus, kom: d.kom || [], vas: [], info: '', slots: [] };
       d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id;
         // „externes Haus“ / „interne Betreuung“ stehen als Text in Name, Zusatz oder Anmerkung – für KOM27 wichtig
         const txt = [r.name, r.zusatz, r.anwesend].filter(Boolean).join(' · ');
         if (!day.extern && /extern/i.test(txt)) day.extern = (/extern/i.test(r.zusatz || '') ? r.zusatz : /extern/i.test(r.name || '') ? r.name : r.anwesend).trim();
         if (!day.intern && /intern\w*\s*betreu/i.test(txt)) day.intern = ((/intern/i.test(r.zusatz || '') ? r.zusatz : r.name) || '').trim();
       });
+      // Grün in „Service Haus 1“ sagt dasselbe wie der Text: die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung
+      if (day.haus && !day.intern && !day.extern) day.intern = 'Betreuung durch Medientechnik KOM27';
       day.vazeit = (d.rows.find((r) => r.vazeit) || {}).vazeit || '';
       // Zeilen mit Einsatzzeit oder Name = Slots; "Marcel/Basti" splitten
       const slotRows = [];
@@ -245,7 +251,7 @@
       m.vazeit = [...new Set([m.vazeit, d.vazeit].filter(Boolean))].join(' / ');
       m.anzahl = (+m.anzahl || 0) + (+d.anzahl || 0);
       m.free = !!(m.free && d.free); m.blocked = !!(m.blocked || d.blocked); m.cancelled = !!(m.cancelled && d.cancelled);
-      m.extern = m.extern || d.extern; m.intern = m.intern || d.intern;
+      m.extern = m.extern || d.extern; m.intern = m.intern || d.intern; m.haus = !!(m.haus || d.haus);
     });
     return out;
   }
@@ -275,6 +281,6 @@
     return { importedAt: new Date().toISOString(), days, vaWarn };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 8 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 9 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

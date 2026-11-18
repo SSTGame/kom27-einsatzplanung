@@ -1160,7 +1160,7 @@ function renderPlan() {
   const fromDate = S.showPast ? '' : today;
   // Samstag und Sonntag nur zeigen, wenn an dem Tag wirklich etwas steht
   const amWochenende = (iso) => { const g = new Date(iso + 'T12:00:00').getDay(); return g === 0 || g === 6; };
-  const nixDrin = (d) => !d.slots.length && !(d.vas || []).length && !(d.kom || []).length && !d.info && !d.cancelled;
+  const nixDrin = (d) => !d.slots.length && !(d.vas || []).length && !(d.kom || []).length && !d.info && !d.cancelled && !d.haus && !d.intern && !d.extern;
   const visDays = monthDays.filter((d) => d.date >= fromDate && !(amWochenende(d.date) && nixDrin(d)));
   const cnt = { alle: 0, leer: 0, geplant: 0, angefragt: 0, zugesagt: 0, abgesagt: 0 };
   visDays.forEach((d) => !d.cancelled && d.slots.forEach((s) => { cnt[slotState(s)]++; cnt.alle++; }));
@@ -1216,7 +1216,7 @@ function renderPlan() {
       html += `<div ${gi === 0 ? `id="d-${d.date}"` : ''} class="row ${d.date < today ? 'past' : ''} ${d.date === today ? 'today' : ''} ${d.cancelled ? 'cancel' : ''} ${g.none ? 'none' : ''} ${g.leer ? 'leer' : ''} ${d.free ? 'frei' : ''}">
         <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
-          <div class="va-id">${g.leer ? (d.free ? '<span class="muted">frei</span>' : '<span class="muted">keine Veranstaltung</span>') : esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
+          <div class="va-id">${g.leer ? (d.free ? '<span class="muted">frei</span>' : d.haus ? '<span class="muted" title="Grün in „Service Haus 1“ – die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung">Veranstaltung</span>' : '<span class="muted">keine Veranstaltung</span>') : esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
           <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 && !g.none ? '🏢 ' + esc(d.kom.join(', ')) : ''].filter(Boolean).join(' · ')}
             ${gi === 0 ? betreuungTag(d) : ''}
             ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
@@ -2814,13 +2814,14 @@ function hpDay(dt) {
   return { d, byRoom, isToday, h };
 }
 function hausplanHtml(today, seg) {
-  const dt = S.hpDate || today; const { byRoom, isToday, h } = hpDay(dt);
+  const dt = S.hpDate || today; const { d, byRoom, isToday, h } = hpDay(dt);
   const hm = (x) => { const m = Math.round((x % 24) * 60); return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
   const stTxt = (e) => e.st === 'nopam' ? 'ohne PAM' : e.names.length ? e.names.join(', ') : 'PAM offen';
   // Symbole wie auf dem Raum-Panel
   const IC = {
     led: '<svg viewBox="0 0 40 30" class="hp-ic"><rect x="2" y="2" width="36" height="22" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.4"/><text x="20" y="17.5" text-anchor="middle" font-size="11" font-weight="700" font-family="Arial, sans-serif" fill="currentColor">LED</text><path d="M7 27.5h26" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg>',
     sem: '<svg viewBox="0 0 44 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="5" r="3"/><circle cx="22" cy="4" r="3"/><circle cx="33" cy="5" r="3"/><path d="M5 22v-7a3 3 0 0 1 6 0v3h5M39 22v-7a3 3 0 0 0-6 0v3h-5M16 18v-5a6 6 0 0 1 12 0v5"/><path d="M14 18h16v5H14zM8 22v7M36 22v7M18 23v6M26 23v6"/></g></svg>',
+    srv: '<svg viewBox="0 0 40 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M28.5 3.5a7 7 0 0 0-6.6 9.3L6.6 28.2a2.7 2.7 0 0 0 3.8 3.8L25.7 16.7a7 7 0 0 0 8.8-9.1l-3.6 3.6-3.6-.9-.9-3.6z"/></g></svg>',
     foy: '<svg viewBox="0 0 40 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="5" r="3"/><circle cx="26" cy="5" r="3"/><path d="M5 30V14a5 5 0 0 1 10 0v6M21 30V14a5 5 0 0 1 10 0"/><path d="M17 20h14v10H17zM31 24h6"/></g></svg>',
   };
   const tile = (r, cls, ic) => {
@@ -2832,6 +2833,10 @@ function hausplanHtml(today, seg) {
     const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `${whoHtml(e)}<small>${e.va ? 'VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}` : '<small class="hp-free">frei</small>'}`;
     return e ? `<button class="hp-t ${e.st} ${e.live ? 'hp-on' : ''} ${cls}" ${e.open} title="${esc(r + ' · ' + e.x.va + ' · ' + stTxt(e))}">${inner}</button>` : `<div class="hp-t free ${cls}">${inner}</div>`;
   };
+  // „Service Haus 1“ steht in der Excel als eigene Spalte neben Felix und Jens. Dort steht kein Text,
+  // sondern die Zelle ist grün – das heißt: an dem Tag betreut die Medientechnik KOM27 eine Veranstaltung.
+  const hatHaus = !!(d && !d.cancelled && (d.haus || (d.kom || []).includes('Service Haus 1')));
+  const srvTile = `<div class="hp-t ${hatHaus ? 'nopam' : 'free'}" title="${hatHaus ? 'Grün in der Excel-Spalte „Service Haus 1“ – die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung' : 'An dem Tag ist „Service Haus 1“ in der Excel nicht grün'}"><i class="hp-dot"></i>${IC.srv}<b class="hp-n">Service Haus 1</b>${hatHaus ? `<span class="hp-who">im Haus</span><small>${esc((d && d.intern) || 'Betreuung durch Medientechnik KOM27')}</small>` : '<small class="hp-free">nicht eingetragen</small>'}</div>`;
   const block = (r, c) => { const e = (byRoom[r] || [])[0]; return `<${e ? `button ${e.open}` : 'div'} class="hp-b ${c} ${e ? e.st : 'free'} ${e && e.live ? 'hp-on' : ''}" aria-label="${esc(r)}"></${e ? 'button' : 'div'}>`; };
   const others = Object.keys(byRoom).filter((r) => !HP_ROOMS.includes(r));
   const usedE = Object.values(byRoom).map((l) => l[0]);
@@ -2852,6 +2857,7 @@ function hausplanHtml(today, seg) {
       <div class="hp-head"><b>Konferenzzone</b><span>in Mauerstraße · ${esc(longDate(dt))}</span></div>
       <div class="hp-body">
         <div class="hp-sem">${tile('Seminar 1', '', 'sem')}${tile('Seminar 2', '', 'sem')}${tile('Seminar 3', '', 'sem')}</div>
+        <div class="hp-srvrow">${srvTile}</div>
         <div class="hp-mid">
           <div class="hp-plan">${block('Saal 4', 'b4')}${block('Saal 1', 'b1')}<div class="hp-lobby ${(byRoom.Foyer || []).length ? 'used' : ''}"></div>${block('Saal 3', 'b3')}${block('Saal 2', 'b2')}</div>
           ${tile('Saal 4', 's4', 'led')}${tile('Saal 1', 's1', 'led')}

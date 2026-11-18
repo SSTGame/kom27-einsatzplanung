@@ -918,3 +918,10 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .hp-srvrow .hp-t .hp-who { font-size: 12.5px; }
 .hp-srvrow .hp-t small { font-size: 11.5px; line-height: 1.2; }
 .hp-srvrow .hp-dot { width: 8px; height: 8px; top: 7px; right: 8px; }
+
+/* Einlass-Ampel auf den Raumkacheln im Hausplan */
+.hp-cd { display: inline-block; margin-top: 4px; font-style: normal; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.hp-cd.gruen { background: color-mix(in srgb, var(--hp-pam) 16%, var(--hp-card)); color: var(--hp-pam); }
+.hp-cd.gelb { background: color-mix(in srgb, var(--hp-open) 20%, var(--hp-card)); color: color-mix(in srgb, var(--hp-open) 80%, #000); }
+.hp-cd.rot { background: #d92f3c; color: #fff; animation: hpPulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .hp-cd.rot { animation: none; } }

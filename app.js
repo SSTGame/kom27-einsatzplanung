@@ -786,6 +786,7 @@ function clockTick() {
   const c = document.getElementById('clock');
   if (c) { const h = clockHtml(); if (c.innerHTML !== h) c.innerHTML = h; }
   try { akPaint(); } catch (e) { /* Karte ist nicht überall da */ }
+  try { hpTick(); } catch (e) { /* Hausplan ist nicht überall da */ }
   wetterLaden();
   clearTimeout(clockT);
   clockT = setTimeout(clockTick, Math.max(1000, Math.min(15000, 1000 * (60 - new Date().getSeconds()) + 150)));
@@ -2803,15 +2804,29 @@ function hpDay(dt) {
     const names = who.filter(Boolean).map((k) => k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : ''));
     const st = !x.pam ? 'nopam' : who.length && who.every((k) => k && k.status === 'zugesagt') ? 'pam' : 'pam-open';
     const va = parseSpan(x.zeit), buch = parseSpan(own.buch || '') || va;
+    // Einlass steht als einzelne Uhrzeit in der Excel; fehlt sie, zählen wir bis zum VA-Start herunter
+    const uhr = (t) => { const m = /(\d{1,2})[:.](\d{2})/.exec(t || ''); return m ? +m[1] + m[2] / 60 : null; };
+    const einlH = uhr(own.einlass);
+    const cd = einlH != null ? { at: einlH, was: 'Einlass' } : va ? { at: va[0], was: 'VA-Start' } : null;
     const live = isToday && buch && h >= buch[0] && h < buch[1], soon = isToday && buch && h < buch[0] && buch[0] - h <= 1;
     const vaNow = isToday && va && h >= va[0] && h < va[1];
-    const e = { x, st, names, crew, va, buch, live, soon, vaNow, open: x.key ? `data-open="${esc(x.key)}"` : `data-va="${dt}|${esc(x.va)}"` };
+    const e = { x, st, names, crew, va, buch, cd, live, soon, vaNow, open: x.key ? `data-open="${esc(x.key)}"` : `data-va="${dt}|${esc(x.va)}"` };
     (x.rooms.length ? x.rooms : ['Raum ?']).forEach((r) => (byRoom[r] = byRoom[r] || []).push(e));
   });
   // zuerst, was gerade als Veranstaltung läuft, dann was gebucht ist, dann nach Uhrzeit
   const rank = (e) => (e.vaNow ? 0 : e.live ? 1 : 2);
   Object.values(byRoom).forEach((l) => l.sort((a, b) => rank(a) - rank(b) || ((a.va || a.buch || [99])[0] - (b.va || b.buch || [99])[0])));
   return { d, byRoom, isToday, h };
+}
+// Zählt die Einlass-Ampeln jede Minute herunter, ohne die ganze Ansicht neu zu bauen
+function hpTick() {
+  document.querySelectorAll('.hp-cd[data-cd]').forEach((el) => {
+    const min = Math.round((+el.dataset.cd - Date.now()) / 60000);
+    if (min < -30) return el.remove();
+    if (min <= 0) { el.className = 'hp-cd rot'; el.textContent = el.dataset.cdw + ' jetzt'; return; }
+    el.className = 'hp-cd ' + (min <= 15 ? 'rot' : min <= 60 ? 'gelb' : 'gruen');
+    el.textContent = el.dataset.cdw + ' in ' + (min >= 60 ? Math.floor(min / 60) + ':' + String(min % 60).padStart(2, '0') + ' Std' : min + ' Min');
+  });
 }
 function hausplanHtml(today, seg) {
   const dt = S.hpDate || today; const { d, byRoom, isToday, h } = hpDay(dt);
@@ -2824,13 +2839,19 @@ function hausplanHtml(today, seg) {
     srv: '<svg viewBox="0 0 40 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M28.5 3.5a7 7 0 0 0-6.6 9.3L6.6 28.2a2.7 2.7 0 0 0 3.8 3.8L25.7 16.7a7 7 0 0 0 8.8-9.1l-3.6 3.6-3.6-.9-.9-3.6z"/></g></svg>',
     foy: '<svg viewBox="0 0 40 32" class="hp-ic"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="5" r="3"/><circle cx="26" cy="5" r="3"/><path d="M5 30V14a5 5 0 0 1 10 0v6M21 30V14a5 5 0 0 1 10 0"/><path d="M17 20h14v10H17zM31 24h6"/></g></svg>',
   };
+  // Einlass-Ampel: nur heute und nur, solange der Einlass noch bevorsteht. Läuft die Veranstaltung, bleibt alles wie gehabt.
+  const cdHtml = (e) => {
+    if (!isToday || !e.cd || e.vaNow || h >= e.cd.at + 0.5) return '';   // eine halbe Stunde nach Einlass ist die Ampel erledigt
+    const ab = new Date(dt + 'T00:00:00'); ab.setMinutes(ab.getMinutes() + Math.round(e.cd.at * 60));
+    return `<i class="hp-cd" data-cd="${ab.getTime()}" data-cdw="${esc(e.cd.was)}"></i>`;
+  };
   const tile = (r, cls, ic) => {
     const l = byRoom[r] || []; const e = l[0]; const nx = l[1];
     const hs = (x) => { const m = Math.round((x % 24) * 60); return m % 60 ? hm(x) : String(Math.floor(m / 60)); }; // kurz: 10–19 statt 10:00–19:00
     const whoHtml = (e) => e.st === 'nopam' || !e.crew.length ? `<span class="hp-who">${esc(stTxt(e))}</span>`
       : e.crew.length === 1 && !e.crew[0].zeit ? `<span class="hp-who">${esc(e.crew[0].name)}</span>`
       : `<span class="hp-crew">${e.crew.map((c) => `<span class="hp-who c-${c.st}">${esc(c.name)}${c.zeit ? ` <em>${hs(c.zeit[0])}–${hs(c.zeit[1])}</em>` : ''}</span>`).join('')}</span>`;
-    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `${whoHtml(e)}<small>${e.va ? 'VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}` : '<small class="hp-free">frei</small>'}`;
+    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `${whoHtml(e)}<small>${e.va ? 'VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}${cdHtml(e)}` : '<small class="hp-free">frei</small>'}`;
     return e ? `<button class="hp-t ${e.st} ${e.live ? 'hp-on' : ''} ${cls}" ${e.open} title="${esc(r + ' · ' + e.x.va + ' · ' + stTxt(e))}">${inner}</button>` : `<div class="hp-t free ${cls}">${inner}</div>`;
   };
   // „Service Haus 1“ steht in der Excel als eigene Spalte neben Felix und Jens. Dort steht kein Text,
@@ -2851,6 +2872,7 @@ function hausplanHtml(today, seg) {
   const gantt = used.length ? `<div class="hp-gantt"><h3>Tagesablauf</h3><div class="hg-ticks">${ticks.map((t) => `<i style="left:${pc(t)}%">${pad(t)}</i>`).join('')}</div>
     ${used.map((r) => `<div class="hg-row"><span class="hg-l">${esc(r)}</span><div class="hg-bar ${lanesOf(byRoom[r]) > 1 ? 'two' : ''}">${byRoom[r].filter((e) => e.buch).map((e) => `<button class="hg-e ${e.st} ${lanesOf(byRoom[r]) > 1 ? 'ln' + e.lane : ''}" ${e.open} style="left:${pc(e.buch[0])}%;width:${pc(e.buch[1]) - pc(e.buch[0])}%" title="${esc(e.x.va + ' · gebucht ' + hm(e.buch[0]) + '–' + hm(e.buch[1]) + (e.va ? ' · VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : '') + ' · ' + stTxt(e))}">${e.va ? `<i class="hg-va" style="left:${((e.va[0] - e.buch[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%;width:${((e.va[1] - e.va[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%"></i>` : ''}<span>${esc(stTxt(e))}</span></button>`).join('')}${isToday && h > a && h < b ? `<i class="hg-now" style="left:${pc(h)}%"></i>` : ''}</div></div>`).join('')}
     <p class="hg-lgd"><span><i class="hg-k book"></i>Raum gebucht</span><span><i class="hg-k va"></i>Veranstaltung</span>${isToday ? '<span><i class="hg-k now"></i>jetzt</span>' : ''}</p></div>` : '';
+  setTimeout(hpTick, 0);   // füllt die Ampeln, sobald die Kacheln im Dokument stehen
   const dd = new Date(dt + 'T12:00:00');
   return `<div class="kr hp"><div class="kr-nav"><button class="btn small" data-hpd="-1" aria-label="Vortag">‹</button><b>${dt === today ? 'Heute' : dt === addDays(today, 1) ? 'Morgen' : WD[dd.getDay()]}</b><span class="kr-range">${esc(longDate(dt))}</span><button class="btn small" data-hpd="1" aria-label="Nächster Tag">›</button>${dt !== today ? '<button class="btn small" data-hpd="0">Heute</button>' : ''}<span class="kr-sp"></span>${seg}</div>
     <div class="hp-panel">

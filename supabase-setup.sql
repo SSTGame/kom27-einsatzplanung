@@ -706,3 +706,20 @@ alter table public.assignments
   add column if not exists chg_at timestamptz; -- wann der Master informiert hat
 -- Abgehakt wird im Browser des Technikers (kom27-chg-ack), damit keine Schreibrechte nötig sind.
 -- ---------------------------------------------------------------------------
+
+
+-- ===== v35: Bestzeiten für „Kabelsalat" =====
+create table if not exists public.fun_kabel (
+  email text primary key,
+  name text not null default '',
+  sek numeric not null,
+  stufe int not null default 1,
+  updated_at timestamptz not null default now()
+);
+alter table public.fun_kabel enable row level security;
+drop policy if exists fun_kabel_read on public.fun_kabel;
+drop policy if exists fun_kabel_ins on public.fun_kabel;
+drop policy if exists fun_kabel_upd on public.fun_kabel;
+create policy fun_kabel_read on public.fun_kabel for select to authenticated using (true);
+create policy fun_kabel_ins on public.fun_kabel for insert to authenticated with check (email = lower(auth.jwt() ->> 'email'));
+create policy fun_kabel_upd on public.fun_kabel for update to authenticated using (email = lower(auth.jwt() ->> 'email')) with check (email = lower(auth.jwt() ->> 'email'));

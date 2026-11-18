@@ -47,6 +47,10 @@ const DemoStore = {
     if (i < 0) d.vreq.push(Object.assign({}, row, { id: row.id || Date.now() })); else d.vreq[i] = Object.assign({}, d.vreq[i], row); this.w(d); },
   async gameLoad() { return this.d().game || {}; },
   async gameSave(state) { const d = this.d(); d.game = state; this.w(d); },
+  async kabelTop() { return (this.d().kabel || []).slice().sort((a, b) => a.sek - b.sek); },
+  async kabelSave(name, sek, stufe) { const d = this.d(); const l = d.kabel || []; const i = l.findIndex((x) => x.name === name);
+    if (i < 0) l.push({ email: 'demo', name, sek, stufe, updated_at: nowISO() }); else if (sek < l[i].sek) l[i] = { email: 'demo', name, sek, stufe, updated_at: nowISO() };
+    d.kabel = l; this.w(d); },
   async delVr(id) { const d = this.d(); d.vreq = (d.vreq || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
   async addAlarm(row) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => !(x.scope === row.scope && x.at_time === row.at_time && x.label === row.label)).concat([Object.assign({ id: Date.now(), created_at: nowISO(), sent_at: null, auto: false, author_email: ls.get(this.U) || '' }, row)]); this.w(d); },
   async delAlarm(id) { const d = this.d(); d.alarms = (d.alarms || []).filter((x) => String(x.id) !== String(id)); this.w(d); },
@@ -145,6 +149,9 @@ function makeSupabaseStore() {
     async delVr(id) { chk(await sb.from('va_requests').delete().eq('id', id)); },
     async gameLoad() { const r = await sb.from('fun_games').select('state').eq('id', 1).maybeSingle(); return r.error || !r.data ? {} : r.data.state || {}; },
     async gameSave(state) { chk(await sb.from('fun_games').update({ state, updated_at: nowISO() }).eq('id', 1)); },
+    async kabelTop() { const r = await sb.from('fun_kabel').select('email,name,sek,stufe,updated_at').order('sek', { ascending: true }).limit(25); return r.error ? [] : r.data || []; },
+    async kabelSave(name, sek, stufe) { const email = ((S.user || {}).email || '').toLowerCase(); if (!email) return;
+      chk(await sb.from('fun_kabel').upsert({ email, name, sek, stufe, updated_at: nowISO() }, { onConflict: 'email' })); },
     async addAlarm(row) { chk(await sb.from('alarms').upsert(row, { onConflict: 'scope,at_time,label' })); },
     async delAlarm(id) { chk(await sb.from('alarms').delete().eq('id', id)); },
     async setDone(scope, item_id, on, by) { if (on) chk(await sb.from('equip_done').upsert({ scope, item_id, done_by: by, done_at: nowISO() })); else chk(await sb.from('equip_done').delete().eq('scope', scope).eq('item_id', item_id)); },

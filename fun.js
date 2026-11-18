@@ -427,5 +427,164 @@
     document.addEventListener('input', (e) => { if (!angemeldet()) return; const t = e.target; if (!t || typeof t.value !== 'string' || !t.value) return; if (t.value.toLowerCase().trim().endsWith(CODE)) { t.value = t.value.slice(0, -CODE.length).trim(); t.blur(); oeffnen(); } });
   })();
 
-  window.KOM27Fun = { konfetti, feuerwerk, sync, oeffnen, dekoSaison, dekoAn, dekoStart, dekoToggle };
+  /* ---------------- Kabelsalat: verhedderte Leitungen entwirren ---------------- */
+  const KS_STUFEN = [['Leicht', 7], ['Mittel', 9], ['Schwer', 11], ['Chaos', 13]];
+  const KS = { offen: false, stufe: 0, pos: [], kanten: [], t0: 0, lauf: false, tick: null, linien: [], punkte: [], gezogen: false };
+
+  const ksOri = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  // echte Kreuzung – gemeinsame Endpunkte und Berührungen zählen nicht
+  function ksSchneidet(a, b, c, d) {
+    if (a === c || a === d || b === c || b === d) return false;
+    const p = KS.pos, o1 = ksOri(p[a], p[b], p[c]), o2 = ksOri(p[a], p[b], p[d]), o3 = ksOri(p[c], p[d], p[a]), o4 = ksOri(p[c], p[d], p[b]);
+    return o1 !== o2 && o3 !== o4 && o1 && o2 && o3 && o4;
+  }
+  function ksPruefen() {
+    const k = KS.kanten; const schlimm = new Set(); let n = 0;
+    for (let i = 0; i < k.length; i++) for (let j = i + 1; j < k.length; j++) {
+      if (ksSchneidet(k[i][0], k[i][1], k[j][0], k[j][1])) { n++; schlimm.add(i); schlimm.add(j); }
+    }
+    KS.linien.forEach((l, i) => l.classList.toggle('x', schlimm.has(i)));
+    return n;
+  }
+  function ksBauen(anz) {
+    // Lösung: alle Stecker auf einem Kreis – dort kreuzt sich garantiert nichts
+    const kanten = []; for (let i = 0; i < anz; i++) kanten.push([i, (i + 1) % anz]);
+    const zwischen = (x, p, q) => (p < q ? x > p && x < q : x > p || x < q);
+    const kreuztAufKreis = (a, b, c, d) => zwischen(c, a, b) !== zwischen(d, a, b);
+    let versuche = anz * 12; const ziel = anz + Math.floor(anz / 2);
+    while (versuche-- > 0 && kanten.length < ziel) {
+      const a = (Math.random() * anz) | 0, b = (Math.random() * anz) | 0;
+      if (a === b || (a + 1) % anz === b || (b + 1) % anz === a) continue;
+      if (kanten.some(([p, q]) => (p === a && q === b) || (p === b && q === a))) continue;
+      if (kanten.some(([p, q]) => p !== a && p !== b && q !== a && q !== b && kreuztAufKreis(a, b, p, q))) continue;
+      kanten.push([a, b]);
+    }
+    KS.kanten = kanten;
+    // Startaufstellung: zufällig verteilt, mit Abstand – und erst nehmen, wenn es ordentlich verheddert ist
+    for (let run = 0; run < 60; run++) {
+      const pos = [];
+      for (let i = 0; i < anz; i++) {
+        let p, tr = 0;
+        do { p = { x: 10 + Math.random() * 80, y: 10 + Math.random() * 80 }; tr++; }
+        while (tr < 40 && pos.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 16));
+        pos.push(p);
+      }
+      KS.pos = pos;
+      let n = 0;
+      for (let i = 0; i < kanten.length; i++) for (let j = i + 1; j < kanten.length; j++) if (ksSchneidet(kanten[i][0], kanten[i][1], kanten[j][0], kanten[j][1])) n++;
+      if (n >= Math.max(3, Math.floor(anz / 2))) return;
+    }
+  }
+  const ksZeit = () => (KS.lauf || KS.t0 ? (Date.now() - KS.t0) / 1000 : 0);
+  const ksFmt = (s) => (s >= 60 ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + ' min' : (Math.round(s * 10) / 10).toString().replace('.', ',') + ' s');
+  function ksInfo(txt) { const e = document.querySelector('#ksSpiel .ks-info'); if (e) e.innerHTML = txt; }
+  function ksStand() {
+    const n = ksPruefen();
+    ksInfo(`<b>${ksFmt(ksZeit())}</b> · ${n ? n + (n === 1 ? ' Kreuzung' : ' Kreuzungen') : 'keine Kreuzung mehr 🎉'}`);
+    return n;
+  }
+  async function ksGewonnen(sek) {
+    KS.lauf = false; clearInterval(KS.tick); KS.tick = null;
+    konfetti();
+    const mail = ((S.user || {}).email || '').toLowerCase();
+    const name = ((S.techs || []).find((t) => (t.email || '').toLowerCase() === mail) || {}).name
+      || ((S.viewers || []).find((v) => (v.email || '').toLowerCase() === mail) || {}).name
+      || (S.admin && typeof CFG !== 'undefined' && CFG.senderName) || (mail ? mail.split('@')[0] : 'Du');
+    let platz = '';
+    try {
+      const top = await store.kabelTop();
+      const meins = top.find((x) => x.name === name);
+      if (!meins || sek < meins.sek) { await store.kabelSave(name, Math.round(sek * 10) / 10, KS.stufe + 1); platz = ' <b>Neue Bestzeit!</b>'; }
+    } catch (e) { /* Rangliste ist Beiwerk */ }
+    ksInfo(`🎉 Geschafft in <b>${ksFmt(sek)}</b>${platz}`);
+    const f = document.querySelector('#ksSpiel .ks-feld'); if (f) f.classList.add('fertig');
+    setTimeout(ksRangliste, 1200);
+  }
+  async function ksRangliste() {
+    const box = document.querySelector('#ksSpiel .ks-rang'); if (!box) return;
+    box.innerHTML = '<p class="ks-leer">Rangliste wird geladen …</p>';
+    let top = [];
+    try { top = await store.kabelTop(); } catch (e) { top = []; }
+    box.innerHTML = top.length
+      ? `<h4>Bestzeiten</h4><ol>${top.slice(0, 10).map((x) => `<li><span>${esc(x.name || x.email)}</span><em>${ksFmt(+x.sek)}</em><small>${KS_STUFEN[(x.stufe || 1) - 1] ? KS_STUFEN[(x.stufe || 1) - 1][0] : ''}</small></li>`).join('')}</ol>`
+      : '<p class="ks-leer">Noch keine Bestzeit – du kannst die erste sein.</p>';
+    box.classList.add('auf');
+  }
+  function ksZeichnen() {
+    let o = document.getElementById('ksSpiel');
+    if (!KS.offen) { if (o) o.remove(); clearInterval(KS.tick); KS.tick = null; return; }
+    if (!o) { o = document.createElement('div'); o.id = 'ksSpiel'; o.className = 'ks'; document.body.appendChild(o); }
+    o.innerHTML = `<div class="ks-box">
+      <div class="ks-kopf"><b>🔌 Kabelsalat</b><span class="ks-info"></span><button class="ks-x" aria-label="Schließen">✕</button></div>
+      <p class="ks-hilfe">Zieh die Stecker auseinander, bis sich kein Kabel mehr kreuzt. Rote Kabel liegen übereinander.</p>
+      <svg class="ks-feld" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+        ${KS.kanten.map(() => '<line class="ks-k" />').join('')}
+        ${KS.pos.map((p, i) => `<circle class="ks-p" data-i="${i}" r="3.6" cx="${p.x}" cy="${p.y}" />`).join('')}
+      </svg>
+      <div class="ks-rang"></div>
+      <div class="ks-fuss">
+        <div class="ks-stufen">${KS_STUFEN.map(([n], i) => `<button class="ks-s ${i === KS.stufe ? 'on' : ''}" data-ks="${i}">${n}</button>`).join('')}</div>
+        <span class="ks-sp"></span>
+        <button class="ks-btn" data-ksneu>Neu mischen</button>
+        <button class="ks-btn" data-ksrang>🏆 Rangliste</button>
+      </div></div>`;
+    KS.linien = [...o.querySelectorAll('.ks-k')];
+    KS.punkte = [...o.querySelectorAll('.ks-p')];
+    ksKanten();
+    ksStand();
+    o.querySelector('.ks-x').onclick = ksZu;
+    o.querySelector('[data-ksneu]').onclick = () => ksStart(KS.stufe);
+    o.querySelector('[data-ksrang]').onclick = ksRangliste;
+    o.querySelectorAll('[data-ks]').forEach((b) => (b.onclick = () => ksStart(+b.dataset.ks)));
+    o.addEventListener('pointerdown', (e) => { if (e.target === o) ksZu(); });
+    ksZiehen(o.querySelector('.ks-feld'));
+  }
+  function ksKanten() {
+    KS.kanten.forEach(([a, b], i) => { const l = KS.linien[i]; if (!l) return;
+      l.setAttribute('x1', KS.pos[a].x); l.setAttribute('y1', KS.pos[a].y); l.setAttribute('x2', KS.pos[b].x); l.setAttribute('y2', KS.pos[b].y); });
+  }
+  function ksZiehen(svg) {
+    if (!svg) return;
+    let akt = -1;
+    const wo = (e) => { const r = svg.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }; };
+    svg.addEventListener('pointerdown', (e) => {
+      const p = e.target.closest && e.target.closest('.ks-p'); if (!p) return;
+      akt = +p.dataset.i; p.classList.add('zieh'); svg.setPointerCapture(e.pointerId); e.preventDefault();
+      if (!KS.lauf) { KS.lauf = true; KS.t0 = Date.now(); KS.tick = setInterval(ksStand, 100); }
+    });
+    svg.addEventListener('pointermove', (e) => {
+      if (akt < 0) return;
+      const q = wo(e);
+      KS.pos[akt] = { x: Math.max(4, Math.min(96, q.x)), y: Math.max(4, Math.min(96, q.y)) };
+      KS.punkte[akt].setAttribute('cx', KS.pos[akt].x); KS.punkte[akt].setAttribute('cy', KS.pos[akt].y);
+      ksKanten();
+    });
+    const los = () => {
+      if (akt < 0) return;
+      KS.punkte[akt].classList.remove('zieh'); akt = -1;
+      if (ksStand() === 0 && KS.lauf) ksGewonnen(ksZeit());
+    };
+    svg.addEventListener('pointerup', los); svg.addEventListener('pointercancel', los);
+  }
+  function ksStart(stufe) {
+    KS.stufe = Math.max(0, Math.min(KS_STUFEN.length - 1, stufe || 0));
+    KS.lauf = false; KS.t0 = 0; clearInterval(KS.tick); KS.tick = null;
+    ksBauen(KS_STUFEN[KS.stufe][1]);
+    KS.offen = true; ksZeichnen();
+  }
+  function ksZu() { KS.offen = false; KS.lauf = false; clearInterval(KS.tick); KS.tick = null; ksZeichnen(); }
+  function kabel() { if (!S.user) return; ksStart(KS.stufe); }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && KS.offen) ksZu(); });
+  (function () {
+    const CODE = 'kabelsalat'; let buf = '';
+    document.addEventListener('keydown', (e) => {
+      if (!S.user || !e.key || e.key.length !== 1) return;
+      const t = e.target; if (t && /input|textarea|select/i.test(t.tagName)) return;
+      buf = (buf + e.key.toLowerCase()).slice(-12); if (buf.endsWith(CODE)) { buf = ''; kabel(); }
+    });
+    document.addEventListener('input', (e) => { if (!S.user) return; const t = e.target; if (!t || typeof t.value !== 'string' || !t.value) return;
+      if (t.value.toLowerCase().trim().endsWith(CODE)) { t.value = t.value.slice(0, -CODE.length).trim(); t.blur(); kabel(); } });
+  })();
+
+  window.KOM27Fun = { konfetti, feuerwerk, sync, oeffnen, dekoSaison, dekoAn, dekoStart, dekoToggle, kabel };
 })();

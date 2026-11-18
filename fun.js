@@ -429,25 +429,60 @@
 
   /* ---------------- Kabelsalat: verhedderte Leitungen entwirren ---------------- */
   const KS_STUFEN = [['Leicht', 7], ['Mittel', 9], ['Schwer', 11], ['Chaos', 13]];
-  const KS = { offen: false, stufe: 0, pos: [], kanten: [], t0: 0, lauf: false, tick: null, linien: [], punkte: [], gezogen: false };
+  // echte Kabeltypen aus dem Haus – Farbe wie im Lager, damit man sie auseinanderhält
+  const KS_TYP = {
+    bnc: { name: 'BNC (Video)', kabel: '#e0a92c', mantel: '#8a6713' },
+    hdmi: { name: 'HDMI', kabel: '#23242a', mantel: '#0c0d10' },
+    schuko: { name: 'Schuko (Strom)', kabel: '#f1f1f5', mantel: '#6e6e78' },
+    cat: { name: 'CAT (Netzwerk)', kabel: '#2f7fe0', mantel: '#16467f' },
+  };
+  const KS_TYPEN = Object.keys(KS_TYP);
+  // Steckerform, Nase zeigt nach +x
+  const KS_FORM = {
+    bnc: '<rect x="-4.6" y="-1.5" width="3.6" height="3" rx=".5" fill="#2a2b2f"/><rect x="-1.6" y="-1.9" width="2" height="3.8" rx=".45" fill="#c9ccd1"/><rect x="-.5" y="-1.2" width="1.5" height="2.4" rx=".3" fill="#d8b23c"/><circle cx=".9" cy="0" r=".45" fill="#8a8f96"/>',
+    hdmi: '<rect x="-4.8" y="-1.8" width="3.2" height="3.6" rx=".5" fill="#1a1b1f"/><path d="M-1.8,-1.5 L.9,-1.05 L.9,1.05 L-1.8,1.5 Z" fill="#b9bec6"/><path d="M-1.3,-.95 L.5,-.65 L.5,.65 L-1.3,.95 Z" fill="#3c3f45"/>',
+    schuko: '<rect x="-4.8" y="-2" width="2.8" height="4" rx=".7" fill="#1d1e22"/><path d="M-2.2,-2.2 a2.3,2.3 0 0 1 0,4.4 z" fill="#2a2c31"/><rect x="-.6" y="-1.15" width="2" height=".75" rx=".3" fill="#c7ccd2"/><rect x="-.6" y=".4" width="2" height=".75" rx=".3" fill="#c7ccd2"/>',
+    cat: '<rect x="-4.6" y="-1.7" width="3.4" height="3.4" rx=".45" fill="#cfd4da"/><rect x="-3.9" y="-2.9" width="1.5" height="1.3" rx=".35" fill="#b7bcc3"/><rect x="-1.4" y="-1.3" width="2.1" height="2.6" rx=".3" fill="#e4e8ec"/><rect x="-.9" y="-.85" width="1.4" height="1.7" rx=".2" fill="#9aa0a7"/>',
+  };
+  const KS = { offen: false, stufe: 0, pos: [], kanten: [], typ: [], t0: 0, lauf: false, tick: null, pfade: [], mantel: [], stecker: [], punkte: [], linien: [] };
 
+  // Kabel hängen durch – die Kurve ist auch die Grundlage fürs Kreuzungszählen
+  function ksKurve(a, b) {
+    const p = KS.pos[a], q = KS.pos[b];
+    const d = Math.hypot(q.x - p.x, q.y - p.y);
+    return { p, q, c: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 + d * 0.09 } };
+  }
+  const ksD = (k) => `M${k.p.x.toFixed(2)},${k.p.y.toFixed(2)} Q${k.c.x.toFixed(2)},${k.c.y.toFixed(2)} ${k.q.x.toFixed(2)},${k.q.y.toFixed(2)}`;
+  function ksLinie(a, b) {              // Kurve in kurze Stücke zerlegen
+    const k = ksKurve(a, b); const out = [];
+    for (let t = 0; t <= 10; t++) { const u = t / 10, m = 1 - u;
+      out.push({ x: m * m * k.p.x + 2 * m * u * k.c.x + u * u * k.q.x, y: m * m * k.p.y + 2 * m * u * k.c.y + u * u * k.q.y }); }
+    return out;
+  }
   const ksOri = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
-  // echte Kreuzung – gemeinsame Endpunkte und Berührungen zählen nicht
-  function ksSchneidet(a, b, c, d) {
-    if (a === c || a === d || b === c || b === d) return false;
-    const p = KS.pos, o1 = ksOri(p[a], p[b], p[c]), o2 = ksOri(p[a], p[b], p[d]), o3 = ksOri(p[c], p[d], p[a]), o4 = ksOri(p[c], p[d], p[b]);
-    return o1 !== o2 && o3 !== o4 && o1 && o2 && o3 && o4;
+  const ksKreuz = (p1, p2, p3, p4) => { const o1 = ksOri(p1, p2, p3), o2 = ksOri(p1, p2, p4), o3 = ksOri(p3, p4, p1), o4 = ksOri(p3, p4, p2); return o1 !== o2 && o3 !== o4 && o1 && o2 && o3 && o4; };
+  // Schnittpunkt zweier Strecken – damit die Stelle markiert werden kann, an der es hakt
+  function ksTreff(p1, p2, p3, p4) {
+    const a = p2.x - p1.x, b = p4.x - p3.x, c = p2.y - p1.y, d = p4.y - p3.y;
+    const nen = a * d - c * b; if (!nen) return null;
+    const t = ((p3.x - p1.x) * d - (p3.y - p1.y) * b) / nen;
+    return { x: p1.x + a * t, y: p1.y + c * t };
   }
   function ksPruefen() {
-    const k = KS.kanten; const schlimm = new Set(); let n = 0;
+    const k = KS.kanten; const bahn = k.map(([a, b]) => ksLinie(a, b)); const treffer = []; let n = 0;
     for (let i = 0; i < k.length; i++) for (let j = i + 1; j < k.length; j++) {
-      if (ksSchneidet(k[i][0], k[i][1], k[j][0], k[j][1])) { n++; schlimm.add(i); schlimm.add(j); }
+      if (k[i][0] === k[j][0] || k[i][0] === k[j][1] || k[i][1] === k[j][0] || k[i][1] === k[j][1]) continue;  // gemeinsame Buchse zählt nicht
+      let punkt = null;
+      for (let x = 0; x < bahn[i].length - 1 && !punkt; x++) for (let y = 0; y < bahn[j].length - 1; y++) {
+        if (ksKreuz(bahn[i][x], bahn[i][x + 1], bahn[j][y], bahn[j][y + 1])) { punkt = ksTreff(bahn[i][x], bahn[i][x + 1], bahn[j][y], bahn[j][y + 1]); break; }
+      }
+      if (punkt) { n++; treffer.push(punkt); }
     }
-    KS.linien.forEach((l, i) => l.classList.toggle('x', schlimm.has(i)));
+    const g = document.querySelector('#ksSpiel .ks-kreuz');
+    if (g) g.innerHTML = treffer.map((t) => `<circle class="ks-xp" cx="${t.x.toFixed(2)}" cy="${t.y.toFixed(2)}" r="1.9"/>`).join('');
     return n;
   }
   function ksBauen(anz) {
-    // Lösung: alle Stecker auf einem Kreis – dort kreuzt sich garantiert nichts
     const kanten = []; for (let i = 0; i < anz; i++) kanten.push([i, (i + 1) % anz]);
     const zwischen = (x, p, q) => (p < q ? x > p && x < q : x > p || x < q);
     const kreuztAufKreis = (a, b, c, d) => zwischen(c, a, b) !== zwischen(d, a, b);
@@ -460,18 +495,27 @@
       kanten.push([a, b]);
     }
     KS.kanten = kanten;
-    // Startaufstellung: zufällig verteilt, mit Abstand – und erst nehmen, wenn es ordentlich verheddert ist
+    KS.typ = kanten.map((_, i) => KS_TYPEN[i % KS_TYPEN.length]).sort(() => Math.random() - 0.5);
     for (let run = 0; run < 60; run++) {
-      const pos = [];
-      for (let i = 0; i < anz; i++) {
-        let p, tr = 0;
-        do { p = { x: 10 + Math.random() * 80, y: 10 + Math.random() * 80 }; tr++; }
-        while (tr < 40 && pos.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 16));
-        pos.push(p);
-      }
+      // auf ein grobes Raster verteilen und dann verwackeln – so ist das Feld gleichmäßig voll
+      const spalten = Math.ceil(Math.sqrt(anz)), zeilen = Math.ceil(anz / spalten);
+      const felder = [];
+      for (let r = 0; r < zeilen; r++) for (let c = 0; c < spalten; c++) felder.push([c, r]);
+      felder.sort(() => Math.random() - 0.5);
+      const bx = 76 / spalten, by = 76 / zeilen;
+      const pos = felder.slice(0, anz).map(([c, r]) => ({
+        x: 12 + (c + 0.5) * bx + (Math.random() - 0.5) * bx * 0.55,
+        y: 12 + (r + 0.5) * by + (Math.random() - 0.5) * by * 0.55,
+      }));
       KS.pos = pos;
       let n = 0;
-      for (let i = 0; i < kanten.length; i++) for (let j = i + 1; j < kanten.length; j++) if (ksSchneidet(kanten[i][0], kanten[i][1], kanten[j][0], kanten[j][1])) n++;
+      for (let i = 0; i < kanten.length; i++) for (let j = i + 1; j < kanten.length; j++) {
+        if (kanten[i][0] === kanten[j][0] || kanten[i][0] === kanten[j][1] || kanten[i][1] === kanten[j][0] || kanten[i][1] === kanten[j][1]) continue;
+        const A = ksLinie(kanten[i][0], kanten[i][1]), B = ksLinie(kanten[j][0], kanten[j][1]);
+        let kreuzt = false;
+        for (let x = 0; x < A.length - 1 && !kreuzt; x++) for (let y = 0; y < B.length - 1; y++) if (ksKreuz(A[x], A[x + 1], B[y], B[y + 1])) { kreuzt = true; break; }
+        if (kreuzt) n++;
+      }
       if (n >= Math.max(3, Math.floor(anz / 2))) return;
     }
   }
@@ -480,7 +524,7 @@
   function ksInfo(txt) { const e = document.querySelector('#ksSpiel .ks-info'); if (e) e.innerHTML = txt; }
   function ksStand() {
     const n = ksPruefen();
-    ksInfo(`<b>${ksFmt(ksZeit())}</b> · ${n ? n + (n === 1 ? ' Kreuzung' : ' Kreuzungen') : 'keine Kreuzung mehr 🎉'}`);
+    ksInfo(`<b>${ksFmt(ksZeit())}</b> · ${n ? n + (n === 1 ? ' Kreuzung' : ' Kreuzungen') : 'kein Kabel kreuzt mehr 🎉'}`);
     return n;
   }
   async function ksGewonnen(sek) {
@@ -496,31 +540,34 @@
       const meins = top.find((x) => x.name === name);
       if (!meins || sek < meins.sek) { await store.kabelSave(name, Math.round(sek * 10) / 10, KS.stufe + 1); platz = ' <b>Neue Bestzeit!</b>'; }
     } catch (e) { /* Rangliste ist Beiwerk */ }
-    ksInfo(`🎉 Geschafft in <b>${ksFmt(sek)}</b>${platz}`);
+    ksInfo(`🎉 Entwirrt in <b>${ksFmt(sek)}</b>${platz}`);
     const f = document.querySelector('#ksSpiel .ks-feld'); if (f) f.classList.add('fertig');
     setTimeout(ksRangliste, 1200);
   }
   async function ksRangliste() {
     const box = document.querySelector('#ksSpiel .ks-rang'); if (!box) return;
-    box.innerHTML = '<p class="ks-leer">Rangliste wird geladen …</p>';
+    box.innerHTML = '<p class="ks-leer">Rangliste wird geladen …</p>'; box.classList.add('auf');
     let top = [];
     try { top = await store.kabelTop(); } catch (e) { top = []; }
     box.innerHTML = top.length
-      ? `<h4>Bestzeiten</h4><ol>${top.slice(0, 10).map((x) => `<li><span>${esc(x.name || x.email)}</span><em>${ksFmt(+x.sek)}</em><small>${KS_STUFEN[(x.stufe || 1) - 1] ? KS_STUFEN[(x.stufe || 1) - 1][0] : ''}</small></li>`).join('')}</ol>`
+      ? `<h4>Bestzeiten</h4><ol>${top.slice(0, 10).map((x) => `<li><span>${esc(x.name || x.email)}</span><em>${ksFmt(+x.sek)}</em><small>${(KS_STUFEN[(x.stufe || 1) - 1] || [''])[0]}</small></li>`).join('')}</ol>`
       : '<p class="ks-leer">Noch keine Bestzeit – du kannst die erste sein.</p>';
-    box.classList.add('auf');
   }
   function ksZeichnen() {
     let o = document.getElementById('ksSpiel');
     if (!KS.offen) { if (o) o.remove(); clearInterval(KS.tick); KS.tick = null; return; }
     if (!o) { o = document.createElement('div'); o.id = 'ksSpiel'; o.className = 'ks'; document.body.appendChild(o); }
+    const typen = [...new Set(KS.typ)];
     o.innerHTML = `<div class="ks-box">
       <div class="ks-kopf"><b>🔌 Kabelsalat</b><span class="ks-info"></span><button class="ks-x" aria-label="Schließen">✕</button></div>
-      <p class="ks-hilfe">Zieh die Stecker auseinander, bis sich kein Kabel mehr kreuzt. Rote Kabel liegen übereinander.</p>
+      <p class="ks-hilfe">Zieh die Buchsen auseinander, bis sich kein Kabel mehr kreuzt. Die roten Punkte zeigen, wo noch etwas übereinander liegt.</p>
       <svg class="ks-feld" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-        ${KS.kanten.map(() => '<line class="ks-k" />').join('')}
-        ${KS.pos.map((p, i) => `<circle class="ks-p" data-i="${i}" r="3.6" cx="${p.x}" cy="${p.y}" />`).join('')}
+        <g class="ks-kabel">${KS.kanten.map((_, i) => `<path class="ks-m" style="stroke:${KS_TYP[KS.typ[i]].mantel}" /><path class="ks-l" style="stroke:${KS_TYP[KS.typ[i]].kabel}" />`).join('')}</g>
+        <g class="ks-st">${KS.kanten.map((_, i) => `<g class="ks-s2">${KS_FORM[KS.typ[i]]}</g><g class="ks-s2">${KS_FORM[KS.typ[i]]}</g>`).join('')}</g>
+        <g class="ks-kreuz"></g>
+        <g class="ks-bu">${KS.pos.map((p, i) => `<g class="ks-p" data-i="${i}" transform="translate(${p.x},${p.y})"><rect x="-4.6" y="-4.6" width="9.2" height="9.2" rx="1.6" fill="#3a3d44"/><rect x="-3.4" y="-3.4" width="6.8" height="6.8" rx="1.1" fill="#16181c"/><circle r="1.5" fill="#2c2f35"/></g>`).join('')}</g>
       </svg>
+      <div class="ks-typen">${typen.map((t) => `<span class="ks-t"><i style="background:${KS_TYP[t].kabel};outline:1px solid ${KS_TYP[t].mantel}"></i>${esc(KS_TYP[t].name)}</span>`).join('')}</div>
       <div class="ks-rang"></div>
       <div class="ks-fuss">
         <div class="ks-stufen">${KS_STUFEN.map(([n], i) => `<button class="ks-s ${i === KS.stufe ? 'on' : ''}" data-ks="${i}">${n}</button>`).join('')}</div>
@@ -528,10 +575,11 @@
         <button class="ks-btn" data-ksneu>Neu mischen</button>
         <button class="ks-btn" data-ksrang>🏆 Rangliste</button>
       </div></div>`;
-    KS.linien = [...o.querySelectorAll('.ks-k')];
+    const kab = [...o.querySelectorAll('.ks-kabel > path')];
+    KS.mantel = kab.filter((_, i) => i % 2 === 0); KS.pfade = kab.filter((_, i) => i % 2 === 1);
+    KS.stecker = [...o.querySelectorAll('.ks-st > g')];
     KS.punkte = [...o.querySelectorAll('.ks-p')];
-    ksKanten();
-    ksStand();
+    ksKanten(); ksStand();
     o.querySelector('.ks-x').onclick = ksZu;
     o.querySelector('[data-ksneu]').onclick = () => ksStart(KS.stufe);
     o.querySelector('[data-ksrang]').onclick = ksRangliste;
@@ -540,8 +588,19 @@
     ksZiehen(o.querySelector('.ks-feld'));
   }
   function ksKanten() {
-    KS.kanten.forEach(([a, b], i) => { const l = KS.linien[i]; if (!l) return;
-      l.setAttribute('x1', KS.pos[a].x); l.setAttribute('y1', KS.pos[a].y); l.setAttribute('x2', KS.pos[b].x); l.setAttribute('y2', KS.pos[b].y); });
+    KS.kanten.forEach(([a, b], i) => {
+      const k = ksKurve(a, b); const d = ksD(k);
+      if (KS.pfade[i]) KS.pfade[i].setAttribute('d', d);
+      if (KS.mantel[i]) KS.mantel[i].setAttribute('d', d);
+      // Stecker sitzen kurz vor der Buchse und zeigen mit der Nase hinein
+      [[k.p, k.c, 2 * i], [k.q, k.c, 2 * i + 1]].forEach(([ende, ctrl, idx]) => {
+        const g = KS.stecker[idx]; if (!g) return;
+        const dx = ctrl.x - ende.x, dy = ctrl.y - ende.y, len = Math.hypot(dx, dy) || 1;
+        const x = ende.x + (dx / len) * 5.4, y = ende.y + (dy / len) * 5.4;
+        const grad = (Math.atan2(ende.y - y, ende.x - x) * 180) / Math.PI;
+        g.setAttribute('transform', `translate(${x.toFixed(2)},${y.toFixed(2)}) rotate(${grad.toFixed(1)})`);
+      });
+    });
   }
   function ksZiehen(svg) {
     if (!svg) return;
@@ -555,8 +614,8 @@
     svg.addEventListener('pointermove', (e) => {
       if (akt < 0) return;
       const q = wo(e);
-      KS.pos[akt] = { x: Math.max(4, Math.min(96, q.x)), y: Math.max(4, Math.min(96, q.y)) };
-      KS.punkte[akt].setAttribute('cx', KS.pos[akt].x); KS.punkte[akt].setAttribute('cy', KS.pos[akt].y);
+      KS.pos[akt] = { x: Math.max(6, Math.min(94, q.x)), y: Math.max(6, Math.min(94, q.y)) };
+      KS.punkte[akt].setAttribute('transform', `translate(${KS.pos[akt].x},${KS.pos[akt].y})`);
       ksKanten();
     });
     const los = () => {

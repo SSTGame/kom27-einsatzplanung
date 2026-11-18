@@ -1424,11 +1424,53 @@ function mailOpen(m) {
   }
   location.href = url;
 }
+/* Fertige Mail formatiert in die Zwischenablage legen: Überschrift in „Aptos Heading“,
+   Fließtext in Aptos 12. Über mailto: geht nur reiner Text – dort entscheidet Outlook über die Schrift. */
+const amMac = () => /Mac|iPad|iPhone/.test(navigator.platform || navigator.userAgent);
+const MAIL_FONT = "Aptos, 'Aptos Display', 'Segoe UI', Calibri, Helvetica, sans-serif";
+const MAIL_HEAD_FONT = "'Aptos Heading', 'Aptos Display', Aptos, 'Segoe UI Semibold', 'Segoe UI', Calibri, sans-serif";
+function mailHtml(m) {
+  const z = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#2b6ceb">$1</a>');
+  const teile = String(m.body || '').split(/\n{2,}/).map((block) => {
+    const zeilen = block.split('\n').filter((l) => l.trim());
+    if (!zeilen.length) return '';
+    if (zeilen.every((l) => /^\s*•\s/.test(l))) return `<ul style="margin:0 0 12pt;padding-left:20pt">${zeilen.map((l) => `<li style="margin:0 0 3pt">${z(l.replace(/^\s*•\s*/, ''))}</li>`).join('')}</ul>`;
+    return `<p style="margin:0 0 12pt">${zeilen.map(z).join('<br>')}</p>`;
+  });
+  const kopf = m.head || m.subject || '';
+  return `<div style="font-family:${MAIL_FONT};font-size:12pt;line-height:1.35;color:#000000">`
+    + (kopf ? `<p style="font-family:${MAIL_HEAD_FONT};font-size:14pt;font-weight:600;margin:0 0 12pt">${esc(kopf)}</p>` : '')
+    + teile.join('') + '</div>';
+}
+async function mailKopieren(m) {
+  const html = mailHtml(m); const text = String(m.body || '');
+  try {
+    if (navigator.clipboard && window.ClipboardItem && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
+      toast('Text kopiert – in Outlook mit ' + (amMac() ? '⌘V' : 'Strg+V') + ' einfügen (Aptos 12)');
+      return true;
+    }
+  } catch (e) { /* unten weiter */ }
+  // Rückfall für Browser ohne Clipboard-API: unsichtbares Feld markieren und kopieren
+  try {
+    const d = document.createElement('div');
+    d.setAttribute('aria-hidden', 'true'); d.contentEditable = 'true';
+    d.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden';
+    d.innerHTML = html; document.body.appendChild(d);
+    const r = document.createRange(); r.selectNodeContents(d);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    const ok = document.execCommand('copy');
+    sel.removeAllRanges(); d.remove();
+    if (ok) { toast('Text kopiert – in Outlook mit ' + (amMac() ? '⌘V' : 'Strg+V') + ' einfügen (Aptos 12)'); return true; }
+  } catch (e) { /* unten weiter */ }
+  toast('Kopieren hat nicht geklappt – bitte „✉️ E-Mail“ nehmen.');
+  return false;
+}
 function mailFor(t, slots, reminder) {
   const body = `Hallo ${t.name.split(' ')[0]},\n\n${reminder ? 'kurze Erinnerung – ich brauche noch deine Rückmeldung zu diesen Einsätzen' : 'ich habe neue Einsatzanfragen für dich'} im KOM27 (ÖPP Mauerstraße, Medientechnik):\n\n${slots.map((s) => '• ' + slotLine(s)).join('\n')}\n\nBitte bestätige kurz hier, ob du kannst:\n${APP_URL()}\n\nDanke & Gruß\n${CFG.senderName}`;
   const subj = (reminder ? 'Erinnerung: ' : '') + 'KOM27 Einsatzanfrage – ' + (slots.length === 1 ? fmtDate(slots[0].date, true) : slots.length + ' Termine');
   const body2 = hasMgr(t) ? body.replace('Bitte bestätige kurz hier, ob du kannst:', `Die verbindliche Zusage gibt ${mgrLabel(t)} (in Kopie) – bitte dort oder hier freigeben:`) : body;
-  return { to: t.email, cc: hasMgr(t) ? mgrMail(t) : '', subject: subj, body: body2 };
+  return { to: t.email, cc: hasMgr(t) ? mgrMail(t) : '', subject: subj, head: (reminder ? 'Erinnerung: ' : '') + 'Einsatzanfrage KOM27', body: body2 };
 }
 
 // Mail an die KOM27-Leute: welche Veranstaltungen der nächsten Wochen ohne PAM-Techniker laufen
@@ -1441,7 +1483,7 @@ function komNoPamMail(tage) {
     return x.va + (zeit ? ' (' + niceTime(zeit) + ')' : '') + (rooms.length ? ' – ' + rooms.join(', ') : '');
   }).join(' · ') + (betreuung(d) ? ' – ' + betreuung(d).txt : ''));
   const body = `Hallo zusammen,\n\nzur Info: An diesen Tagen läuft laut VA-Kalender eine Veranstaltung, für die kein PAM-Techniker angefordert ist.\n\n${zeilen.join('\n')}\n\nFalls doch jemand gebraucht wird, meldet euch kurz – dann schauen wir, ob wir das noch einteilen können.\n\nViele Grüße\n${CFG.senderName}`;
-  return { to: (S.viewers || []).map((v) => v.email).filter(Boolean).join(','), cc: '', subject: `KOM27: ${tage.length === 1 ? '1 Veranstaltung' : tage.length + ' Tage'} ohne PAM-Techniker`, body };
+  return { to: (S.viewers || []).map((v) => v.email).filter(Boolean).join(','), cc: '', subject: `KOM27: ${tage.length === 1 ? '1 Veranstaltung' : tage.length + ' Tage'} ohne PAM-Techniker`, head: 'Veranstaltungen ohne PAM-Techniker', body };
 }
 function komNoPamTage(tageVoraus) {
   const today = todayISO(); const bis = addDays(today, tageVoraus || 14);
@@ -1658,10 +1700,10 @@ function renderReq() {
     ${wishes.map((s) => { const a = S.asg[s.key]; const t = techById(a.tech_id); return `<div class="cw-row"><div><b>${esc(t ? t.name : '?')}</b> · ${esc(slotLine(s))}${a.tech_reply_note ? `<small>„${esc(a.tech_reply_note)}“</small>` : ''}<small class="muted">beantragt ${esc(ago(a.tech_reply_at))}</small></div>
       <div class="cw-act"><button class="btn danger-solid" data-cwok="${esc(s.key)}">Absage freigeben</button><button class="btn" data-cwno="${esc(s.key)}">Ablehnen – bleibt eingeteilt</button></div></div>`; }).join('')}</div>` : '';
   m.innerHTML = `<div id="pushBox"></div>${wishHtml}${msgBoxHtml()}${feedHtml()}<div class="bar"><span class="note">🔔 Erinnerung: Jeden Abend um 18 Uhr bekommt jeder Techniker eine Mitteilung, wenn er am nächsten Tag einen zugesagten Einsatz hat.</span>${DEMO ? '' : '<button class="btn small" id="remindNow">Jetzt für morgen senden</button>'}</div>
-  ${(() => { const t = DEMO ? [] : komNoPamTage(14); return t.length ? `<div class="bar nopam-bar"><span class="note">🏢 In den nächsten 14 Tagen laufen <b>${t.reduce((a, x) => a + x.list.length, 0)} Veranstaltungen an ${t.length} Tagen</b> ohne PAM-Techniker. KOM27 bekommt am Vorabend automatisch eine Mitteilung.</span><span class="spacer"></span><button class="btn small" id="komMail" ${(S.viewers || []).some((v) => v.email) ? '' : 'disabled'}>✉️ KOM27 informieren</button></div>` : ''; })()}
+  ${(() => { const t = DEMO ? [] : komNoPamTage(14); return t.length ? `<div class="bar nopam-bar"><span class="note">🏢 In den nächsten 14 Tagen laufen <b>${t.reduce((a, x) => a + x.list.length, 0)} Veranstaltungen an ${t.length} Tagen</b> ohne PAM-Techniker. KOM27 bekommt am Vorabend automatisch eine Mitteilung.</span><span class="spacer"></span><button class="btn small" id="komMail" ${(S.viewers || []).some((v) => v.email) ? '' : 'disabled'}>✉️ KOM27 informieren</button><button class="btn small" id="komCopy">📋 Text kopieren</button></div>` : ''; })()}
   <div class="bar mailapp"><label for="mailApp">✉️ E-Mails öffnen in</label>
     <select id="mailApp">${mailApps().map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <span class="note">Gilt nur auf diesem Gerät.${amHandy() ? ' Die <b>Outlook-App</b> füllt die Mail direkt aus, wenn sie auf dem Gerät installiert ist.' : ' Damit <b>Standard-Mailprogramm</b> Outlook öffnet, muss Outlook in Windows unter Einstellungen → Apps → Standard-Apps als E-Mail-Programm eingestellt sein. Am Rechner kann die Outlook-App eine fertige Mail nicht übernehmen – dafür gibt es „Outlook im Browser“.'}</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“.</div></div>
+    <span class="note">Gilt nur auf diesem Gerät.${amHandy() ? ' Die <b>Outlook-App</b> füllt die Mail direkt aus, wenn sie auf dem Gerät installiert ist.' : ' Damit <b>Standard-Mailprogramm</b> Outlook öffnet, muss Outlook in Windows unter Einstellungen → Apps → Standard-Apps als E-Mail-Programm eingestellt sein. Am Rechner kann die Outlook-App eine fertige Mail nicht übernehmen – dafür gibt es „Outlook im Browser“.'}</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“. „📋 Text kopieren“ legt denselben Text formatiert in die Zwischenablage – Überschrift in <b>Aptos Heading</b>, Fließtext in <b>Aptos 12</b>. Nimm das, wenn Outlook die Mail in einer anderen Schrift anlegt: Mail öffnen, in den Text klicken, einfügen.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}
@@ -1671,7 +1713,9 @@ function renderReq() {
     <div class="bar" style="margin:0">
       ${neu.length && hasPush(t) ? `<button class="btn primary" data-push="${t.id}">📲 Push senden (${neu.length})</button>` : ''}
       ${neu.length ? `<button class="btn ${hasPush(t) ? '' : 'primary'}" data-send="${t.id}" ${t.email ? '' : 'disabled'}>✉️ ${hasPush(t) ? 'E-Mail' : 'Anfrage per E-Mail'} (${neu.length})</button>` : ''}
+      ${neu.length ? `<button class="btn" data-copy="${t.id}" title="Legt den fertigen Text formatiert in die Zwischenablage – Überschrift in Aptos Heading, Text in Aptos 12">📋 Text kopieren</button>` : ''}
       ${wait.length ? `<button class="btn" data-remind="${t.id}" ${t.email ? '' : 'disabled'}>Erinnern</button>` : ''}
+      ${wait.length ? `<button class="btn" data-copyr="${t.id}" title="Erinnerungstext formatiert kopieren (Aptos 12)">📋 Text kopieren</button>` : ''}
       ${no.length ? `<button class="btn" data-replace="${t.id}">Ersatz automatisch suchen</button>` : ''}
     </div></div>`).join('') || '<div class="req muted">Nichts offen. Neue Einsätze erscheinen hier, sobald sie in der Planung eingeteilt sind.</div>'}</div>`;
   const markAsked = async (r, viaMail) => {
@@ -1694,6 +1738,9 @@ function renderReq() {
     mailOpen(mailFor(r.t, r.wait, true));
   }));
   if ($('#komMail')) $('#komMail').onclick = () => { const t = komNoPamTage(14); if (!t.length) return toast('Nichts ohne PAM in den nächsten 14 Tagen 👍'); mailOpen(komNoPamMail(t)); };
+  if ($('#komCopy')) $('#komCopy').onclick = () => { const t = komNoPamTage(14); if (!t.length) return toast('Nichts ohne PAM in den nächsten 14 Tagen 👍'); mailKopieren(komNoPamMail(t)); };
+  m.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => { const r = rows.find((x) => x.t.id === b.dataset.copy); mailKopieren(mailFor(r.t, r.neu, false)); }));
+  m.querySelectorAll('[data-copyr]').forEach((b) => (b.onclick = () => { const r = rows.find((x) => x.t.id === b.dataset.copyr); mailKopieren(mailFor(r.t, r.wait, true)); }));
   if ($('#mailApp')) $('#mailApp').onchange = (e) => { ls.set('kom27-mailapp', e.target.value); toast('E-Mails öffnen jetzt in: ' + (mailApps().find(([k]) => k === e.target.value) || [, ''])[1]); };
   fillPushBox(true);
   wireMsgBox(m);

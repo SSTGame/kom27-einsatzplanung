@@ -923,7 +923,10 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .hp-cd { display: inline-block; margin-top: 4px; font-style: normal; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
 .hp-cd.gruen { background: color-mix(in srgb, var(--hp-pam) 16%, var(--hp-card)); color: var(--hp-pam); }
 .hp-cd.gelb { background: color-mix(in srgb, var(--hp-open) 20%, var(--hp-card)); color: color-mix(in srgb, var(--hp-open) 80%, #000); }
-/* Rot und blinkend bleibt „läuft" vorbehalten – die Einlass-Ampel ist rot, aber ruhig */
+/* Läuft die Veranstaltung, blinken Schild und Punkt gemeinsam rot */
+.hp-t.hp-on .hp-dot { background: #d92f3c; animation: hpPulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .hp-t.hp-on .hp-dot { animation: none; } }
+/* Die Einlass-Ampel ist rot, aber ruhig – blinken tut nur, was gerade läuft */
 .hp-cd.rot { background: #d92f3c; color: #fff; }
 
 /* ---------------- Kiosk-Modus: Vollbild für den Monitor im Technikraum ---------------- */

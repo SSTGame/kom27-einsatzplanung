@@ -1703,7 +1703,7 @@ function renderReq() {
   ${(() => { const t = DEMO ? [] : komNoPamTage(14); return t.length ? `<div class="bar nopam-bar"><span class="note">🏢 In den nächsten 14 Tagen laufen <b>${t.reduce((a, x) => a + x.list.length, 0)} Veranstaltungen an ${t.length} Tagen</b> ohne PAM-Techniker. KOM27 bekommt am Vorabend automatisch eine Mitteilung.</span><span class="spacer"></span><button class="btn small" id="komMail" ${(S.viewers || []).some((v) => v.email) ? '' : 'disabled'}>✉️ KOM27 informieren</button><button class="btn small" id="komCopy">📋 Text kopieren</button></div>` : ''; })()}
   <div class="bar mailapp"><label for="mailApp">✉️ E-Mails öffnen in</label>
     <select id="mailApp">${mailApps().map(([k, l]) => `<option value="${k}" ${mailApp() === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <span class="note">Gilt nur auf diesem Gerät.${amHandy() ? ' Die <b>Outlook-App</b> füllt die Mail direkt aus, wenn sie auf dem Gerät installiert ist.' : ' Damit <b>Standard-Mailprogramm</b> Outlook öffnet, muss Outlook in Windows unter Einstellungen → Apps → Standard-Apps als E-Mail-Programm eingestellt sein. Am Rechner kann die Outlook-App eine fertige Mail nicht übernehmen – dafür gibt es „Outlook im Browser“.'}</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“. „📋 Text kopieren“ legt denselben Text formatiert in die Zwischenablage – Überschrift in <b>Aptos Heading</b>, Fließtext in <b>Aptos 12</b>. Nimm das, wenn Outlook die Mail in einer anderen Schrift anlegt: Mail öffnen, in den Text klicken, einfügen.</div></div>
+    <span class="note">Gilt nur auf diesem Gerät.${amHandy() ? ' Die <b>Outlook-App</b> füllt die Mail direkt aus, wenn sie auf dem Gerät installiert ist.' : ' Damit <b>Standard-Mailprogramm</b> Outlook öffnet, muss Outlook in Windows unter Einstellungen → Apps → Standard-Apps als E-Mail-Programm eingestellt sein. Am Rechner kann die Outlook-App eine fertige Mail nicht übernehmen – dafür gibt es „Outlook im Browser“.'}</span></div><div class="bar"><div class="note">„📲 Push senden“ schickt eine Mitteilung direkt aufs Handy des Technikers (wenn er sie aktiviert hat, erkennbar am 🔔). „✉️ E-Mail“ öffnet zusätzlich eine fertige Mail. Danach stehen die Einsätze auf „angefragt“. Beim Erinnern gibt es dieselben drei Wege – Push, E-Mail oder kopieren. „📋 Text kopieren“ legt denselben Text formatiert in die Zwischenablage – Überschrift in <b>Aptos Heading</b>, Fließtext in <b>Aptos 12</b>. Nimm das, wenn Outlook die Mail in einer anderen Schrift anlegt: Mail öffnen, in den Text klicken, einfügen.</div></div>
   <div class="card">${rows.map(({ t, neu, wait, no }) => `<div class="req">
     <h3>${esc(t.name)} ${hasPush(t) ? '<span title="Push-Mitteilungen aktiv">🔔</span>' : ''} <span class="note">${esc(t.email || 'keine E-Mail hinterlegt')}</span></h3>
     ${hasMgr(t) ? `<div class="hint boss">🏢 ${esc(mgrLabel(t))} – Zusage gibt der Projektleiter (${esc(mgrMail(t))}). Push & E-Mail gehen auch an ihn.</div>` : ''}
@@ -1714,8 +1714,9 @@ function renderReq() {
       ${neu.length && hasPush(t) ? `<button class="btn primary" data-push="${t.id}">📲 Push senden (${neu.length})</button>` : ''}
       ${neu.length ? `<button class="btn ${hasPush(t) ? '' : 'primary'}" data-send="${t.id}" ${t.email ? '' : 'disabled'}>✉️ ${hasPush(t) ? 'E-Mail' : 'Anfrage per E-Mail'} (${neu.length})</button>` : ''}
       ${neu.length ? `<button class="btn" data-copy="${t.id}" title="Legt den fertigen Text formatiert in die Zwischenablage – Überschrift in Aptos Heading, Text in Aptos 12">📋 Text kopieren</button>` : ''}
-      ${wait.length ? `<button class="btn" data-remind="${t.id}" ${t.email ? '' : 'disabled'}>Erinnern</button>` : ''}
-      ${wait.length ? `<button class="btn" data-copyr="${t.id}" title="Erinnerungstext formatiert kopieren (Aptos 12)">📋 Text kopieren</button>` : ''}
+      ${wait.length && hasPush(t) ? `<button class="btn" data-remind="${t.id}">📲 Push erinnern (${wait.length})</button>` : ''}
+      ${wait.length ? `<button class="btn" data-remindmail="${t.id}" ${t.email ? '' : 'disabled'}>✉️ ${hasPush(t) ? 'E-Mail erinnern' : 'Erinnern per E-Mail'} (${wait.length})</button>` : ''}
+      ${wait.length ? `<button class="btn" data-copyr="${t.id}" title="Erinnerungstext formatiert kopieren – Überschrift in Aptos Heading, Text in Aptos 12">📋 Text kopieren</button>` : ''}
       ${no.length ? `<button class="btn" data-replace="${t.id}">Ersatz automatisch suchen</button>` : ''}
     </div></div>`).join('') || '<div class="req muted">Nichts offen. Neue Einsätze erscheinen hier, sobald sie in der Planung eingeteilt sind.</div>'}</div>`;
   const markAsked = async (r, viaMail) => {
@@ -1734,7 +1735,10 @@ function renderReq() {
   m.querySelectorAll('[data-remind]').forEach((b) => (b.onclick = () => {
     const r = rows.find((x) => x.t.id === b.dataset.remind);
     notify('techs', [r.t.id], 'Erinnerung: KOM27 Einsatzanfrage', `Bitte gib noch Bescheid zu ${r.wait.length === 1 ? '1 Termin' : r.wait.length + ' Terminen'}: ${r.wait.slice(0, 3).map((s) => fmtDate(s.date)).join(', ')}`, 'req');
-    if (hasPush(r.t)) toast(`Erinnerung per Push an ${firstName(r.t)} gesendet`);
+    toast(`Erinnerung per Push an ${firstName(r.t)} gesendet`);
+  }));
+  m.querySelectorAll('[data-remindmail]').forEach((b) => (b.onclick = () => {
+    const r = rows.find((x) => x.t.id === b.dataset.remindmail);
     mailOpen(mailFor(r.t, r.wait, true));
   }));
   if ($('#komMail')) $('#komMail').onclick = () => { const t = komNoPamTage(14); if (!t.length) return toast('Nichts ohne PAM in den nächsten 14 Tagen 👍'); mailOpen(komNoPamMail(t)); };

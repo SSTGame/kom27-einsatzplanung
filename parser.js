@@ -148,9 +148,12 @@
       const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, haus: !!d.haus, kom: d.kom || [], vas: [], info: '', slots: [] };
       d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id;
         // „externes Haus“ / „interne Betreuung“ stehen als Text in Name, Zusatz oder Anmerkung – für KOM27 wichtig
-        const txt = [r.name, r.zusatz, r.anwesend].filter(Boolean).join(' · ');
-        if (!day.extern && /extern/i.test(txt)) day.extern = (/extern/i.test(r.zusatz || '') ? r.zusatz : /extern/i.test(r.name || '') ? r.name : r.anwesend).trim();
-        if (!day.intern && /intern\w*\s*betreu/i.test(txt)) day.intern = ((/intern/i.test(r.zusatz || '') ? r.zusatz : r.name) || '').trim();
+        // auch die Anmerkungsspalten rechts außen mitlesen – dort steht es im 2026er Kalender
+        const zusatzText = (r.extras || []).filter(([l]) => /(zusatz|anmerk|betreu|haus)/i.test(l)).map(([, v]) => v);
+        const quellen = [r.zusatz, r.name, r.anwesend].concat(zusatzText).filter(Boolean);
+        const woher = (re) => (quellen.find((v) => re.test(v)) || '').trim();
+        if (!day.extern && quellen.some((v) => /extern/i.test(v))) day.extern = woher(/extern/i);
+        if (!day.intern && quellen.some((v) => /intern\w*\s*betreu/i.test(v))) day.intern = woher(/intern\w*\s*betreu/i);
       });
       // Grün in „Service Haus 1“ sagt dasselbe wie der Text: die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung
       if (day.haus && !day.intern && !day.extern) day.intern = 'Betreuung durch Medientechnik KOM27';
@@ -281,6 +284,6 @@
     return { importedAt: new Date().toISOString(), days, vaWarn };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 9 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 10 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

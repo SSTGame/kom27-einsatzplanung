@@ -1818,6 +1818,33 @@ function renderReq() {
   }));
 }
 
+/* ---------------- Abzeichen: ergeben sich von allein aus den Einsätzen ---------------- */
+function abzeichenFor(t) {
+  const today = todayISO();
+  const alle = allSlots().filter((x) => S.asg[x.key] && S.asg[x.key].tech_id === t.id && !x.day.cancelled);
+  const fertig = alle.filter((x) => x.date <= today && S.asg[x.key].status === 'zugesagt');
+  const abgesagt = alle.filter((x) => S.asg[x.key].status === 'abgesagt');
+  const n = fertig.length; const out = [];
+  [[100, '💯'], [50, '🏆'], [25, '🥇'], [10, '🎖'], [5, '⭐']].some(([s, ic]) => (n >= s ? out.push({ ic, txt: s + ' Einsätze', tip: n + ' gelaufene Einsätze im KOM27' }) : false));
+  if (n >= 5 && !abgesagt.length) out.push({ ic: '🤝', txt: 'Nie abgesagt', tip: n + ' Einsätze, keine einzige Absage' });
+  const antwort = alle.map((x) => S.asg[x.key]).filter((a) => a.requested_at && (a.tech_reply_at || a.updated_at))
+    .map((a) => (new Date(a.tech_reply_at || a.updated_at) - new Date(a.requested_at)) / 3600000).filter((h) => h >= 0 && h < 720).sort((x, y) => x - y);
+  if (antwort.length >= 3 && antwort[Math.floor(antwort.length / 2)] <= 1) out.push({ ic: '⚡', txt: 'Blitz-Antwort', tip: 'meldet sich meist in unter einer Stunde zurück' });
+  const we = fertig.filter((x) => [0, 6].includes(new Date(x.date + 'T12:00:00').getDay()));
+  if (we.length >= 3) out.push({ ic: '📅', txt: 'Wochenend-Held', tip: we.length + ' Einsätze an einem Samstag oder Sonntag' });
+  const frueh = fertig.filter((x) => { const sp = parseSpan(x.zeit); return sp && sp[0] < 7; });
+  if (frueh.length >= 5) out.push({ ic: '🌅', txt: 'Frühschicht', tip: frueh.length + ' Einsätze vor 7 Uhr begonnen' });
+  const spaet = fertig.filter((x) => { const sp = parseSpan(x.zeit); return sp && sp[1] > 22; });
+  if (spaet.length >= 5) out.push({ ic: '🌙', txt: 'Nachteule', tip: spaet.length + ' Einsätze nach 22 Uhr beendet' });
+  if (n >= 5 && fertig.every((x) => S.asg[x.key].actual_start)) out.push({ ic: '⏱', txt: 'Zeiten immer da', tip: 'hat zu jedem Einsatz die Arbeitszeit eingetragen' });
+  return out;
+}
+function abzeichenHtml(t, max) {
+  const a = abzeichenFor(t); if (!a.length) return '';
+  const l = max ? a.slice(0, max) : a;
+  return `<div class="abz">${l.map((x) => `<span class="ab" title="${esc(x.tip)}"><i>${x.ic}</i>${esc(x.txt)}</span>`).join('')}${max && a.length > max ? `<span class="ab more" title="${esc(a.slice(max).map((x) => x.txt).join(', '))}">+${a.length - max}</span>` : ''}</div>`;
+}
+
 function renderTechs() {
   const m = $('#main'); const today = todayISO();
   const known = new Set();
@@ -1839,6 +1866,9 @@ function renderTechs() {
       <tr class="tr-add"><td colspan="8"><button class="btn" id="addTech">+ Techniker hinzufügen</button></td></tr>
     </tbody></table></div>
   <p class="note"><b>Techniker mit eigenem Chef:</b> Bei „Freigabe durch“ die E-Mail des Projektleiters eintragen. Der Techniker sieht seine Anfragen und meldet „könnte / kann nicht“, die verbindliche Zusage gibt der Projektleiter – er meldet sich mit dieser E-Mail selbst an und sieht nur sein Team.</p>
+  ${S.techs.length ? `<h2 class="sec">🏅 Abzeichen</h2>
+  <p class="note">Ergeben sich von allein aus den Einsätzen – es gibt nichts einzutragen. Jeder Techniker sieht seine eigenen auf seiner Startseite.</p>
+  <div class="card abz-list">${S.techs.map((t) => `<div class="abz-row"><b>${esc(t.name)}</b>${abzeichenHtml(t) || '<span class="muted small">noch keine</span>'}</div>`).join('')}</div>` : ''}
   <h2 class="sec">🏢 KOM27-Zugänge (nur ansehen) <button class="btn small" id="pvKom">👁 So sieht es für Jens & Felix aus</button></h2>
   <p class="note">Für die Medientechnik des KOM27 (z. B. Jens, Felix): sieht alle Termine, wer eingeteilt ist, Aufbaulisten und die KOM27-Infos – kann aber nichts zusagen oder einteilen. Anmelden wie die Techniker: mit dieser E-Mail auf „Konto anlegen“.</p>
   <div class="card"><table class="list viewers"><thead><tr><th>Name</th><th>E-Mail (= Login)</th><th></th></tr></thead><tbody>
@@ -3303,6 +3333,7 @@ function renderTech() {
         ${toLog.length ? `<a href="#timeSec" class="kpi warn"><b>${toLog.length}</b><span>Arbeitszeit eintragen</span></a>` : `<div class="kpi"><b>✓</b><span>Zeiten vollständig</span></div>`}
       </div>
       <div class="mypdf"><span>🖨 Stunden-PDF</span>${[addDays(mon + '-01', -1).slice(0, 7), mon].map((x) => `<button class="chip" data-mypdf="${x}">${MON[+x.slice(5, 7) - 1]}</button>`).join('')}</div>
+      ${abzeichenHtml(t, 4)}
     </section>
     <div class="dash"><div class="dash-main">
     ${chgBanner(t)}

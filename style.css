@@ -912,5 +912,9 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 
 /* „Service Haus 1“ im Hausplan: schmale Kachel wie die Seminarräume */
 .hp-srvrow { display: flex; }
-.hp-srvrow .hp-t { flex: 0 1 230px; min-height: 92px; }
-.hp-srvrow .hp-t small { line-height: 1.25; }
+.hp-srvrow .hp-t { flex: 0 1 170px; min-height: 0; padding: 7px 10px; gap: 0; }
+.hp-srvrow .hp-t .hp-ic { width: 24px; height: 18px; }
+.hp-srvrow .hp-t .hp-n { font-size: 13.5px; }
+.hp-srvrow .hp-t .hp-who { font-size: 12.5px; }
+.hp-srvrow .hp-t small { font-size: 11.5px; line-height: 1.2; }
+.hp-srvrow .hp-dot { width: 8px; height: 8px; top: 7px; right: 8px; }

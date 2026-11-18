@@ -2836,7 +2836,7 @@ function hausplanHtml(today, seg) {
   // „Service Haus 1“ steht in der Excel als eigene Spalte neben Felix und Jens. Dort steht kein Text,
   // sondern die Zelle ist grün – das heißt: an dem Tag betreut die Medientechnik KOM27 eine Veranstaltung.
   const hatHaus = !!(d && !d.cancelled && (d.haus || (d.kom || []).includes('Service Haus 1')));
-  const srvTile = `<div class="hp-t ${hatHaus ? 'nopam' : 'free'}" title="${hatHaus ? 'Grün in der Excel-Spalte „Service Haus 1“ – die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung' : 'An dem Tag ist „Service Haus 1“ in der Excel nicht grün'}"><i class="hp-dot"></i>${IC.srv}<b class="hp-n">Service Haus 1</b>${hatHaus ? `<span class="hp-who">im Haus</span><small>${esc((d && d.intern) || 'Betreuung durch Medientechnik KOM27')}</small>` : '<small class="hp-free">nicht eingetragen</small>'}</div>`;
+  const srvTile = `<div class="hp-t ${hatHaus ? 'nopam' : 'free'}" title="${hatHaus ? 'Grün in der Excel-Spalte „Service Haus 1“ – die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung' : 'An dem Tag ist „Service Haus 1“ in der Excel nicht grün'}"><i class="hp-dot"></i>${IC.srv}<b class="hp-n">Service Haus 1</b>${hatHaus ? `<small>Betreuung KOM27</small>` : '<small class="hp-free">nicht eingetragen</small>'}</div>`;
   const block = (r, c) => { const e = (byRoom[r] || [])[0]; return `<${e ? `button ${e.open}` : 'div'} class="hp-b ${c} ${e ? e.st : 'free'} ${e && e.live ? 'hp-on' : ''}" aria-label="${esc(r)}"></${e ? 'button' : 'div'}>`; };
   const others = Object.keys(byRoom).filter((r) => !HP_ROOMS.includes(r));
   const usedE = Object.values(byRoom).map((l) => l[0]);
@@ -2857,7 +2857,6 @@ function hausplanHtml(today, seg) {
       <div class="hp-head"><b>Konferenzzone</b><span>in Mauerstraße · ${esc(longDate(dt))}</span></div>
       <div class="hp-body">
         <div class="hp-sem">${tile('Seminar 1', '', 'sem')}${tile('Seminar 2', '', 'sem')}${tile('Seminar 3', '', 'sem')}</div>
-        <div class="hp-srvrow">${srvTile}</div>
         <div class="hp-mid">
           <div class="hp-plan">${block('Saal 4', 'b4')}${block('Saal 1', 'b1')}<div class="hp-lobby ${(byRoom.Foyer || []).length ? 'used' : ''}"></div>${block('Saal 3', 'b3')}${block('Saal 2', 'b2')}</div>
           ${tile('Saal 4', 's4', 'led')}${tile('Saal 1', 's1', 'led')}
@@ -2865,6 +2864,7 @@ function hausplanHtml(today, seg) {
           ${tile('Foyer', 'fo', 'foy')}${tile('Saal 3', 's3', 'led')}${tile('Saal 2', 's2', 'led')}
         </div>
         ${others.length ? `<div class="hp-sem hp-oth">${others.map((r) => tile(r, '', 'led')).join('')}</div>` : ''}
+        <div class="hp-srvrow">${srvTile}</div>
         <div class="hp-foot"><small>Legende</small><span><i class="hp-k pam"></i>PAM zugesagt</span><span><i class="hp-k pam-open"></i>PAM offen</span><span><i class="hp-k nopam"></i>ohne PAM</span><span><i class="hp-k free"></i>frei</span></div>
       </div>
     </div>

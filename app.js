@@ -2893,6 +2893,71 @@ function hausplanHtml(today, seg) {
     ${gantt}</div>`;
 }
 document.addEventListener('click', (ev) => { const b = ev.target.closest && ev.target.closest('[data-hpd]'); if (!b) return; const n = +b.dataset.hpd; S.hpDate = n ? addDays(S.hpDate || todayISO(), n) : todayISO(); paint(); });
+/* ---------------- Kiosk-Modus: Vollbild für den Monitor im Technikraum ---------------- */
+const KI_ZEIT = 18000;        // so lange steht eine Ansicht
+const KI_NEU = 300000;        // so oft werden die Daten neu geholt
+let kiT = null, kiR = null, kiWake = null, kiHpAlt = null;
+const whoOf = (key) => { const k = komOf(key); if (k) return k; const a = (S.asg || {})[key]; const t = a && a.tech_id ? techById(a.tech_id) : null; return t ? { name: t.name, status: a.status } : null; };
+function kioskCrewHtml(today) {
+  const d = allDays().find((x) => x.date === today);
+  const sl = d && !d.cancelled ? (d.slots || []) : [];
+  const leute = sl.map((x) => { const k = whoOf(x.key); return { name: k ? k.name : 'noch nicht besetzt', st: k ? k.status : 'leer', zeit: niceTime(x.zeit), va: x.va || '', rooms: roomsOf(d.info) }; });
+  const kom = d ? d.kom || [] : [];
+  return `<div class="ki-crew"><h2>Heute im Haus</h2>
+    ${leute.length ? `<div class="ki-people">${leute.map((p) => `<div class="ki-p st-${p.st}"><b>${esc(p.name)}</b><span>${esc(p.zeit)}</span><small>${esc([p.va, p.rooms].filter(Boolean).join(' · ')) || '&nbsp;'}</small></div>`).join('')}</div>`
+      : '<p class="ki-non">Heute ist kein PAM-Techniker eingeteilt.</p>'}
+    ${kom.length ? `<p class="ki-kom">🏢 Vom KOM27 im Haus: <b>${esc(kom.join(', '))}</b></p>` : ''}</div>`;
+}
+function kioskPaint() {
+  const box = document.getElementById('kiosk'); if (!box) return;
+  const t = todayISO();
+  if (kiHpAlt === null) kiHpAlt = S.hpDate || null;
+  S.hpDate = t;                                   // im Kiosk zählt immer der heutige Tag
+  box.querySelector('.ki-body').innerHTML = '<div class="ki-stage">' + hausplanHtml(t, '') + kioskCrewHtml(t) + '</div>';
+  box.querySelector('.ki-date').textContent = longDate(t);
+  kiFit();
+}
+// Der Monitor im Technikraum ist mal 24 Zoll, mal ein altes Tablet: die Folie wird auf die Fläche gerechnet
+function kiFit() {
+  const body = document.querySelector('#kiosk .ki-body'); const st = body && body.querySelector('.ki-stage'); if (!st) return;
+  st.style.transform = 'none'; st.style.width = body.clientWidth + 'px';
+  const f = Math.max(.5, Math.min(1.6, body.clientHeight / Math.max(1, st.scrollHeight)));
+  st.style.width = body.clientWidth / f + 'px';
+  st.style.transform = 'scale(' + f.toFixed(3) + ')';
+}
+function kioskClock() { const c = document.querySelector('.ki-clock'); if (c) { const d = new Date(); c.textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()); } }
+async function kioskStart() {
+  if (document.getElementById('kiosk')) return;
+  const box = document.createElement('div');
+  box.className = 'kiosk'; box.id = 'kiosk'; box.dataset.slide = '0';
+  box.innerHTML = `<div class="ki-head"><b>Medientechnik KOM27</b><span class="ki-date"></span><span class="ki-sp"></span><span class="ki-clock"></span><button class="btn small" id="kiOut">Beenden</button></div>
+    <div class="ki-body"></div><div class="ki-dots">${[0, 1, 2].map((i) => `<i data-ki="${i}"></i>`).join('')}</div>`;
+  document.body.appendChild(box); document.body.classList.add('kiosk-on');
+  kioskPaint(); kioskClock();
+  let n = 0;
+  kiT = setInterval(() => { n = (n + 1) % 3; box.dataset.slide = String(n); kiFit(); kioskClock(); try { hpTick(); } catch (e) {} }, KI_ZEIT);
+  kiR = setInterval(() => { (typeof reload === 'function' ? reload() : Promise.resolve()).then(kioskPaint).catch(() => kioskPaint()); }, KI_NEU);
+  box.querySelector('#kiOut').onclick = kioskStop;
+  box.querySelectorAll('[data-ki]').forEach((d) => (d.onclick = () => { n = +d.dataset.ki; box.dataset.slide = String(n); kiFit(); }));
+  window.addEventListener('resize', kiFit);
+  try { if (document.fullscreenEnabled && !document.fullscreenElement) await box.requestFullscreen(); } catch (e) { /* ohne Vollbild geht es auch */ }
+  try { if (navigator.wakeLock) kiWake = await navigator.wakeLock.request('screen'); } catch (e) { /* Bildschirm darf dann schlafen */ }
+}
+function kioskStop() {
+  clearInterval(kiT); clearInterval(kiR); kiT = kiR = null;
+  try { if (kiWake) { kiWake.release(); kiWake = null; } } catch (e) {}
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+  const box = document.getElementById('kiosk'); if (box) box.remove();
+  document.body.classList.remove('kiosk-on');
+  S.hpDate = kiHpAlt; kiHpAlt = null;
+  if (location.hash === '#kiosk') history.replaceState(null, '', location.pathname);
+  try { paint(); } catch (e) {}
+}
+document.addEventListener('click', (ev) => { if (ev.target.closest && ev.target.closest('#kioskGo')) kioskStart(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && document.getElementById('kiosk')) kioskStop(); });
+// Der Bildschirm im Technikraum kann die Seite direkt mit #kiosk öffnen
+window.addEventListener('hashchange', () => { if (location.hash === '#kiosk') kioskStart(); });
+
 // Wochenraster für KOM27: Spalten = Tage, Zeilen = wer da ist
 const mondayOf = (iso) => { const d = new Date(iso + 'T12:00:00'); return addDays(iso, -((d.getDay() + 6) % 7)); };
 function komWeekGrid(today, seg) {
@@ -3035,7 +3100,7 @@ function houseViewsHtml(today) {
       ${rows}${extra}</article>`;
   };
   const kv = S.komView || 'haus'; const raster = kv === 'raster';
-  const seg = `<div class="seg kv-seg"><button data-kv="haus" class="${kv === 'haus' ? 'on' : ''}">Hausplan</button><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${kv === 'liste' ? 'on' : ''}">Liste</button></div>`;
+  const seg = `<div class="seg kv-seg"><button data-kv="haus" class="${kv === 'haus' ? 'on' : ''}">Hausplan</button><button data-kv="raster" class="${raster ? 'on' : ''}">Woche</button><button data-kv="liste" class="${kv === 'liste' ? 'on' : ''}">Liste</button></div><button class="btn small" id="kioskGo" title="Vollbild für den Monitor im Technikraum – wechselt von allein zwischen Hausplan, Tagesablauf und Besetzung">🖥 Kiosk</button>`;
   return `${kv === 'haus' ? hausplanHtml(today, seg) : raster ? komWeekGrid(today, seg) : `<div class="kr kl"><div class="kr-nav"><label class="pastsw"><input type="checkbox" id="komPast" ${S.komPast ? 'checked' : ''}> vergangene Tage zeigen</label><span class="kr-sp"></span>${seg}</div></div>
     ${days.length ? days.map(dayCard).join('') : '<div class="empty-msg">Keine Termine.</div>'}`}`;
 }

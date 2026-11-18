@@ -923,8 +923,8 @@ h2.sec #pvKom{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:6
 .hp-cd { display: inline-block; margin-top: 4px; font-style: normal; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
 .hp-cd.gruen { background: color-mix(in srgb, var(--hp-pam) 16%, var(--hp-card)); color: var(--hp-pam); }
 .hp-cd.gelb { background: color-mix(in srgb, var(--hp-open) 20%, var(--hp-card)); color: color-mix(in srgb, var(--hp-open) 80%, #000); }
-.hp-cd.rot { background: #d92f3c; color: #fff; animation: hpPulse 1.6s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .hp-cd.rot { animation: none; } }
+/* Rot und blinkend bleibt „läuft" vorbehalten – die Einlass-Ampel ist rot, aber ruhig */
+.hp-cd.rot { background: #d92f3c; color: #fff; }
 
 /* ---------------- Kiosk-Modus: Vollbild für den Monitor im Technikraum ---------------- */
 body.kiosk-on { overflow: hidden; }
@@ -957,3 +957,30 @@ body.kiosk-on { overflow: hidden; }
 .ki-non { font-size: 20px; color: var(--muted); }
 .ki-kom { margin-top: 20px; font-size: 19px; }
 @media (max-width: 900px) { .ki-body { padding: 0 12px; } .ki-head { padding: 10px 14px 8px; font-size: 17px; } .ki-head b { font-size: 19px; } .ki-head .ki-clock { font-size: 22px; } }
+
+/* ---------------- Heatmap „Wo ist die Arbeit?" ---------------- */
+.heat h3 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.heat .heat-y { margin-left: auto; font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+.hm { overflow-x: auto; padding-bottom: 2px; }
+.hm-row { display: flex; gap: 2px; align-items: center; }
+.hm-row + .hm-row { margin-top: 2px; }
+.hm-l { flex: 0 0 30px; font-size: 12px; color: var(--muted); text-align: right; padding-right: 6px; }
+.hm-h { flex: 1 1 22px; min-width: 20px; font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.hm-c { flex: 1 1 22px; min-width: 20px; height: 22px; border-radius: 4px; background: var(--hm0); }
+.hm-c.s1 { background: var(--hm1); } .hm-c.s2 { background: var(--hm2); } .hm-c.s3 { background: var(--hm3); }
+.hm-c.s4 { background: var(--hm4); } .hm-c.s5 { background: var(--hm5); }
+.hm-lgd { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+.hm-lgd i { width: 18px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+.hm-lgd .hm-sp { flex: 1; }
+.hm-mon { margin-top: 20px; }
+.hm-mon h4 { margin: 0 0 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.hm-bars { display: flex; align-items: flex-end; gap: 6px; height: 92px; }
+.hm-b { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 4px; }
+.hm-b > b { width: 100%; max-width: 34px; background: var(--hm4); border-radius: 4px 4px 0 0; position: relative; min-height: 2px; }
+.hm-b > b em { position: absolute; top: -17px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 11px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.hm-b > span { font-size: 11px; color: var(--muted); }
+.hm-tab { margin-top: 16px; }
+.hm-tab summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.hm-tab table { margin-top: 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+:root { --hm0: #eef1f5; --hm1: #dbe9fb; --hm2: #a9cdf6; --hm3: #6aa9ee; --hm4: #2f7fe0; --hm5: #1159a8; }
+:root[data-theme="dark"] { --hm0: #1b222c; --hm1: #16314f; --hm2: #1d4a7a; --hm3: #2a6cad; --hm4: #3f92dc; --hm5: #6fb4f0; }

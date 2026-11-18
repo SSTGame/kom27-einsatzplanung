@@ -1509,6 +1509,60 @@ function feedHtml() {
   return `<div class="card feed"><h3>🕑 Neuigkeiten <span class="muted small">letzte 14 Tage</span></h3>${list.length ? `<ul>${list.map((e) => `<li><span class="fi">${e.ic}</span><span class="ft">${e.txt}</span><span class="fa">${esc(ago(e.at))}</span></li>`).join('')}</ul>` : '<p class="muted small">Noch keine Rückmeldungen.</p>'}</div>`;
 }
 
+/* ---------------- Wo ist die Arbeit? Wochentag × Uhrzeit ---------------- */
+const HM_WD = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+function heatDaten(jahr) {
+  const M = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  const mon = new Array(12).fill(0);
+  let h0 = 23, h1 = 0, tage = 0;
+  allSlots().filter((x) => x.date.startsWith(jahr) && !x.day.cancelled).forEach((x) => {
+    const sp = parseSpan(x.zeit); if (!sp) return;
+    tage++;
+    const wd = (new Date(x.date + 'T12:00:00').getDay() + 6) % 7;
+    for (let h = Math.floor(sp[0]); h < Math.ceil(sp[1]); h++) {
+      const anteil = Math.min(h + 1, sp[1]) - Math.max(h, sp[0]); if (anteil <= 0) continue;
+      M[wd][h % 24] += anteil; h0 = Math.min(h0, h % 24); h1 = Math.max(h1, h % 24);
+    }
+    mon[+x.date.slice(5, 7) - 1] += sp[1] - sp[0];
+  });
+  if (h0 > h1) { h0 = 8; h1 = 18; }
+  // Randstunden mit kaum Last weglassen – sonst stehen links und rechts leere Spalten
+  const max = Math.max(...M.flat());
+  const spalte = (h) => M.reduce((a, z) => a + z[h], 0);
+  const schwelle = Math.max(1, max * 0.05);
+  while (h0 < h1 && spalte(h0) < schwelle) h0++;
+  while (h1 > h0 && spalte(h1) < schwelle) h1--;
+  return { M, mon, h0, h1, tage, max };
+}
+function heatHtml() {
+  const jahre = [...new Set(allSlots().map((x) => x.date.slice(0, 4)))].sort();
+  if (!jahre.length) return '';
+  const jetzt = todayISO().slice(0, 4);
+  const jahr = jahre.includes(S.heatJahr) ? S.heatJahr : jahre.includes(jetzt) ? jetzt : jahre[jahre.length - 1];
+  const { M, mon, h0, h1, tage, max } = heatDaten(jahr);
+  const stunden = []; for (let h = h0; h <= h1; h++) stunden.push(h);
+  const stufe = (v) => (v <= 0 ? 0 : Math.max(1, Math.ceil((v / max) * 5)));
+  const std = (v) => (Math.round(v * 10) / 10).toString().replace('.', ',');
+  const monMax = Math.max(...mon);
+  return `<section class="card heat">
+    <h3>Wo ist die Arbeit? <span class="muted small">${tage} Einsätze mit Zeit im Jahr ${esc(jahr)}</span>
+      ${jahre.length > 1 ? `<select id="heatJahr" class="heat-y">${jahre.map((j) => `<option value="${j}" ${j === jahr ? 'selected' : ''}>${j}</option>`).join('')}</select>` : ''}</h3>
+    <p class="note">Gezählt werden alle geplanten Einsatzstunden aus der Excel – auch die, die noch niemand übernommen hat. Je kräftiger die Farbe, desto mehr ist in dieser Stunde los.</p>
+    ${max ? `<div class="hm">
+      <div class="hm-row hm-head"><span class="hm-l"></span>${stunden.map((h) => `<span class="hm-h">${h % 2 === 0 ? pad(h) : ''}</span>`).join('')}</div>
+      ${M.map((zeile, wd) => `<div class="hm-row"><span class="hm-l">${HM_WD[wd].slice(0, 2)}</span>${stunden.map((h) => {
+        const v = zeile[h];
+        return `<span class="hm-c s${stufe(v)}" title="${esc(HM_WD[wd] + ', ' + pad(h) + '–' + pad((h + 1) % 24) + ' Uhr: ' + (v ? std(v) + ' Std' : 'nichts geplant'))}"></span>`;
+      }).join('')}</div>`).join('')}
+      <div class="hm-lgd"><span>weniger</span>${[0, 1, 2, 3, 4, 5].map((i) => `<i class="hm-c s${i}"></i>`).join('')}<span>mehr</span><span class="hm-sp"></span><span>Spitze: ${std(max)} Std in einer Stunde</span></div>
+    </div>
+    <div class="hm-mon"><h4>Nach Monat</h4><div class="hm-bars">${mon.map((v, i) => `<span class="hm-b" title="${esc(MON[i] + ': ' + std(v) + ' Std')}"><b style="height:${monMax ? Math.round((v / monMax) * 100) : 0}%">${v === monMax && v > 0 ? `<em>${std(v)}</em>` : ''}</b><span>${esc(MON[i].slice(0, 3))}</span></span>`).join('')}</div></div>
+    <details class="hm-tab"><summary>Als Tabelle</summary><table class="list"><thead><tr><th>Tag</th>${stunden.map((h) => `<th>${pad(h)}</th>`).join('')}<th>Summe</th></tr></thead><tbody>
+      ${M.map((zeile, wd) => `<tr><td>${HM_WD[wd]}</td>${stunden.map((h) => `<td>${zeile[h] ? std(zeile[h]) : ''}</td>`).join('')}<td><b>${std(zeile.reduce((a, b) => a + b, 0))}</b></td></tr>`).join('')}
+    </tbody></table></details>`
+    : '<div class="empty-msg">Für dieses Jahr sind noch keine Einsatzzeiten eingelesen.</div>'}</section>`;
+}
+
 /* ---------------- Stunden (Master) ---------------- */
 function renderHours() {
   const m = $('#main'); const today = todayISO();
@@ -1542,7 +1596,8 @@ function renderHours() {
     <div class="sumrow wide"><div class="sumbox"><b>${sl.length}</b><span>zugesagte Einsätze</span></div><div class="sumbox"><b>${String(Math.round(totP * 10) / 10).replace('.', ',')}</b><span>Plan-Stunden*</span></div>
       <div class="sumbox ok"><b>${String(Math.round(totI * 10) / 10).replace('.', ',')}</b><span>bestätigte Ist-Stunden</span></div><div class="sumbox ${miss.length ? 'warn' : ''}"><b>${miss.length}</b><span>Zeiten fehlen noch</span></div></div>
     ${cards || '<div class="card"><div class="empty-msg">In diesem Monat noch keine zugesagten Einsätze.</div></div>'}
-    <p class="note">* Plan-Stunden = Einsatzzeit aus der Excel abzüglich gesetzlicher Pause (über 6 h: 30 min, über 9 h: 45 min). Ist-Zeiten tragen die Techniker selbst ein – du kannst sie hier auch direkt ändern.</p>`;
+    <p class="note">* Plan-Stunden = Einsatzzeit aus der Excel abzüglich gesetzlicher Pause (über 6 h: 30 min, über 9 h: 45 min). Ist-Zeiten tragen die Techniker selbst ein – du kannst sie hier auch direkt ändern.</p>
+    ${heatHtml()}`;
   $('#hMonth').onchange = (e) => { S.month = e.target.value; renderMaster(); };
   m.querySelectorAll('details[data-ht]').forEach((d) => (d.ontoggle = () => { if (d.open) S.openHours = d.dataset.ht; else if (S.openHours === d.dataset.ht) S.openHours = null; }));
   m.querySelectorAll('tr[data-hk] [data-h]').forEach((inp) => (inp.onchange = () => {
@@ -1558,6 +1613,7 @@ function renderHours() {
   };
   $('#hPdf').onclick = () => printHours(S.month);
   m.querySelectorAll('[data-hpdf]').forEach((b) => (b.onclick = () => printHours(S.month, b.dataset.hpdf)));
+  if ($('#heatJahr')) $('#heatJahr').onchange = (e) => { S.heatJahr = e.target.value; renderHours(); };
   $('#hCsv').onclick = () => {
     const num = (h) => (h === null || h === undefined ? '' : String(Math.round(h * 100) / 100).replace('.', ','));
     const q = (x) => '"' + String(x ?? '').replace(/"/g, '""') + '"';

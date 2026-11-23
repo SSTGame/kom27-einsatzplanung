@@ -509,7 +509,11 @@ function matchTech(name) {
   if (hit) return hit;
   const first = n.split(/\s+/)[0].replace(/\.$/, '');
   const c = S.techs.filter((t) => t.name.toLowerCase().split(/\s+/)[0] === first);
-  return c.length === 1 ? c[0] : null;
+  if (c.length === 1) return c[0];
+  // Rufname und Taufname sind oft verschieden: „Sebastian" in der Excel, „Basti" in der App.
+  // Die E-Mail verrät die Verbindung – sebastian.hellfritz@… gehört zu Basti.
+  const m = S.techs.filter((t) => (t.email || '').toLowerCase().split('@')[0].split(/[._\-+]/).filter(Boolean).includes(first));
+  return m.length === 1 ? m[0] : null;
 }
 
 /* ---------------- Auto-Einteilung ---------------- */

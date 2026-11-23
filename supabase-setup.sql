@@ -723,3 +723,25 @@ drop policy if exists fun_kabel_upd on public.fun_kabel;
 create policy fun_kabel_read on public.fun_kabel for select to authenticated using (true);
 create policy fun_kabel_ins on public.fun_kabel for insert to authenticated with check (email = lower(auth.jwt() ->> 'email'));
 create policy fun_kabel_upd on public.fun_kabel for update to authenticated using (email = lower(auth.jwt() ->> 'email')) with check (email = lower(auth.jwt() ->> 'email'));
+
+-- ===== v36: Abhaken und Erinnerungen an Tagen ohne VA-Nummer =====
+-- Der Slot-Schlüssel trägt an solchen Tagen „-" (2026-11-23#-#0), die App bildet
+-- den Bereich aber als „2026-11-23#". Dadurch griff die Rechteprüfung nicht und
+-- Abhaken, Erinnerungen und Übergabenotizen liefen in 403.
+create or replace function public.can_check_equip(p_scope text)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  select is_admin() or is_viewer() or exists (
+    select 1 from assignments a
+    where a.tech_id = my_tech_id()
+      and a.status in ('angefragt', 'zugesagt')
+      and (
+        a.slot_key like p_scope || '#%'
+        or (split_part(a.slot_key, '#', 2) = '-' and split_part(a.slot_key, '#', 1) || '#' = p_scope)
+      )
+  );
+$function$;

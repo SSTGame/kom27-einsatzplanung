@@ -2064,7 +2064,27 @@ const hm = (h) => String(Math.floor(h) % 24).padStart(2, '0') + ':' + String(Mat
 const DONE_K = 'kom27-done';
 // Abgehakte Aufbau-Punkte sind gemeinsam: je Tag + Veranstaltung, für alle sichtbar
 const doneScope = (s) => s.date + '#' + (s.va || '');
-const doneRows = (s) => (S.done || []).filter((x) => x.scope === doneScope(s));
+// Haken, die gerade gespeichert werden. Ohne das überschreibt ein Zwischenstand vom Server
+// den eigenen Klick wieder, und man muss zweimal tippen.
+const doneWarte = new Map();   // scope -> Map(item_id -> { on, by, at })
+function doneWarteSetzen(sc, id, on, by) {
+  const m = doneWarte.get(sc) || new Map();
+  m.set(id, { on, by, at: nowISO(), t: Date.now() });
+  doneWarte.set(sc, m);
+}
+function doneWarteWeg(sc, id) { const m = doneWarte.get(sc); if (!m) return; m.delete(id); if (!m.size) doneWarte.delete(sc); }
+function doneWarteAufraeumen() {   // Notbremse, falls eine Antwort nie kommt
+  doneWarte.forEach((m, sc) => { m.forEach((p, id) => { if (Date.now() - p.t > 20000) m.delete(id); }); if (!m.size) doneWarte.delete(sc); });
+}
+function doneRows(s) {
+  const sc = doneScope(s);
+  let rows = (S.done || []).filter((x) => x.scope === sc);
+  doneWarteAufraeumen();
+  const m = doneWarte.get(sc); if (!m || !m.size) return rows;
+  rows = rows.filter((r) => { const p = m.get(r.item_id); return !p || p.on; });
+  m.forEach((p, id) => { if (p.on && !rows.some((r) => r.item_id === id)) rows.push({ scope: sc, item_id: id, done_by: p.by, done_at: p.at }); });
+  return rows;
+}
 const doneOf = (s) => new Set(doneRows(s).map((x) => x.item_id));
 const canCheck = (s) => !S.roOpen && !S.mgrMode && !S.preview && !s.nopam && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
 const canNote = (s) => !S.roOpen && !S.mgrMode && !S.preview && (S.admin || S.viewer || (!!myTech() && allSlots().some((y) => y.date === s.date && y.va === s.va && S.asg[y.key] && S.asg[y.key].tech_id === myTech().id && ['angefragt', 'zugesagt'].includes(S.asg[y.key].status))));
@@ -2338,7 +2358,10 @@ function openJob(key, list) {
     c.closest('li').classList.toggle('done', on);
     if (on && window.KOM27Fun && [...box.querySelectorAll('[data-chk]')].every((x) => x.checked)) KOM27Fun.konfetti(); // alles aufgebaut
     const sp = c.closest('label').querySelector('span'); const ex = sp.querySelector('.eq-by'); if (ex) ex.remove(); if (on && who) sp.insertAdjacentHTML('beforeend', `<em class="eq-by">✓ ${esc(who)}</em>`);
-    store.setDone(sc, id, on, who).catch((x) => { S.done = before; c.checked = !on; c.closest('li').classList.toggle('done', !on); toast('Abhaken hat nicht geklappt – bitte nochmal'); });
+    doneWarteSetzen(sc, id, on, who);
+    store.setDone(sc, id, on, who)
+      .then(() => doneWarteWeg(sc, id))
+      .catch((x) => { doneWarteWeg(sc, id); S.done = before; c.checked = !on; c.closest('li').classList.toggle('done', !on); toast('Abhaken hat nicht geklappt – bitte nochmal'); });
   }));
   // Aufbauliste bearbeiten
   const reo = () => { const sc = (box.querySelector('.sheet') || {}).scrollTop || 0; openJob(s); const nb = document.querySelector('#sheet .sheet'); if (nb) nb.scrollTop = sc; };
@@ -3564,6 +3587,8 @@ async function liveRefresh() {
   const ae = document.activeElement;
   // offene Aufbauliste: Daten nachladen und nur die Haken nachziehen (ohne neu zu zeichnen)
   if (document.querySelector('#sheet') && S.sheetSlot && !document.querySelector('.stmenu') && !(ae && /^(SELECT|TEXTAREA)$/.test(ae.tagName)) && !(ae && ae.tagName === 'INPUT' && ae.type !== 'checkbox')) {
+    doneWarteAufraeumen();
+    if (doneWarte.size) return scheduleLive(700);   // erst die eigene Änderung durchlassen
     try { await reload(); } catch (e) { return; } syncSheetChecks(); return;
   }
   if ((ae && /^(SELECT|INPUT|TEXTAREA)$/.test(ae.tagName) && ae.closest('#app')) || document.querySelector('.jc-reason:not(.hidden), .jc-one:not(.hidden), .stmenu, #sheet') || Date.now() < (S.calmUntil || 0)) return scheduleLive(2500);

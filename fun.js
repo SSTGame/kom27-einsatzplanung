@@ -53,15 +53,9 @@
 
   // Wenn Felix heute als „interner Block" eingetragen ist, zieht eine kleine Regenwolke durchs Bild
   let regenGezeigt = '';
-  const FELIX_SATZ = [
-    'Heute ohne Felix. Das Haus wirkt gleich eine Nummer größer.',
-    'Kein Felix im Haus. Die Kabel rollen sich heute selbst auf. Angeblich.',
-    'Felix ist nicht da. Der Technikraum ist verdächtig aufgeräumt.',
-    'Ohne Felix heute. Jemand muss die Fernbedienung suchen – freiwillig.',
-    'Felix fehlt. Wir halten kurz inne und machen dann trotzdem weiter.',
-  ];
+  const FELIX_SATZ = 'Felix fehlt uns';
   function regenWolke(text) {
-    if (ruhig()) { if (text) toast('☔ ' + text); return; }
+    if (ruhig()) { if (text) toast(text); return; }
     const el = document.createElement('div');
     el.className = 'fx-regen'; el.setAttribute('aria-hidden', 'true');
     el.innerHTML = `<svg viewBox="0 0 140 76" width="140" height="76">
@@ -73,7 +67,7 @@
       </svg>` + [0, 1, 2, 3, 4, 5].map((i) => `<i style="--x:${22 + i * 17}px;--d:${(i * 0.42).toFixed(2)}s"></i>`).join('');
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 9500);
-    if (text) setTimeout(() => toast('☔ ' + text), 1200);
+    if (text) setTimeout(() => toast(text), 1200);
   }
   function felixCheck() {
     try {
@@ -85,7 +79,7 @@
       if (!d || d.free || d.cancelled) return;
       if (!(d.komWeg || []).some((n) => /felix/i.test(n))) return;
       regenGezeigt = sig;
-      setTimeout(() => regenWolke(FELIX_SATZ[(Math.random() * FELIX_SATZ.length) | 0]), 1100);
+      setTimeout(() => regenWolke(FELIX_SATZ), 1100);
     } catch (e) { /* Spielkram darf nie stören */ }
   }
 

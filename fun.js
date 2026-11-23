@@ -58,16 +58,24 @@
     if (ruhig()) { if (text) toast(text); return; }
     const el = document.createElement('div');
     el.className = 'fx-regen'; el.setAttribute('aria-hidden', 'true');
-    el.innerHTML = `<svg viewBox="0 0 140 76" width="140" height="76">
-        <g fill="#8a93a1">
-          <ellipse cx="46" cy="44" rx="26" ry="19"/><ellipse cx="78" cy="38" rx="31" ry="23"/>
-          <ellipse cx="104" cy="47" rx="21" ry="15"/><rect x="40" y="44" width="76" height="17" rx="8.5"/>
-        </g>
-        <g fill="#6f7886" opacity=".55"><ellipse cx="78" cy="30" rx="26" ry="14"/></g>
-      </svg>` + [0, 1, 2, 3, 4, 5].map((i) => `<i style="--x:${22 + i * 17}px;--d:${(i * 0.42).toFixed(2)}s"></i>`).join('');
+    el.innerHTML = `<div class="fxf-karte">
+        <svg class="fxf-wolke" viewBox="0 0 140 70" width="118" height="59">
+          <g fill="#8a93a1">
+            <ellipse cx="46" cy="42" rx="24" ry="17"/><ellipse cx="78" cy="36" rx="29" ry="21"/>
+            <ellipse cx="104" cy="45" rx="19" ry="14"/><rect x="40" y="42" width="74" height="15" rx="7.5"/>
+          </g>
+          <g fill="#6f7886" opacity=".5"><ellipse cx="78" cy="29" rx="24" ry="13"/></g>
+        </svg>
+        <div class="fxf-bild"><img src="icons/felix.jpg" alt="" width="150" height="150">
+          <i class="fxf-t" style="--tx:45px;--ty:56px;--d:.2s"></i>
+          <i class="fxf-t" style="--tx:87px;--ty:55px;--d:1.1s"></i>
+          <i class="fxf-t" style="--tx:46px;--ty:56px;--d:2.3s"></i>
+          <i class="fxf-t" style="--tx:86px;--ty:55px;--d:3.1s"></i>
+        </div>
+        <b>${esc(text || 'Felix fehlt uns')}</b>
+      </div>`;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 9500);
-    if (text) setTimeout(() => toast(text), 1200);
+    setTimeout(() => el.remove(), 7200);
   }
   function felixCheck() {
     try {

@@ -1040,3 +1040,14 @@ body.kiosk-on { overflow: hidden; }
 .ks-rang li em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ks-rang li small { color: var(--muted); font-size: 11px; }
 .ks-leer { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* Mehrtägige Einsätze: Tagesknöpfe stehen neben jedem Tag */
+.jc-einzeln { margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
+.jc-rtag { font-weight: 600; }
+.jc-day .jc-one { gap: 6px; }
+.jc-day .jc-time b { white-space: nowrap; }
+@media (max-width: 560px) {
+  .jc-day { gap: 8px; }
+  .jc-day .jc-one { gap: 5px; }
+  .jc-day .jc-time .jc-more { display: none; }
+}

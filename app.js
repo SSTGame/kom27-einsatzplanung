@@ -3334,7 +3334,7 @@ function renderTech() {
       <div class="jc-where">${where(s0)}</div>
       <div class="jc-days">${g.slots.map((s) => `<div class="jc-day" data-k="${esc(s.key)}">${dateBox(s.date)}
         <button class="jc-time jc-open ${chgOf(s.key) ? 'ist-neu' : ''}" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))}</b>${chgChip(s.key)}<small>deine Einsatzzeit${(s.det && s.det.vazeit) || s.day.vazeit ? ' · VA ' + esc((s.det && s.det.vazeit) || s.day.vazeit) : ''}</small><span class="jc-more">Details ›</span></button>
-        <div class="jc-one hidden"><button class="mini yes" data-one="zugesagt" data-k="${esc(s.key)}" aria-label="Kann ich">✓</button><button class="mini no" data-one="abgesagt" data-k="${esc(s.key)}" aria-label="Kann nicht">✗</button></div>
+        <div class="jc-one ${multi ? '' : 'hidden'}"><button class="mini yes" data-one="zugesagt" data-k="${esc(s.key)}" title="Diesen Tag zusagen" aria-label="${esc(fmtDate(s.date, true))} zusagen">✓</button><button class="mini no" data-one="abgesagt" data-k="${esc(s.key)}" title="Diesen Tag absagen" aria-label="${esc(fmtDate(s.date, true))} absagen">✗</button></div>
       </div>`).join('')}</div>
       <button class="jc-detail" data-open="${esc(s0.key)}">🛠 Was baue ich auf? · Zeiten & Details ›</button>
       ${boss ? `<div class="hint boss">🏢 Die verbindliche Zusage gibt <b>${esc(mgrLabel(t))}</b>. Sag hier, ob du grundsätzlich kannst – die Meldung geht direkt dorthin.</div>` : ''}
@@ -3342,8 +3342,8 @@ function renderTech() {
         <button class="big yes" data-all="zugesagt">${boss ? '👍 Ich könnte' : '✓ Ich kann'}${multi ? ` – alle ${g.slots.length} Tage` : ''}</button>
         <button class="big no" data-askno>✗ Kann nicht</button>
       </div>
-      <div class="jc-reason hidden"><label>Kurzer Grund (optional)</label><input type="text" placeholder="z. B. Urlaub, anderer Job …"><div class="jc-actions"><button class="big no solid" data-all="abgesagt">Absage senden</button><button class="big ghost" data-cancel>Zurück</button></div></div>
-      ${multi ? `<button class="linkbtn" data-split>Ich kann nur an einzelnen Tagen</button>` : ''}
+      <div class="jc-reason hidden"><label>Kurzer Grund<span class="jc-rtag"></span> (optional)</label><input type="text" placeholder="z. B. Urlaub, anderer Job …"><div class="jc-actions"><button class="big no solid" data-all="abgesagt">Absage senden</button><button class="big ghost" data-cancel>Zurück</button></div></div>
+      ${multi ? '<p class="jc-einzeln">Du kannst auch nur einzelne Tage zu- oder absagen – tippe dafür auf ✓ oder ✗ neben dem Tag.</p>' : ''}
     </article>`;
   };
   const line = (s, kind) => `<div class="mini-line${chgOf(s.key) ? ' ist-neu' : ''}">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} ${chgChip(s.key)}<span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
@@ -3471,13 +3471,20 @@ function renderTech() {
   m.querySelectorAll('.job-card').forEach((c) => {
     const keys = [...c.querySelectorAll('.jc-day')].map((d) => d.dataset.k);
     const reason = c.querySelector('.jc-reason'); const acts = c.querySelector(':scope > .jc-actions');
+    let ziel = keys;   // welche Tage die Absage betrifft
     c.querySelector('[data-all="zugesagt"]').onclick = () => answer(keys, 'zugesagt');
-    c.querySelector('[data-askno]').onclick = () => { acts.classList.add('hidden'); reason.classList.remove('hidden'); reason.querySelector('input').focus(); };
+    c.querySelector('[data-askno]').onclick = () => { ziel = keys; reason.querySelector('.jc-rtag').textContent = ''; acts.classList.add('hidden'); reason.classList.remove('hidden'); reason.querySelector('input').focus(); };
     c.querySelector('[data-cancel]').onclick = () => { reason.classList.add('hidden'); acts.classList.remove('hidden'); };
-    reason.querySelector('[data-all="abgesagt"]').onclick = () => answer(keys, 'abgesagt', reason.querySelector('input').value.trim());
+    reason.querySelector('[data-all="abgesagt"]').onclick = () => answer(ziel, 'abgesagt', reason.querySelector('input').value.trim());
     const split = c.querySelector('[data-split]');
     if (split) split.onclick = () => { c.querySelectorAll('.jc-one').forEach((x) => x.classList.remove('hidden')); acts.classList.add('hidden'); split.classList.add('hidden'); };
-    c.querySelectorAll('[data-one]').forEach((b) => (b.onclick = () => answer([b.dataset.k], b.dataset.one)));
+    c.querySelectorAll('[data-one]').forEach((b) => (b.onclick = () => {
+      if (b.dataset.one === 'zugesagt') return answer([b.dataset.k], 'zugesagt');
+      ziel = [b.dataset.k];                       // nur diesen einen Tag absagen
+      const tag = b.closest('.jc-day'); const db = tag ? tag.querySelector('.dbox') : null;
+      reason.querySelector('.jc-rtag').textContent = db ? ' für ' + [...db.children].map((x) => x.textContent.trim()).join(' ') : '';
+      acts.classList.add('hidden'); reason.classList.remove('hidden'); reason.querySelector('input').focus();
+    }));
   });
   m.querySelectorAll('[data-change]').forEach((b) => (b.onclick = () => {
     if (b.dataset.change === 'abgesagt' && !confirm('Diesen Einsatz wirklich absagen?')) return;

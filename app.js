@@ -1840,11 +1840,16 @@ const ABZ_DEF = [
 const ABZ_STUFEN = [[5, '⭐'], [10, '🎖'], [25, '🥇'], [50, '🏆'], [100, '💯']];
 function abzZahlen(t) {
   const today = todayISO();
-  const alle = allSlots().filter((x) => S.asg[x.key] && S.asg[x.key].tech_id === t.id && !x.day.cancelled);
-  const zu = alle.filter((x) => S.asg[x.key].status === 'zugesagt');
-  const gelaufen = zu.filter((x) => x.date <= today);
+  const alle = allSlots().filter((x) => !x.day.cancelled);
+  const meins = (x) => { const a = S.asg[x.key]; return a && a.tech_id === t.id ? a.status : null; };
+  const zu = alle.filter((x) => meins(x) === 'zugesagt');
+  const gelaufenApp = zu.filter((x) => x.date <= today);
+  // Vor dem Start der App gab es nur die Excel – vergangene Tage mit dem eigenen Namen zählen mit
+  const ausExcel = alle.filter((x) => x.date <= today && !meins(x) && x.excelName && matchTech(x.excelName) === t);
+  const gelaufen = gelaufenApp.concat(ausExcel);
   const std = gelaufen.reduce((a, x) => { const sp = parseSpan(x.zeit); return a + (sp ? Math.max(0, sp[1] - sp[0]) : 0); }, 0);
-  return { zugesagt: zu.length, gelaufen: gelaufen.length, kommend: zu.length - gelaufen.length, stunden: Math.round(std) };
+  return { zugesagt: zu.length + ausExcel.length, gelaufen: gelaufen.length, kommend: zu.length - gelaufenApp.length,
+           stunden: Math.round(std), excel: ausExcel.length };
 }
 function abzSheet(techId, markId) {
   const t = (S.techs || []).find((x) => x.id === techId); if (!t) return;
@@ -1859,7 +1864,7 @@ function abzSheet(techId, markId) {
     <h2 style="margin:0 0 4px">🏅 Abzeichen${S.admin && t.name ? ' – ' + esc(t.name) : ''}</h2>
     <p class="muted" style="margin:0 0 14px">Die ergeben sich von allein aus den Einsätzen. Es gibt nichts einzutragen.</p>
     <div class="abz-stat">
-      <div class="gross"><b>${z.zugesagt}</b><small>insgesamt zugesagt</small></div>
+      <div class="gross"><b>${z.zugesagt}</b><small>insgesamt zugesagt</small>${z.excel ? `<span class="abz-quelle">davon ${z.excel} aus der Excel, von vor dem Start der App</span>` : ''}</div>
       <div><b>${z.gelaufen}</b><small>davon gelaufen</small></div>
       <div><b>${z.kommend}</b><small>noch geplant</small></div>
       <div><b>${z.stunden}</b><small>Stunden dabei</small></div>
@@ -1892,9 +1897,9 @@ function abzeichenFor(t) {
   const alle = allSlots().filter((x) => S.asg[x.key] && S.asg[x.key].tech_id === t.id && !x.day.cancelled);
   const fertig = alle.filter((x) => x.date <= today && S.asg[x.key].status === 'zugesagt');
   const abgesagt = alle.filter((x) => S.asg[x.key].status === 'abgesagt');
-  const n = fertig.length; const out = [];
+  const n = abzZahlen(t).gelaufen; const out = [];   // gelaufene Einsätze inklusive der Zeit vor der App
   [[100, '💯'], [50, '🏆'], [25, '🥇'], [10, '🎖'], [5, '⭐']].some(([s, ic]) => (n >= s ? out.push({ id: 'anzahl', ic, txt: s + ' Einsätze', tip: n + ' gelaufene Einsätze im KOM27' }) : false));
-  if (n >= 5 && !abgesagt.length) out.push({ id: 'treu', ic: '🤝', txt: 'Nie abgesagt', tip: n + ' Einsätze, keine einzige Absage' });
+  if (fertig.length >= 5 && !abgesagt.length) out.push({ id: 'treu', ic: '🤝', txt: 'Nie abgesagt', tip: fertig.length + ' Einsätze, keine einzige Absage' });
   const antwort = alle.map((x) => S.asg[x.key]).filter((a) => a.requested_at && (a.tech_reply_at || a.updated_at))
     .map((a) => (new Date(a.tech_reply_at || a.updated_at) - new Date(a.requested_at)) / 3600000).filter((h) => h >= 0 && h < 720).sort((x, y) => x - y);
   if (antwort.length >= 3 && antwort[Math.floor(antwort.length / 2)] <= 1) out.push({ id: 'blitz', ic: '⚡', txt: 'Blitz-Antwort', tip: 'meldet sich meist in unter einer Stunde zurück' });
@@ -1904,7 +1909,7 @@ function abzeichenFor(t) {
   if (frueh.length >= 5) out.push({ id: 'frueh', ic: '🌅', txt: 'Frühschicht', tip: frueh.length + ' Einsätze vor 7 Uhr begonnen' });
   const spaet = fertig.filter((x) => { const sp = parseSpan(x.zeit); return sp && sp[1] > 22; });
   if (spaet.length >= 5) out.push({ id: 'nacht', ic: '🌙', txt: 'Nachteule', tip: spaet.length + ' Einsätze nach 22 Uhr beendet' });
-  if (n >= 5 && fertig.every((x) => S.asg[x.key].actual_start)) out.push({ id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', tip: 'hat zu jedem Einsatz die Arbeitszeit eingetragen' });
+  if (fertig.length >= 5 && fertig.every((x) => S.asg[x.key].actual_start)) out.push({ id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', tip: 'hat zu jedem Einsatz die Arbeitszeit eingetragen' });
   return out;
 }
 function abzeichenHtml(t, max) {

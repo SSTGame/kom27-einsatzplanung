@@ -162,3 +162,23 @@ table.grid th, table.grid td, .kr-grid th, .kr-grid td { border-color: var(--lin
 .ab-add summary, details.more summary, .jc-equip summary { color: var(--accent-text); }
 @media (max-width: 1099px) { .dpanel { padding: 16px 18px; margin-top: 16px; } .dpanel > h2.sec:first-child { margin-top: 0; } }
 .cal-range summary { color: var(--accent-text); }
+
+/* Feste Leiste unten auf dem Handy: undurchsichtig, ohne Unschärfe, auf einer eigenen Ebene.
+   Mit Durchsicht plus 24px Unschärfe löst sie sich auf dem iPhone beim schnellen Wischen
+   vom unteren Rand und steht plötzlich mitten im Bild. */
+@media (max-width: 1099px) {
+  body.is-master nav.tabs, .mine .viewtabs {
+    background: var(--panel) !important;
+    -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+    will-change: auto;
+    transform: translateZ(0); -webkit-transform: translateZ(0);
+    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  }
+}
+/* Alle Reiter in eine Reihe – zwei Reihen haben den Inhalt verdeckt */
+@media (max-width: 700px) {
+  body.is-master nav.tabs { display: flex !important; gap: 1px; }
+  body.is-master nav.tabs button { flex: 1 1 0; min-width: 0; padding: 6px 1px; font-size: 10.5px; }
+  body.is-master nav.tabs button span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.is-master nav.tabs .tbadge { right: 6%; }
+}

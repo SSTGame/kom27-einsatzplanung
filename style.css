@@ -470,8 +470,11 @@ nav.tabs .tic { font-style: normal; display: none; }
   .is-master .brand small { display: none; }
   .is-master #logout { font-size: 12px; padding: 5px 9px; flex: none; }
   .is-master nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--panel); border-top: 1px solid var(--line);
-    padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; box-shadow: 0 -4px 16px rgba(0, 0, 0, .06); }
-  .is-master nav.tabs button { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; font-size: 11px; border-radius: 10px; position: relative; }
+    padding: 4px 2px calc(4px + env(safe-area-inset-bottom)); display: flex; gap: 1px; box-shadow: 0 -4px 16px rgba(0, 0, 0, .06);
+    /* eigene Ebene, sonst löst sich die Leiste beim schnellen Wischen auf dem iPhone vom unteren Rand */
+    transform: translateZ(0); -webkit-transform: translateZ(0); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+  .is-master nav.tabs button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 1px; font-size: 10.5px; border-radius: 10px; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .is-master nav.tabs button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .is-master nav.tabs .tic { display: block; font-size: 20px; line-height: 1.1; }
   .is-master nav.tabs button.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
   .is-master nav.tabs .tbadge { position: absolute; top: 2px; right: 14%; margin: 0; font-size: 10px; }

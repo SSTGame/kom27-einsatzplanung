@@ -204,7 +204,7 @@ input[type=text], input[type=email], input[type=password], input[type=search], i
   .toolbar .tb-actions::-webkit-scrollbar { display: none; }
   .toolbar .tb-actions .btn { flex: none; }
   .toolbar .tb-actions #auto { order: -1; }
-  .is-master nav.tabs { background: color-mix(in srgb, var(--panel) 90%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(16px); backdrop-filter: saturate(1.4) blur(16px); box-shadow: 0 -1px 0 var(--line); border-top: 0; }
+  .is-master nav.tabs { background: var(--panel); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: 0 -1px 0 var(--line), 0 -6px 18px rgba(0, 0, 0, .18); border-top: 0; }
   .is-master nav.tabs button { font-weight: 600; }
   .is-master nav.tabs button.on { background: transparent; color: var(--accent); }
   .is-master nav.tabs button.on .tic { transform: translateY(-1px); }
@@ -213,7 +213,8 @@ input[type=text], input[type=email], input[type=password], input[type=search], i
   /* Techniker/KOM27: Umschalter als schwebende Leiste unten */
   .mine { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
   .mine .viewtabs { position: fixed; left: 14px; right: 14px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 40; margin: 0; padding: 5px; border-radius: 20px;
-    background: color-mix(in srgb, var(--panel) 88%, transparent); -webkit-backdrop-filter: saturate(1.5) blur(18px); backdrop-filter: saturate(1.5) blur(18px); box-shadow: var(--shadow-float); }
+    background: var(--panel); box-shadow: var(--shadow-float);
+    transform: translateZ(0); -webkit-transform: translateZ(0); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
   .mine .viewtabs button { padding: 11px 6px; font-size: 15px; border-radius: 15px; }
   body:not(.is-master) #toast { bottom: calc(90px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); }
   .pv-bar { top: 60px; }

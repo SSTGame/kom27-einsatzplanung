@@ -1840,9 +1840,18 @@ const ABZ_DEF = [
   { id: 'frueh', ic: '🌅', txt: 'Frühschicht', regel: 'Mindestens 5 Einsätze, die vor 7 Uhr anfangen.' },
   { id: 'nacht', ic: '🌙', txt: 'Nachteule', regel: 'Mindestens 5 Einsätze, die nach 22 Uhr enden.' },
   { id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', regel: 'Zu jedem gelaufenen Einsatz ist die Arbeitszeit eingetragen (ab 5 Einsätzen).' },
+  { id: 'stunden', ic: '⌛', txt: 'Stundenkonto', regel: 'Summe aller Einsatzstunden: ⌛ ab 100, ⏳ ab 250, ⚙️ ab 500 und 🛠️ ab 1000 Stunden.' },
+  { id: 'marathon', ic: '🏃', txt: 'Marathon', regel: 'Mindestens 3 Einsätze, die länger als 12 Stunden gedauert haben.' },
+  { id: 'retter', ic: '🚑', txt: 'Einspringer', regel: 'Mindestens 3 Zusagen zu Anfragen, die weniger als 48 Stunden vorher kamen.' },
+  { id: 'serie', ic: '🔁', txt: 'Dreitagewerk', regel: 'An mindestens 3 Tagen am Stück im Haus gewesen.' },
+  { id: 'saele', ic: '🎛', txt: 'Allrounder', regel: 'Schon in Saal 1, 2, 3 und 4 gearbeitet.' },
+  { id: 'haken', ic: '🧹', txt: 'Aufräumer', regel: 'Mindestens 25 Punkte einer Aufbauliste abgehakt.' },
+  { id: 'silvester', ic: '🎆', txt: 'Jahreswechsel', regel: 'Einsatz am 31. Dezember oder 1. Januar.' },
+  { id: 'team', ic: '👥', txt: 'Teamplayer', regel: 'An mindestens 10 Tagen Seite an Seite mit Kolleginnen oder Kollegen gearbeitet.' },
 ];
 const ABZ_STUFEN = [[5, '⭐'], [10, '🎖'], [25, '🥇'], [50, '🏆'], [100, '💯']];
-function abzZahlen(t) {
+const abzDauer = (x) => { const sp = parseSpan(x.zeit); return sp ? Math.max(0, sp[1] - sp[0]) : 0; };
+function abzBasis(t) {
   const today = todayISO();
   const alle = allSlots().filter((x) => !x.day.cancelled);
   const meins = (x) => { const a = S.asg[x.key]; return a && a.tech_id === t.id ? a.status : null; };
@@ -1850,10 +1859,15 @@ function abzZahlen(t) {
   const gelaufenApp = zu.filter((x) => x.date <= today);
   // Vor dem Start der App gab es nur die Excel – vergangene Tage mit dem eigenen Namen zählen mit
   const ausExcel = alle.filter((x) => x.date <= today && !meins(x) && x.excelName && matchTech(x.excelName) === t);
-  const gelaufen = gelaufenApp.concat(ausExcel);
-  const std = gelaufen.reduce((a, x) => { const sp = parseSpan(x.zeit); return a + (sp ? Math.max(0, sp[1] - sp[0]) : 0); }, 0);
-  return { zugesagt: zu.length + ausExcel.length, gelaufen: gelaufen.length, kommend: zu.length - gelaufenApp.length,
-           stunden: Math.round(std), excel: ausExcel.length };
+  const gelaufen = gelaufenApp.concat(ausExcel).sort((a, b) => a.date.localeCompare(b.date));
+  return { today, alle, meins, zu, gelaufenApp, ausExcel, gelaufen,
+           abgesagt: alle.filter((x) => meins(x) === 'abgesagt'),
+           stunden: gelaufen.reduce((a, x) => a + abzDauer(x), 0) };
+}
+function abzZahlen(t) {
+  const B = abzBasis(t);
+  return { zugesagt: B.zu.length + B.ausExcel.length, gelaufen: B.gelaufen.length,
+           kommend: B.zu.length - B.gelaufenApp.length, stunden: Math.round(B.stunden), excel: B.ausExcel.length };
 }
 function abzSheet(techId, markId) {
   const t = (S.techs || []).find((x) => x.id === techId); if (!t) return;
@@ -1914,6 +1928,32 @@ function abzeichenFor(t) {
   const spaet = fertig.filter((x) => { const sp = parseSpan(x.zeit); return sp && sp[1] > 22; });
   if (spaet.length >= 5) out.push({ id: 'nacht', ic: '🌙', txt: 'Nachteule', tip: spaet.length + ' Einsätze nach 22 Uhr beendet' });
   if (fertig.length >= 5 && fertig.every((x) => S.asg[x.key].actual_start)) out.push({ id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', tip: 'hat zu jedem Einsatz die Arbeitszeit eingetragen' });
+
+  const B = abzBasis(t);
+  const std = Math.round(B.stunden);
+  [[1000, '🛠️'], [500, '⚙️'], [250, '⏳'], [100, '⌛']].some(([v, ic]) => (std >= v ? out.push({ id: 'stunden', ic, txt: v + ' Stunden', tip: std + ' Stunden im KOM27 zusammengekommen' }) : false));
+  const lang = B.gelaufen.filter((x) => abzDauer(x) >= 12);
+  if (lang.length >= 3) out.push({ id: 'marathon', ic: '🏃', txt: 'Marathon', tip: lang.length + ' Einsätze über 12 Stunden' });
+  const kurz = B.zu.filter((x) => { const a = S.asg[x.key]; if (!a || !a.requested_at) return false;
+    const h = (new Date(x.date + 'T12:00:00') - new Date(a.requested_at)) / 3600000; return h >= 0 && h <= 48; });
+  if (kurz.length >= 3) out.push({ id: 'retter', ic: '🚑', txt: 'Einspringer', tip: kurz.length + ' mal kurzfristig zugesagt' });
+  const tage = [...new Set(B.gelaufen.map((x) => x.date))].sort();
+  let lauf = tage.length ? 1 : 0, beste = lauf;
+  for (let i = 1; i < tage.length; i++) {
+    const d = (new Date(tage[i] + 'T12:00:00') - new Date(tage[i - 1] + 'T12:00:00')) / 86400000;
+    lauf = Math.round(d) === 1 ? lauf + 1 : 1; beste = Math.max(beste, lauf);
+  }
+  if (beste >= 3) out.push({ id: 'serie', ic: '🔁', txt: 'Dreitagewerk', tip: beste + ' Tage am Stück im Haus' });
+  const raeume = new Set();
+  B.gelaufen.forEach((x) => (((x.det && x.det.rooms) || []).forEach((r) => raeume.add(String(r[0] || '').trim()))));
+  if (['Saal 1', 'Saal 2', 'Saal 3', 'Saal 4'].every((r) => raeume.has(r))) out.push({ id: 'saele', ic: '🎛', txt: 'Allrounder', tip: 'schon in allen vier Sälen gearbeitet' });
+  const haken = (S.done || []).filter((d) => (d.done_by || '').toLowerCase().trim() === (t.name || '').toLowerCase().trim()).length;
+  if (haken >= 25) out.push({ id: 'haken', ic: '🧹', txt: 'Aufräumer', tip: haken + ' Punkte der Aufbaulisten abgehakt' });
+  if (B.gelaufen.some((x) => /-12-31$|-01-01$/.test(x.date))) out.push({ id: 'silvester', ic: '🎆', txt: 'Jahreswechsel', tip: 'am Jahreswechsel im Einsatz gewesen' });
+  const alleTage = new Set(tage);
+  const mit = [...alleTage].filter((dt) => B.alle.some((y) => y.date === dt && ((S.asg[y.key] && S.asg[y.key].tech_id && S.asg[y.key].tech_id !== t.id)
+    || (y.excelName && !(S.asg[y.key] && S.asg[y.key].tech_id) && matchTech(y.excelName) && matchTech(y.excelName) !== t))));
+  if (mit.length >= 10) out.push({ id: 'team', ic: '👥', txt: 'Teamplayer', tip: mit.length + ' Tage zusammen mit Kollegen' });
   return out;
 }
 function abzeichenHtml(t, max) {

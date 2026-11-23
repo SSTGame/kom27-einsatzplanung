@@ -1837,13 +1837,36 @@ const ABZ_DEF = [
   { id: 'nacht', ic: '🌙', txt: 'Nachteule', regel: 'Mindestens 5 Einsätze, die nach 22 Uhr enden.' },
   { id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', regel: 'Zu jedem gelaufenen Einsatz ist die Arbeitszeit eingetragen (ab 5 Einsätzen).' },
 ];
+const ABZ_STUFEN = [[5, '⭐'], [10, '🎖'], [25, '🥇'], [50, '🏆'], [100, '💯']];
+function abzZahlen(t) {
+  const today = todayISO();
+  const alle = allSlots().filter((x) => S.asg[x.key] && S.asg[x.key].tech_id === t.id && !x.day.cancelled);
+  const zu = alle.filter((x) => S.asg[x.key].status === 'zugesagt');
+  const gelaufen = zu.filter((x) => x.date <= today);
+  const std = gelaufen.reduce((a, x) => { const sp = parseSpan(x.zeit); return a + (sp ? Math.max(0, sp[1] - sp[0]) : 0); }, 0);
+  return { gelaufen: gelaufen.length, kommend: zu.length - gelaufen.length, stunden: Math.round(std) };
+}
 function abzSheet(techId, markId) {
   const t = (S.techs || []).find((x) => x.id === techId); if (!t) return;
   const hat = {}; abzeichenFor(t).forEach((a) => (hat[a.id] = a));
+  const z = abzZahlen(t);
+  const naechste = ABZ_STUFEN.find(([n]) => n > z.gelaufen);
+  const vorige = [...ABZ_STUFEN].reverse().find(([n]) => n <= z.gelaufen);
+  const von = vorige ? vorige[0] : 0;
+  const anteil = naechste ? Math.max(3, Math.round(((z.gelaufen - von) / (naechste[0] - von)) * 100)) : 100;
   const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Abzeichen">
     <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button></div>
     <h2 style="margin:0 0 4px">🏅 Abzeichen${S.admin && t.name ? ' – ' + esc(t.name) : ''}</h2>
     <p class="muted" style="margin:0 0 14px">Die ergeben sich von allein aus den Einsätzen. Es gibt nichts einzutragen.</p>
+    <div class="abz-stat">
+      <div><b>${z.gelaufen}</b><small>${z.gelaufen === 1 ? 'Einsatz gelaufen' : 'Einsätze gelaufen'}</small></div>
+      <div><b>${z.stunden}</b><small>Stunden dabei</small></div>
+      <div><b>${z.kommend}</b><small>noch geplant</small></div>
+    </div>
+    <div class="abz-fort"><i style="width:${anteil}%"></i></div>
+    <p class="abz-noch">${naechste
+      ? `Noch <b>${naechste[0] - z.gelaufen}</b> ${naechste[0] - z.gelaufen === 1 ? 'Einsatz' : 'Einsätze'} bis ${naechste[1]} <b>${naechste[0]}</b>`
+      : 'Alle Stufen erreicht 💯'}</p>
     <ul class="abz-erkl">${ABZ_DEF.map((d) => {
       const h = hat[d.id];
       return `<li class="${h ? 'hat' : ''} ${d.id === markId ? 'markiert' : ''}">

@@ -2119,7 +2119,8 @@ const WD_L = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freita
 const longDate = (iso) => { const d = new Date(iso + 'T12:00:00'); return WD_L[d.getDay()] + ', ' + d.getDate() + '. ' + MON[d.getMonth()] + ' ' + d.getFullYear(); };
 const daysUntil = (iso) => Math.round((new Date(iso + 'T12:00:00') - new Date(todayISO() + 'T12:00:00')) / 864e5);
 const untilTxt = (iso) => { const n = daysUntil(iso); return n === 0 ? 'heute' : n === 1 ? 'morgen' : n === 2 ? 'übermorgen' : n > 0 ? 'in ' + n + ' Tagen' : 'vorbei'; };
-const parseSpan = (z) => { const m = /(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})/.exec(z || ''); if (!m) return null; const a = +m[1] + m[2] / 60; let b = +m[3] + m[4] / 60; if (b <= a) b += 24; return [a, b]; };
+// Die Excel schreibt mal „10:00-19:00", mal mit Gedankenstrich „09:30–22:00" oder „bis"
+const parseSpan = (z) => { const m = /(\d{1,2})[:.](\d{2})\s*(?:[-–—~]|bis)\s*(\d{1,2})[:.](\d{2})/i.exec(z || ''); if (!m) return null; const a = +m[1] + m[2] / 60; let b = +m[3] + m[4] / 60; if (b <= a) b += 24; return [a, b]; };
 const hm = (h) => String(Math.floor(h) % 24).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0');
 const DONE_K = 'kom27-done';
 // Abgehakte Aufbau-Punkte sind gemeinsam: je Tag + Veranstaltung, für alle sichtbar
@@ -2874,6 +2875,17 @@ function vaListOf(d) {
   if (!d) return [];
   const ids = [...new Set([...(d.vas || []), ...(d.slots || []).map((s) => s.va).filter(Boolean)])];
   const parts = String(d.vazeit || '').split(' / ');
+  // Steht in der Excel keine VA-Nummer, gibt es trotzdem eine Veranstaltung – sonst bliebe der Hausplan leer
+  if (!ids.length && (d.slots || []).length) {
+    const s0 = (d.slots || []).find((x) => x.det && (x.det.rooms || []).length) || d.slots[0];
+    const own = (s0 && s0.det) || null;
+    const ownInfo = own && (own.rooms || []).length ? own.rooms.map((r) => r[0] + ': ' + String(r[1] || '').replace(/\n/g, ' ')).join(' · ') : '';
+    const info = ownInfo || d.info || '';
+    return [{
+      va: '', zeit: (own && own.vazeit) || d.vazeit || s0.zeit || '', pam: true, key: s0.key, info,
+      rooms: own && (own.rooms || []).length ? [...new Set(own.rooms.map((r) => String(r[0] || '').trim()).filter(Boolean))] : roomsOf(info).split(', ').filter(Boolean),
+    }];
+  }
   return ids.map((va, i) => {
     const s = (d.slots || []).find((x) => x.va === va);
     const pt = (d.parts || []).find((x) => (x.vas || []).includes(va));
@@ -2978,9 +2990,9 @@ function hpDay(dt) {
   const now = new Date(); const isToday = dt === todayISO(); const h = now.getHours() + now.getMinutes() / 60;
   const byRoom = {};
   if (d && !d.cancelled) vaListOf(d).forEach((x) => {
-    const s = (d.slots || []).find((y) => y.va === x.va);
+    const s = (d.slots || []).find((y) => (y.va || '') === (x.va || ''));
     const own = (s && s.det) || (d.vaDet || {})[x.va] || {};
-    const crewSl = x.pam ? (d.slots || []).filter((y) => y.va === x.va) : [];
+    const crewSl = x.pam ? (d.slots || []).filter((y) => (y.va || '') === (x.va || '')) : [];
     const who = crewSl.map((y) => komOf(y.key));
     // jeder Techniker mit seiner eigenen Einsatzzeit (z. B. Früh- und Spätschicht)
     const crew = crewSl.map((y) => { const k = komOf(y.key); return { name: k ? k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : '') : 'offen', st: k ? k.status : 'leer', zeit: parseSpan(y.zeit) }; });
@@ -3042,8 +3054,8 @@ function hausplanHtml(today, seg) {
     const whoHtml = (e) => e.st === 'nopam' || !e.crew.length ? `<span class="hp-who">${esc(stTxt(e))}</span>`
       : e.crew.length === 1 && !e.crew[0].zeit ? `<span class="hp-who">${esc(e.crew[0].name)}</span>`
       : `<span class="hp-crew">${e.crew.map((c) => `<span class="hp-who c-${c.st}">${esc(c.name)}${c.zeit ? ` <em>${hs(c.zeit[0])}–${hs(c.zeit[1])}</em>` : ''}</span>`).join('')}</span>`;
-    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `${whoHtml(e)}<small>${e.va ? 'VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va)}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}${cdHtml(e)}` : '<small class="hp-free">frei</small>'}`;
-    return e ? `<button class="hp-t ${e.st} ${e.live ? 'hp-on' : ''} ${cls}" ${e.open} title="${esc(r + ' · ' + e.x.va + ' · ' + stTxt(e))}">${inner}</button>` : `<div class="hp-t free ${cls}">${inner}</div>`;
+    const inner = `<i class="hp-dot"></i>${IC[ic] || IC.led}<b class="hp-n">${esc(r)}</b>${e ? `${whoHtml(e)}<small>${e.va ? 'VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : esc(e.x.va || 'Veranstaltung')}${nx ? ` · danach ${nx.va ? hm(nx.va[0]) : ''}` : ''}</small>${e.live ? '<i class="hp-live">läuft</i>' : e.soon ? '<i class="hp-soon">gleich</i>' : ''}${cdHtml(e)}` : '<small class="hp-free">frei</small>'}`;
+    return e ? `<button class="hp-t ${e.st} ${e.live ? 'hp-on' : ''} ${cls}" ${e.open} title="${esc(r + ' · ' + (e.x.va || 'Veranstaltung') + ' · ' + stTxt(e))}">${inner}</button>` : `<div class="hp-t free ${cls}">${inner}</div>`;
   };
   // „Service Haus 1“ steht in der Excel als eigene Spalte neben Felix und Jens. Dort steht kein Text,
   // sondern die Zelle ist grün – das heißt: an dem Tag betreut die Medientechnik KOM27 eine Veranstaltung.
@@ -3061,7 +3073,7 @@ function hausplanHtml(today, seg) {
   const lanesOf = (l) => { if (l._lanes) return l._lanes; const ends = []; l.filter((e) => e.buch).slice().sort((p, q) => p.buch[0] - q.buch[0]).forEach((e) => { let i = ends.findIndex((t) => t <= e.buch[0]); if (i < 0) i = Math.min(ends.length, 1); ends[i] = Math.max(ends[i] || 0, e.buch[1]); e.lane = i; }); return (l._lanes = Math.max(1, ends.length)); };
   const ticks = []; for (let t = a; t <= b; t += (b - a > 10 ? 2 : 1)) ticks.push(t);
   const gantt = used.length ? `<div class="hp-gantt"><h3>Tagesablauf</h3><div class="hg-ticks">${ticks.map((t) => `<i style="left:${pc(t)}%">${pad(t)}</i>`).join('')}</div>
-    ${used.map((r) => `<div class="hg-row"><span class="hg-l">${esc(r)}</span><div class="hg-bar ${lanesOf(byRoom[r]) > 1 ? 'two' : ''}">${byRoom[r].filter((e) => e.buch).map((e) => `<button class="hg-e ${e.st} ${lanesOf(byRoom[r]) > 1 ? 'ln' + e.lane : ''}" ${e.open} style="left:${pc(e.buch[0])}%;width:${pc(e.buch[1]) - pc(e.buch[0])}%" title="${esc(e.x.va + ' · gebucht ' + hm(e.buch[0]) + '–' + hm(e.buch[1]) + (e.va ? ' · VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : '') + ' · ' + stTxt(e))}">${e.va ? `<i class="hg-va" style="left:${((e.va[0] - e.buch[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%;width:${((e.va[1] - e.va[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%"></i>` : ''}<span>${esc(stTxt(e))}</span></button>`).join('')}${isToday && h > a && h < b ? `<i class="hg-now" style="left:${pc(h)}%"></i>` : ''}</div></div>`).join('')}
+    ${used.map((r) => `<div class="hg-row"><span class="hg-l">${esc(r)}</span><div class="hg-bar ${lanesOf(byRoom[r]) > 1 ? 'two' : ''}">${byRoom[r].filter((e) => e.buch).map((e) => `<button class="hg-e ${e.st} ${lanesOf(byRoom[r]) > 1 ? 'ln' + e.lane : ''}" ${e.open} style="left:${pc(e.buch[0])}%;width:${pc(e.buch[1]) - pc(e.buch[0])}%" title="${esc((e.x.va || 'Veranstaltung') + ' · gebucht ' + hm(e.buch[0]) + '–' + hm(e.buch[1]) + (e.va ? ' · VA ' + hm(e.va[0]) + '–' + hm(e.va[1]) : '') + ' · ' + stTxt(e))}">${e.va ? `<i class="hg-va" style="left:${((e.va[0] - e.buch[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%;width:${((e.va[1] - e.va[0]) / (e.buch[1] - e.buch[0]) * 100).toFixed(1)}%"></i>` : ''}<span>${esc(stTxt(e))}</span></button>`).join('')}${isToday && h > a && h < b ? `<i class="hg-now" style="left:${pc(h)}%"></i>` : ''}</div></div>`).join('')}
     <p class="hg-lgd"><span><i class="hg-k book"></i>Raum gebucht</span><span><i class="hg-k va"></i>Veranstaltung</span>${isToday ? '<span><i class="hg-k now"></i>jetzt</span>' : ''}</p></div>` : '';
   setTimeout(hpTick, 0);   // füllt die Ampeln, sobald die Kacheln im Dokument stehen
   const dd = new Date(dt + 'T12:00:00');
@@ -3190,7 +3202,7 @@ function komWeekGrid(today, seg) {
     const ord = (r) => { const m = /^(Saal|Seminar|Foyer)\s*(\d*)/.exec(r); return m ? ['Saal', 'Seminar', 'Foyer'].indexOf(m[1]) * 100 + (+m[2] || 0) : 999; };
     return vaListOf(d).map((x) => {
       const rs = (x.rooms.length ? [...x.rooms] : ['Raum ?']).sort((p, q) => ord(p) - ord(q) || p.localeCompare(q, 'de'));
-      const who = x.pam ? sl(dt).filter((s) => s.va === x.va).map((s) => komOf(s.key)) : [];
+      const who = x.pam ? sl(dt).filter((s) => (s.va || '') === (x.va || '')).map((s) => komOf(s.key)) : [];
       const names = who.filter(Boolean).map((k) => k.name.split(' ')[0] + (k.status === 'angefragt' ? ' ?' : ''));
       const txt = !x.pam ? 'ohne PAM' : names.length ? names.join(', ') : 'PAM offen';
       const st = !x.pam ? 'nopam' : who.length && who.every((k) => k && k.status === 'zugesagt') ? 'pam' : 'pam-open';

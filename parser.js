@@ -113,9 +113,15 @@
       } else if (!cur) continue;
       // „x“ heißt: der ist an dem Tag im Haus. Grün in „Service Haus 1“ heißt dasselbe – dort steht kein x, nur die Farbe.
       komCols.forEach(([c, n]) => {
-        const cl = ws.getCell(r, c), f = fillOf(cl);
-        if (/^x+$/i.test(clean(cl.value)) || f === HAUS) { if (!cur.kom.includes(n)) cur.kom.push(n); }
-        else if (istSchwarz(f) && !cur.komWeg.includes(n)) cur.komWeg.push(n);   // interner Block
+        const cl = ws.getCell(r, c), f = fillOf(cl), txt = clean(cl.value);
+        if (istSchwarz(f)) {
+          // „interner Block" schlägt ein x: in der Excel bleibt das x oft stehen und wird nur schwarz überfärbt
+          if (!cur.komWeg.includes(n)) cur.komWeg.push(n);
+          cur.kom = cur.kom.filter((y) => y !== n);
+          if (txt && !/^x+$/i.test(txt)) (cur.komWegNote = cur.komWegNote || {})[n] = txt;   // z. B. „Sommerpause 13.07-24.08"
+        } else if (/^x+$/i.test(txt) || f === HAUS) {
+          if (!cur.kom.includes(n) && !cur.komWeg.includes(n)) cur.kom.push(n);
+        }
       });
       const cells = { d: ws.getCell(r, col.anz), e: ws.getCell(r, col.name), f: ws.getCell(r, col.zeit), i: ws.getCell(r, col.va) };
       const anz = parseInt(clean(cells.d.value), 10);
@@ -151,7 +157,7 @@
     const out = [];
     let prev = null;
     for (const d of days) {
-      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, haus: !!d.haus, kom: d.kom || [], komWeg: (d.komWeg || []).filter((n) => !(d.kom || []).includes(n)), vas: [], info: '', slots: [] };
+      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, haus: !!d.haus, kom: (d.kom || []).filter((n) => !(d.komWeg || []).includes(n)), komWeg: d.komWeg || [], komWegNote: d.komWegNote || null, vas: [], info: '', slots: [] };
       d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id;
         // „externes Haus“ / „interne Betreuung“ stehen als Text in Name, Zusatz oder Anmerkung – für KOM27 wichtig
         // auch die Anmerkungsspalten rechts außen mitlesen – dort steht es im 2026er Kalender
@@ -261,7 +267,9 @@
       m.anzahl = (+m.anzahl || 0) + (+d.anzahl || 0);
       m.free = !!(m.free && d.free); m.blocked = !!(m.blocked || d.blocked); m.cancelled = !!(m.cancelled && d.cancelled);
       m.extern = m.extern || d.extern; m.intern = m.intern || d.intern; m.haus = !!(m.haus || d.haus);
-      (d.komWeg || []).forEach((n) => { if (!(m.komWeg || []).includes(n) && !(m.kom || []).includes(n)) (m.komWeg = m.komWeg || []).push(n); });
+      (d.komWeg || []).forEach((n) => { if (!(m.komWeg || []).includes(n)) (m.komWeg = m.komWeg || []).push(n); });
+      if (d.komWegNote) m.komWegNote = Object.assign({}, m.komWegNote || {}, d.komWegNote);
+      if ((m.komWeg || []).length) m.kom = (m.kom || []).filter((n) => !m.komWeg.includes(n));
     });
     return out;
   }
@@ -291,6 +299,6 @@
     return { importedAt: new Date().toISOString(), days, vaWarn };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 11 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 12 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

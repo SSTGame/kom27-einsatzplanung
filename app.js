@@ -2800,7 +2800,11 @@ const komOf = (key) => (S.komAsg || {})[key] || null;
 // „externes Haus“ oder „interne Betreuung“ – steht so im VA-Kalender und ist für KOM27 wichtig
 const betreuung = (d) => (d && d.extern ? { kl: 'extern', ic: '🏠', txt: d.extern } : d && d.intern ? { kl: 'intern', ic: '🏢', txt: d.intern } : null);
 // Schwarz in der KOM27-Spalte heißt laut Excel-Legende „interner Block" – derjenige ist an dem Tag nicht da
-function komWegTxt(d) { const l = (d && d.komWeg) || []; return l.length ? l.join(', ') + (l.length === 1 ? ' ist nicht da' : ' sind nicht da') : ''; }
+function komWegTxt(d) {
+  const l = (d && d.komWeg) || []; if (!l.length) return '';
+  const note = (d && d.komWegNote) || {};
+  return l.map((n) => n + (note[n] ? ' (' + note[n] + ')' : '')).join(', ') + (l.length === 1 ? ' ist nicht da' : ' sind nicht da');
+}
 function komWegChip(d) { return komWegTxt(d) ? `<span class="komweg" title="Schwarz in der KOM27-Excel: interner Block">🚫 ${esc(komWegTxt(d))}</span>` : ''; }
 function betreuungTag(d) {
   const b = betreuung(d); if (!b) return '';

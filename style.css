@@ -993,7 +993,9 @@ body.kiosk-on { overflow: hidden; }
 
 /* ---------------- Abzeichen (dezent) ---------------- */
 .abz { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.ab { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: transparent; white-space: nowrap; }
+.ab { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 8px; border: 1px solid var(--line); border-radius: 999px; font: inherit; font-size: 11.5px; color: var(--muted); background: transparent; white-space: nowrap; cursor: pointer; }
+.ab:hover { border-color: var(--muted); color: var(--ink); }
+.ab:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 .ab i { font-style: normal; font-size: 12px; opacity: .85; }
 .ab.more { color: var(--muted); opacity: .7; }
 .abz-list { display: flex; flex-direction: column; gap: 2px; }
@@ -1095,3 +1097,15 @@ body.kiosk-on { overflow: hidden; }
   100% { opacity: 0; transform: translate(5px, 82px) scale(.9); }
 }
 @media (prefers-reduced-motion: reduce) { .fx-regen { display: none; } }
+
+/* Erklärung der Abzeichen */
+.abz-erkl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.abz-erkl li { display: flex; gap: 12px; align-items: flex-start; padding: 11px 10px; border-radius: 12px; opacity: .55; }
+.abz-erkl li.hat { opacity: 1; background: var(--bg); }
+.abz-erkl li.markiert { box-shadow: 0 0 0 2px var(--acc) inset; }
+.abz-erkl .abz-ic { font-size: 21px; line-height: 1.1; flex: 0 0 26px; text-align: center; }
+.abz-erkl div { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.abz-erkl b { font-size: 14.5px; }
+.abz-erkl small { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.abz-erkl em { font-style: normal; font-size: 12.5px; color: var(--st-zugesagt); font-weight: 600; margin-top: 2px; }
+.abz-erkl .abz-ok { color: var(--st-zugesagt); font-weight: 700; flex: 0 0 16px; text-align: right; }

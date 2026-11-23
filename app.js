@@ -1827,30 +1827,66 @@ function renderReq() {
 }
 
 /* ---------------- Abzeichen: ergeben sich von allein aus den Einsätzen ---------------- */
+// Alle Abzeichen mit der Regel dahinter – wird beim Antippen gezeigt
+const ABZ_DEF = [
+  { id: 'anzahl', ic: '🎖', txt: 'Einsätze', regel: 'Gezählt werden zugesagte Einsätze, die schon gelaufen sind. Ab 5 gibt es ⭐, dann 🎖 bei 10, 🥇 bei 25, 🏆 bei 50 und 💯 bei 100.' },
+  { id: 'treu', ic: '🤝', txt: 'Nie abgesagt', regel: 'Mindestens 5 gelaufene Einsätze und keine einzige Absage.' },
+  { id: 'blitz', ic: '⚡', txt: 'Blitz-Antwort', regel: 'Mindestens 3 beantwortete Anfragen, davon die Hälfte in unter einer Stunde.' },
+  { id: 'we', ic: '📅', txt: 'Wochenend-Held', regel: 'Mindestens 3 Einsätze an einem Samstag oder Sonntag.' },
+  { id: 'frueh', ic: '🌅', txt: 'Frühschicht', regel: 'Mindestens 5 Einsätze, die vor 7 Uhr anfangen.' },
+  { id: 'nacht', ic: '🌙', txt: 'Nachteule', regel: 'Mindestens 5 Einsätze, die nach 22 Uhr enden.' },
+  { id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', regel: 'Zu jedem gelaufenen Einsatz ist die Arbeitszeit eingetragen (ab 5 Einsätzen).' },
+];
+function abzSheet(techId, markId) {
+  const t = (S.techs || []).find((x) => x.id === techId); if (!t) return;
+  const hat = {}; abzeichenFor(t).forEach((a) => (hat[a.id] = a));
+  const html = `<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true" aria-label="Abzeichen">
+    <div class="sh-top"><button class="sh-x" data-close aria-label="Schließen">✕</button></div>
+    <h2 style="margin:0 0 4px">🏅 Abzeichen${S.admin && t.name ? ' – ' + esc(t.name) : ''}</h2>
+    <p class="muted" style="margin:0 0 14px">Die ergeben sich von allein aus den Einsätzen. Es gibt nichts einzutragen.</p>
+    <ul class="abz-erkl">${ABZ_DEF.map((d) => {
+      const h = hat[d.id];
+      return `<li class="${h ? 'hat' : ''} ${d.id === markId ? 'markiert' : ''}">
+        <span class="abz-ic">${h ? h.ic : d.ic}</span>
+        <div><b>${esc(h ? h.txt : d.txt)}</b><small>${esc(d.regel)}</small>${h && h.tip ? `<em>${esc(h.tip)}</em>` : ''}</div>
+        <span class="abz-ok">${h ? '✓' : ''}</span></li>`;
+    }).join('')}</ul></div></div>`;
+  const old = $('#sheet'); if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', html); document.body.classList.add('noscroll');
+  const box = $('#sheet'); const close = () => { box.remove(); document.body.classList.remove('noscroll'); };
+  box.onclick = (e) => { if (e.target === box) close(); };
+  box.querySelector('[data-close]').onclick = close;
+  const m = box.querySelector('.markiert'); if (m) m.scrollIntoView({ block: 'nearest' });
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-abz]');
+  if (b) { e.preventDefault(); abzSheet(b.dataset.abz, b.dataset.abzk || ''); }
+});
+
 function abzeichenFor(t) {
   const today = todayISO();
   const alle = allSlots().filter((x) => S.asg[x.key] && S.asg[x.key].tech_id === t.id && !x.day.cancelled);
   const fertig = alle.filter((x) => x.date <= today && S.asg[x.key].status === 'zugesagt');
   const abgesagt = alle.filter((x) => S.asg[x.key].status === 'abgesagt');
   const n = fertig.length; const out = [];
-  [[100, '💯'], [50, '🏆'], [25, '🥇'], [10, '🎖'], [5, '⭐']].some(([s, ic]) => (n >= s ? out.push({ ic, txt: s + ' Einsätze', tip: n + ' gelaufene Einsätze im KOM27' }) : false));
-  if (n >= 5 && !abgesagt.length) out.push({ ic: '🤝', txt: 'Nie abgesagt', tip: n + ' Einsätze, keine einzige Absage' });
+  [[100, '💯'], [50, '🏆'], [25, '🥇'], [10, '🎖'], [5, '⭐']].some(([s, ic]) => (n >= s ? out.push({ id: 'anzahl', ic, txt: s + ' Einsätze', tip: n + ' gelaufene Einsätze im KOM27' }) : false));
+  if (n >= 5 && !abgesagt.length) out.push({ id: 'treu', ic: '🤝', txt: 'Nie abgesagt', tip: n + ' Einsätze, keine einzige Absage' });
   const antwort = alle.map((x) => S.asg[x.key]).filter((a) => a.requested_at && (a.tech_reply_at || a.updated_at))
     .map((a) => (new Date(a.tech_reply_at || a.updated_at) - new Date(a.requested_at)) / 3600000).filter((h) => h >= 0 && h < 720).sort((x, y) => x - y);
-  if (antwort.length >= 3 && antwort[Math.floor(antwort.length / 2)] <= 1) out.push({ ic: '⚡', txt: 'Blitz-Antwort', tip: 'meldet sich meist in unter einer Stunde zurück' });
+  if (antwort.length >= 3 && antwort[Math.floor(antwort.length / 2)] <= 1) out.push({ id: 'blitz', ic: '⚡', txt: 'Blitz-Antwort', tip: 'meldet sich meist in unter einer Stunde zurück' });
   const we = fertig.filter((x) => [0, 6].includes(new Date(x.date + 'T12:00:00').getDay()));
-  if (we.length >= 3) out.push({ ic: '📅', txt: 'Wochenend-Held', tip: we.length + ' Einsätze an einem Samstag oder Sonntag' });
+  if (we.length >= 3) out.push({ id: 'we', ic: '📅', txt: 'Wochenend-Held', tip: we.length + ' Einsätze an einem Samstag oder Sonntag' });
   const frueh = fertig.filter((x) => { const sp = parseSpan(x.zeit); return sp && sp[0] < 7; });
-  if (frueh.length >= 5) out.push({ ic: '🌅', txt: 'Frühschicht', tip: frueh.length + ' Einsätze vor 7 Uhr begonnen' });
+  if (frueh.length >= 5) out.push({ id: 'frueh', ic: '🌅', txt: 'Frühschicht', tip: frueh.length + ' Einsätze vor 7 Uhr begonnen' });
   const spaet = fertig.filter((x) => { const sp = parseSpan(x.zeit); return sp && sp[1] > 22; });
-  if (spaet.length >= 5) out.push({ ic: '🌙', txt: 'Nachteule', tip: spaet.length + ' Einsätze nach 22 Uhr beendet' });
-  if (n >= 5 && fertig.every((x) => S.asg[x.key].actual_start)) out.push({ ic: '⏱', txt: 'Zeiten immer da', tip: 'hat zu jedem Einsatz die Arbeitszeit eingetragen' });
+  if (spaet.length >= 5) out.push({ id: 'nacht', ic: '🌙', txt: 'Nachteule', tip: spaet.length + ' Einsätze nach 22 Uhr beendet' });
+  if (n >= 5 && fertig.every((x) => S.asg[x.key].actual_start)) out.push({ id: 'zeit', ic: '⏱', txt: 'Zeiten immer da', tip: 'hat zu jedem Einsatz die Arbeitszeit eingetragen' });
   return out;
 }
 function abzeichenHtml(t, max) {
   const a = abzeichenFor(t); if (!a.length) return '';
   const l = max ? a.slice(0, max) : a;
-  return `<div class="abz">${l.map((x) => `<span class="ab" title="${esc(x.tip)}"><i>${x.ic}</i>${esc(x.txt)}</span>`).join('')}${max && a.length > max ? `<span class="ab more" title="${esc(a.slice(max).map((x) => x.txt).join(', '))}">+${a.length - max}</span>` : ''}</div>`;
+  return `<div class="abz">${l.map((x) => `<button type="button" class="ab" data-abz="${esc(t.id)}" data-abzk="${esc(x.id)}" title="${esc(x.tip)} – antippen für die Erklärung"><i>${x.ic}</i>${esc(x.txt)}</button>`).join('')}${max && a.length > max ? `<button type="button" class="ab more" data-abz="${esc(t.id)}" title="${esc(a.slice(max).map((x) => x.txt).join(', '))}">+${a.length - max}</button>` : ''}</div>`;
 }
 
 function renderTechs() {
@@ -1876,7 +1912,7 @@ function renderTechs() {
   <p class="note"><b>Techniker mit eigenem Chef:</b> Bei „Freigabe durch“ die E-Mail des Projektleiters eintragen. Der Techniker sieht seine Anfragen und meldet „könnte / kann nicht“, die verbindliche Zusage gibt der Projektleiter – er meldet sich mit dieser E-Mail selbst an und sieht nur sein Team.</p>
   ${S.techs.length ? `<h2 class="sec">🏅 Abzeichen</h2>
   <p class="note">Ergeben sich von allein aus den Einsätzen – es gibt nichts einzutragen. Jeder Techniker sieht seine eigenen auf seiner Startseite.</p>
-  <div class="card abz-list">${S.techs.map((t) => `<div class="abz-row"><b>${esc(t.name)}</b>${abzeichenHtml(t) || '<span class="muted small">noch keine</span>'}</div>`).join('')}</div>` : ''}
+  <div class="card abz-list">${S.techs.map((t) => `<div class="abz-row"><b>${esc(t.name)}</b>${abzeichenHtml(t) || `<button type="button" class="ab more" data-abz="${esc(t.id)}">noch keine – was gibt es?</button>`}</div>`).join('')}</div>` : ''}
   <h2 class="sec">🏢 KOM27-Zugänge (nur ansehen) <button class="btn small" id="pvKom">👁 So sieht es für Jens & Felix aus</button></h2>
   <p class="note">Für die Medientechnik des KOM27 (z. B. Jens, Felix): sieht alle Termine, wer eingeteilt ist, Aufbaulisten und die KOM27-Infos – kann aber nichts zusagen oder einteilen. Anmelden wie die Techniker: mit dieser E-Mail auf „Konto anlegen“.</p>
   <div class="card"><table class="list viewers"><thead><tr><th>Name</th><th>E-Mail (= Login)</th><th></th></tr></thead><tbody>

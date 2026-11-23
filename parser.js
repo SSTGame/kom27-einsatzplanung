@@ -3,6 +3,8 @@
 (function (root) {
   const MULTI = { 'FFFFFF00': 'gelb', 'FFFFC000': 'orange', 'FFFDE9D9': 'rosa' };
   const FREE = 'FF00B0F0';      // Frei bzw. Setuptage (blau)
+  // Schwarz heißt laut Legende „interner Block": derjenige ist an dem Tag nicht da
+  const istSchwarz = (f) => !!f && (f === 'FF000000' || /^TH1(?:[+-]0\.[0-2]\d*)?$/.test(f));
   const CANCEL = 'FFFF0000';    // VA abgesagt (rot)
   const HAUS = 'FF92D050';      // grün in „Service Haus 1“: Betreuung durch Medientechnik KOM27 – dort findet eine Veranstaltung statt
 
@@ -106,11 +108,15 @@
       const a = isSlave ? null : aCell.value;
       const aVal = a && a.result instanceof Date ? a.result : a;
       if (aVal instanceof Date) {
-        cur = { date: iso(aVal), rows: [], free: fillOf(ws.getCell(r, 1)) === FREE, cancelled: false, blocked: false, anzahl: 0, kom: [] };
+        cur = { date: iso(aVal), rows: [], free: fillOf(ws.getCell(r, 1)) === FREE, cancelled: false, blocked: false, anzahl: 0, kom: [], komWeg: [] };
         days.push(cur);
       } else if (!cur) continue;
       // „x“ heißt: der ist an dem Tag im Haus. Grün in „Service Haus 1“ heißt dasselbe – dort steht kein x, nur die Farbe.
-      komCols.forEach(([c, n]) => { const cl = ws.getCell(r, c); if ((/^x+$/i.test(clean(cl.value)) || fillOf(cl) === HAUS) && !cur.kom.includes(n)) cur.kom.push(n); });
+      komCols.forEach(([c, n]) => {
+        const cl = ws.getCell(r, c), f = fillOf(cl);
+        if (/^x+$/i.test(clean(cl.value)) || f === HAUS) { if (!cur.kom.includes(n)) cur.kom.push(n); }
+        else if (istSchwarz(f) && !cur.komWeg.includes(n)) cur.komWeg.push(n);   // interner Block
+      });
       const cells = { d: ws.getCell(r, col.anz), e: ws.getCell(r, col.name), f: ws.getCell(r, col.zeit), i: ws.getCell(r, col.va) };
       const anz = parseInt(clean(cells.d.value), 10);
       if (aVal instanceof Date && !isNaN(anz)) cur.anzahl = anz;
@@ -145,7 +151,7 @@
     const out = [];
     let prev = null;
     for (const d of days) {
-      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, haus: !!d.haus, kom: d.kom || [], vas: [], info: '', slots: [] };
+      const day = { date: d.date, anzahl: d.anzahl, free: d.free, cancelled: d.cancelled, blocked: d.blocked, haus: !!d.haus, kom: d.kom || [], komWeg: (d.komWeg || []).filter((n) => !(d.kom || []).includes(n)), vas: [], info: '', slots: [] };
       d.rows.forEach((r) => { const id = vaId(r.va); if (r.va) day.vas.push(r.va); if (r.info && !day.info) day.info = r.info; r._va = id;
         // „externes Haus“ / „interne Betreuung“ stehen als Text in Name, Zusatz oder Anmerkung – für KOM27 wichtig
         // auch die Anmerkungsspalten rechts außen mitlesen – dort steht es im 2026er Kalender
@@ -255,6 +261,7 @@
       m.anzahl = (+m.anzahl || 0) + (+d.anzahl || 0);
       m.free = !!(m.free && d.free); m.blocked = !!(m.blocked || d.blocked); m.cancelled = !!(m.cancelled && d.cancelled);
       m.extern = m.extern || d.extern; m.intern = m.intern || d.intern; m.haus = !!(m.haus || d.haus);
+      (d.komWeg || []).forEach((n) => { if (!(m.komWeg || []).includes(n) && !(m.kom || []).includes(n)) (m.komWeg = m.komWeg || []).push(n); });
     });
     return out;
   }
@@ -284,6 +291,6 @@
     return { importedAt: new Date().toISOString(), days, vaWarn };
   }
 
-  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 10 }; // bei Änderungen an den Einleseregeln hochzählen
+  const api = { parseWorkbook, vaDays, mergeDays, VERSION: 11 }; // bei Änderungen an den Einleseregeln hochzählen
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.KOM27Parser = api;
 })(typeof window !== 'undefined' ? window : globalThis);

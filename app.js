@@ -1225,12 +1225,13 @@ function renderPlan() {
         <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
           <div class="va-id">${g.leer ? (d.free ? '<span class="muted">frei</span>' : d.haus ? '<span class="muted" title="Grün in „Service Haus 1“ – die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung">Veranstaltung</span>' : '<span class="muted">keine Veranstaltung</span>') : esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
-          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 && !g.none ? '🏢 ' + esc(d.kom.join(', ')) : ''].filter(Boolean).join(' · ')}
+          <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 && !g.none ? '🏢 ' + esc(d.kom.join(', ')) : '', gi === 0 && komWegTxt(d) ? '🚫 ' + esc(komWegTxt(d)) : ''].filter(Boolean).join(' · ')}
             ${gi === 0 ? betreuungTag(d) : ''}
             ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
         </div>
         <div class="c-slots">${g.none ? (d.kom && d.kom.length
-          ? `<span class="komonly" title="So steht es in der KOM27-Excel">🏢 ${esc(d.kom.join(', '))}<small>ohne PAM</small></span>`
+          ? `<span class="komonly" title="So steht es in der KOM27-Excel">🏢 ${esc(d.kom.join(', '))}<small>ohne PAM</small></span>` + komWegChip(d)
+          : komWegTxt(d) ? komWegChip(d)
           : `<span class="muted small">${g.leer ? '–' : 'kein Techniker angefordert'}</span>`) : g.slots.map((s) => {
           const a = S.asg[s.key]; const st = slotState(s); const t = a && a.tech_id ? techById(a.tech_id) : null;
           const excelDiff = s.excelName && (!t || matchTech(s.excelName) !== t);
@@ -2694,7 +2695,7 @@ function todayCard(t) {
     ${chgOf(s.key) ? `<div class="td-hint chg">🕑 ${esc(chgOf(s.key).txt)}</div>` : ''}
     <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}${det.einlass ? ' · Einlass ' + esc(det.einlass) : ''}</div>
     ${hints.map((i) => `<div class="td-hint">⚠️ ${esc(i.t)}</div>`).join('')}
-    <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
+    <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${komWegTxt(s.day) ? `<span>🚫 <b>${esc(komWegTxt(s.day))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
     <button class="big td-go" data-open="${esc(s.key)}">🛠 Aufbauliste & Details${chkItems.length ? ` <small>${nDone}/${chkItems.length} erledigt</small>` : ''}</button>
     <div class="td-more">
       ${needTime ? `<button class="td-link" data-gotime>⏱ Arbeitszeit eintragen</button>` : ''}
@@ -2798,6 +2799,9 @@ function kbEdit(id) {
 const komOf = (key) => (S.komAsg || {})[key] || null;
 // „externes Haus“ oder „interne Betreuung“ – steht so im VA-Kalender und ist für KOM27 wichtig
 const betreuung = (d) => (d && d.extern ? { kl: 'extern', ic: '🏠', txt: d.extern } : d && d.intern ? { kl: 'intern', ic: '🏢', txt: d.intern } : null);
+// Schwarz in der KOM27-Spalte heißt laut Excel-Legende „interner Block" – derjenige ist an dem Tag nicht da
+function komWegTxt(d) { const l = (d && d.komWeg) || []; return l.length ? l.join(', ') + (l.length === 1 ? ' ist nicht da' : ' sind nicht da') : ''; }
+function komWegChip(d) { return komWegTxt(d) ? `<span class="komweg" title="Schwarz in der KOM27-Excel: interner Block">🚫 ${esc(komWegTxt(d))}</span>` : ''; }
 function betreuungTag(d) {
   const b = betreuung(d); if (!b) return '';
   return `<span class="btr ${b.kl}" title="So steht es im VA-Kalender">${b.ic} ${esc(b.txt)}</span>`;
@@ -3030,7 +3034,8 @@ function kioskCrewHtml(today) {
   return `<div class="ki-crew"><h2>Heute im Haus</h2>
     ${leute.length ? `<div class="ki-people">${leute.map((p) => `<div class="ki-p st-${p.st}"><b>${esc(p.name)}</b><span>${esc(p.zeit)}</span><small>${esc([p.va, p.rooms].filter(Boolean).join(' · ')) || '&nbsp;'}</small></div>`).join('')}</div>`
       : '<p class="ki-non">Heute ist kein PAM-Techniker eingeteilt.</p>'}
-    ${kom.length ? `<p class="ki-kom">🏢 Vom KOM27 im Haus: <b>${esc(kom.join(', '))}</b></p>` : ''}</div>`;
+    ${kom.length ? `<p class="ki-kom">🏢 Vom KOM27 im Haus: <b>${esc(kom.join(', '))}</b></p>` : ''}
+    ${komWegTxt(d) ? `<p class="ki-kom">🚫 Nicht da: <b>${esc(komWegTxt(d))}</b></p>` : ''}</div>`;
 }
 function kioskPaint() {
   const box = document.getElementById('kiosk'); if (!box) return;

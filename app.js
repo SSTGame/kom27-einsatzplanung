@@ -1844,7 +1844,7 @@ function abzZahlen(t) {
   const zu = alle.filter((x) => S.asg[x.key].status === 'zugesagt');
   const gelaufen = zu.filter((x) => x.date <= today);
   const std = gelaufen.reduce((a, x) => { const sp = parseSpan(x.zeit); return a + (sp ? Math.max(0, sp[1] - sp[0]) : 0); }, 0);
-  return { gelaufen: gelaufen.length, kommend: zu.length - gelaufen.length, stunden: Math.round(std) };
+  return { zugesagt: zu.length, gelaufen: gelaufen.length, kommend: zu.length - gelaufen.length, stunden: Math.round(std) };
 }
 function abzSheet(techId, markId) {
   const t = (S.techs || []).find((x) => x.id === techId); if (!t) return;
@@ -1859,9 +1859,10 @@ function abzSheet(techId, markId) {
     <h2 style="margin:0 0 4px">🏅 Abzeichen${S.admin && t.name ? ' – ' + esc(t.name) : ''}</h2>
     <p class="muted" style="margin:0 0 14px">Die ergeben sich von allein aus den Einsätzen. Es gibt nichts einzutragen.</p>
     <div class="abz-stat">
-      <div><b>${z.gelaufen}</b><small>${z.gelaufen === 1 ? 'Einsatz gelaufen' : 'Einsätze gelaufen'}</small></div>
-      <div><b>${z.stunden}</b><small>Stunden dabei</small></div>
+      <div class="gross"><b>${z.zugesagt}</b><small>insgesamt zugesagt</small></div>
+      <div><b>${z.gelaufen}</b><small>davon gelaufen</small></div>
       <div><b>${z.kommend}</b><small>noch geplant</small></div>
+      <div><b>${z.stunden}</b><small>Stunden dabei</small></div>
     </div>
     <div class="abz-fort"><i style="width:${anteil}%"></i></div>
     <p class="abz-noch">${naechste

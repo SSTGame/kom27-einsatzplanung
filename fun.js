@@ -51,6 +51,44 @@
     } catch (e) { /* Spielkram darf nie stören */ }
   }
 
+  // Wenn Felix heute als „interner Block" eingetragen ist, zieht eine kleine Regenwolke durchs Bild
+  let regenGezeigt = '';
+  const FELIX_SATZ = [
+    'Heute ohne Felix. Das Haus wirkt gleich eine Nummer größer.',
+    'Kein Felix im Haus. Die Kabel rollen sich heute selbst auf. Angeblich.',
+    'Felix ist nicht da. Der Technikraum ist verdächtig aufgeräumt.',
+    'Ohne Felix heute. Jemand muss die Fernbedienung suchen – freiwillig.',
+    'Felix fehlt. Wir halten kurz inne und machen dann trotzdem weiter.',
+  ];
+  function regenWolke(text) {
+    if (ruhig()) { if (text) toast('☔ ' + text); return; }
+    const el = document.createElement('div');
+    el.className = 'fx-regen'; el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = `<svg viewBox="0 0 140 76" width="140" height="76">
+        <g fill="#8a93a1">
+          <ellipse cx="46" cy="44" rx="26" ry="19"/><ellipse cx="78" cy="38" rx="31" ry="23"/>
+          <ellipse cx="104" cy="47" rx="21" ry="15"/><rect x="40" y="44" width="76" height="17" rx="8.5"/>
+        </g>
+        <g fill="#6f7886" opacity=".55"><ellipse cx="78" cy="30" rx="26" ry="14"/></g>
+      </svg>` + [0, 1, 2, 3, 4, 5].map((i) => `<i style="--x:${22 + i * 17}px;--d:${(i * 0.42).toFixed(2)}s"></i>`).join('');
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 9500);
+    if (text) setTimeout(() => toast('☔ ' + text), 1200);
+  }
+  function felixCheck() {
+    try {
+      if (!S.user || !S.plan) return;
+      const heute = todayISO();
+      const sig = (S.user.email || '') + '|' + heute;
+      if (regenGezeigt === sig) return;                      // einmal pro Besuch
+      const d = (S.plan.days || []).find((y) => y.date === heute);
+      if (!d || d.free || d.cancelled) return;
+      if (!(d.komWeg || []).some((n) => /felix/i.test(n))) return;
+      regenGezeigt = sig;
+      setTimeout(() => regenWolke(FELIX_SATZ[(Math.random() * FELIX_SATZ.length) | 0]), 1100);
+    } catch (e) { /* Spielkram darf nie stören */ }
+  }
+
   /* ---------------- Jahreszeiten-Deko: Schnee im Dezember, Feuerwerk zum Jahreswechsel ---------------- */
   const DEKO_K = 'kom27-deko';
   const dekoAn = () => { try { return localStorage.getItem(DEKO_K) !== 'aus'; } catch (e) { return true; } };
@@ -399,6 +437,7 @@
   // Live: Zug des anderen übernehmen
   function sync() {
     jensCheck();
+    felixCheck();
     banner();
     if (!G.offen || G.solo) return;
     const neu = S.game;
@@ -884,5 +923,5 @@
     });
   })();
 
-  window.KOM27Fun = { konfetti, feuerwerk, sync, oeffnen, dekoSaison, dekoAn, dekoStart, dekoToggle, kabel };
+  window.KOM27Fun = { konfetti, feuerwerk, regenWolke, sync, oeffnen, dekoSaison, dekoAn, dekoStart, dekoToggle, kabel };
 })();

@@ -1069,3 +1069,16 @@ body.kiosk-on { overflow: hidden; }
 
 /* „interner Block" aus der KOM27-Excel: derjenige ist an dem Tag nicht da */
 .komweg { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+
+/* Kleine Regenwolke, wenn Felix nicht da ist */
+.fx-regen { position: fixed; top: 76px; left: 50%; z-index: 9997; pointer-events: none;
+  animation: fxWolkeRein 1s cubic-bezier(.2, .8, .3, 1) both, fxWolkeWeg .9s ease-in 8.4s both; }
+.fx-regen svg { display: block; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .25)); animation: fxWiegen 4.2s ease-in-out 1s infinite; }
+.fx-regen i { position: absolute; top: 58px; left: var(--x); width: 3px; height: 11px; border-radius: 2px;
+  background: linear-gradient(#9fb6cc, #6f8296); opacity: 0; animation: fxTropfen 1.5s linear var(--d) infinite; }
+@keyframes fxWolkeRein { from { opacity: 0; transform: translate(-50%, -26px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes fxWolkeWeg { to { opacity: 0; transform: translate(-50%, 14px); } }
+@keyframes fxWiegen { 0%, 100% { transform: translateX(-5px); } 50% { transform: translateX(5px); } }
+@keyframes fxTropfen { 0% { opacity: 0; transform: translateY(0) scaleY(.6); } 12% { opacity: .85; }
+  80% { opacity: .65; } 100% { opacity: 0; transform: translateY(120px) scaleY(1.25); } }
+@media (prefers-reduced-motion: reduce) { .fx-regen { display: none; } }

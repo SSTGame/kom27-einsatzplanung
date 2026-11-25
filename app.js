@@ -1135,7 +1135,7 @@ function masterOverview(today) {
   const c1 = tod.length
     ? `<button class="ov ov-today" data-jump="${today}"><span class="ov-l">Heute im Haus</span>
         <div class="ov-ppl">${tod.map((s) => { const n = tn(s); const st = slotState(s); return `<span class="ov-p st-${st}"><b>${n ? esc(n) : 'unbesetzt'}</b><small>${esc(short(s.zeit))}</small></span>`; }).join('')}</div>
-        <small class="ov-sub">${esc(roomsOf(tod[0].day.info) || 'KOM27')}</small></button>`
+        <small class="ov-sub">${esc([...new Set(tod.flatMap((s) => slotRoomsTxt(s).split(', ')))].filter(Boolean).join(', ') || 'KOM27')}</small></button>`
     : `<button class="ov ov-today" ${nextD ? `data-jump="${nextD}"` : ''}><span class="ov-l">Heute im Haus</span><b class="ov-n ov-quiet">Kein Einsatz</b><small class="ov-sub">${nextD ? 'Nächster: ' + esc(fmtDate(nextD)) + ' · ' + untilTxt(nextD) : 'Keine weiteren Termine'}</small></button>`;
   // 2) Nächste 7 Tage
   const wk = sl.filter((s) => s.date >= today && s.date <= addDays(today, 6));
@@ -1224,14 +1224,15 @@ function renderPlan() {
       const lbl = (g.slots.map((s) => s.label).find((l) => /aufbau|abbau/i.test(l)) || '').match(/aufbau|abbau/i);
       const gd = s0.group ? gDays[s0.group] : null;
       const tag = gd ? `<span class="tag">Tag ${gd.indexOf(d.date) + 1}/${gd.length}</span>` : '';
-      const room = roomsOf(d.info);
+      const room = s0.key ? slotRoomsTxt(s0) : roomsOf(d.info);
+      const infoTxt = s0.key && slotRooms(s0).length ? slotRooms(s0).map((r) => (r[0] ? r[0] + ': ' : '') + String(r[1] || '').replace(/\n/g, ' ')).join(' · ') : d.info;
       html += `<div ${gi === 0 ? `id="d-${d.date}"` : ''} class="row ${d.date < today ? 'past' : ''} ${d.date === today ? 'today' : ''} ${d.cancelled ? 'cancel' : ''} ${g.none ? 'none' : ''} ${g.leer ? 'leer' : ''} ${d.free ? 'frei' : ''}">
         <div class="c-date">${gi === 0 ? `<b>${fmtDate(d.date).slice(0, 2)}</b> ${fmtDate(d.date).slice(3)}` : ''}</div>
         <div class="c-va ${s0.color ? 'c-' + s0.color : ''}">
           <div class="va-id">${g.leer ? (d.free ? '<span class="muted">frei</span>' : d.haus ? '<span class="muted" title="Grün in „Service Haus 1“ – die Medientechnik KOM27 betreut an dem Tag eine Veranstaltung">Veranstaltung</span>' : '<span class="muted">keine Veranstaltung</span>') : esc(g.k)}${(() => { const al = [...new Set(g.slots.flatMap((s) => s.also || []))]; return al.length ? ` <span class="also" title="parallele Veranstaltung, gleicher Einsatz">+ ${esc(al.join(' + '))}</span>` : ''; })()} ${tag} ${lbl ? `<span class="tag">${esc(lbl[0][0].toUpperCase() + lbl[0].slice(1).toLowerCase())}</span>` : ''} ${d.cancelled ? '<span class="tag red">abgesagt</span>' : ''}<button class="rm" data-rmday="${d.date}" title="Ganzen Tag aus der Planung entfernen" aria-label="Tag entfernen">🗑</button></div>
           <div class="va-sub">${[d.vazeit ? 'VA ' + esc(d.vazeit) : '', esc(room), d.kom && d.kom.length && gi === 0 && !g.none ? '🏢 ' + esc(d.kom.join(', ')) : '', gi === 0 && komWegTxt(d) ? '🚫 ' + esc(komWegTxt(d)) : ''].filter(Boolean).join(' · ')}
             ${gi === 0 ? betreuungTag(d) : ''}
-            ${d.info && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(d.info)}</div></details>` : ''}</div>
+            ${infoTxt && gi === 0 ? `<details class="more"><summary>Details</summary><div>${esc(infoTxt)}</div></details>` : ''}</div>
         </div>
         <div class="c-slots">${g.none ? (d.kom && d.kom.length
           ? `<span class="komonly" title="So steht es in der KOM27-Excel">🏢 ${esc(d.kom.join(', '))}<small>ohne PAM</small></span>` + komWegChip(d)
@@ -2205,7 +2206,7 @@ const alarmsOf = (s) => (S.alarms || []).filter((a) => a.scope === doneScope(s))
 const hhmm = (t) => { const m = String(t || '').match(/(\d{1,2})[.:](\d{2})/); return m ? String(+m[1]).padStart(2, '0') + ':' + m[2] : ''; };
 // Recording im Excel-Text: Zeit raussuchen, sonst Veranstaltungsbeginn
 function recordingHints(s) {
-  const det = s.det || {}; const txt = [(det.rooms || []).map((r) => r.join(': ')).join(' · '), s.day && s.day.info, det.hinweis, det.ablauf].filter(Boolean).join(' · ');
+  const det = s.det || {}; const txt = [slotRooms(s).map((r) => r.join(': ')).join(' · '), s.day && s.day.info, det.hinweis, det.ablauf].filter(Boolean).join(' · ');
   const out = [];
   String(txt).split(/\s*·\s*|\n/).forEach((part) => {
     if (!/record|aufzeichn|mitschnitt|stream/i.test(part)) return;
@@ -2350,11 +2351,29 @@ function splitQty(it) {
   if (note) { note.sub = note.sub || null; items.push(note); }
   return items.map((x) => Object.assign(x, { t: x.t.replace(/[\s,]+$/, '') }));
 }
+// Alle Räume eines Einsatzes – auch die der parallelen Veranstaltungen (slot.also)
+function slotRooms(s) {
+  const det = s.det || {};
+  const out = []; const seen = new Set();
+  const push = (r) => { const n = String((r && r[0]) || '').trim(); const k = n.toLowerCase() + '|' + String((r && r[1]) || '').slice(0, 40); if (!r || seen.has(k)) return; seen.add(k); out.push([n, r[1] || '']); };
+  (det.rooms || []).forEach(push);
+  const vd = ((s.day || allDays().find((d) => d.date === s.date) || {}).vaDet) || {};
+  const n0 = out.length;
+  (s.also || []).forEach((va) => ((vd[va] || {}).rooms || []).forEach(push));
+  // kamen Räume aus parallelen VAs dazu, sortieren wir Säle vor Seminare vor Rest
+  if (out.length > n0) { const rk = (r) => (/^saal/i.test(r) ? 0 : /^seminar/i.test(r) ? 1 : /foyer/i.test(r) ? 2 : 3); out.sort((x, y) => rk(x[0]) - rk(y[0]) || String(x[0]).localeCompare(String(y[0]), 'de', { numeric: true })); }
+  if (out.length) return out;
+  const dy = s.day || allDays().find((d) => d.date === s.date);
+  if (dy && dy.info) return dy.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; });
+  return [];
+}
+// Raumnamen eines Einsatzes als Text, z. B. „Saal 1, Saal 2, Seminar 1“
+const slotRoomsTxt = (s) => [...new Set(slotRooms(s).map((r) => String(r[0] || '').trim()).filter(Boolean))].join(', ');
 // Aufbauliste: Excel-Punkte + eigene Ergänzungen, ohne entfernte Punkte (gilt für alle)
 function equipModel(s) {
   const det = s.det || {};
-  let rooms = det.rooms && det.rooms.length ? det.rooms : null;
-  if (!rooms && s.day && s.day.info) rooms = s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; });
+  let rooms = slotRooms(s);
+  if (!rooms.length) rooms = null;
   const ed = (S.edits || {})[s.key] || { removed: [], added: [] };
   const rm = new Set(ed.removed || []);
   const groups = (rooms || []).map(([room, text]) => ({ room: room || '', items: equipItems(text).map((it) => Object.assign({}, it, { id: (room || '') + '|' + it.t, src: 'xl' })) }));
@@ -2673,7 +2692,7 @@ function renderManager(team, me) {
   const sig = (a) => (a.tech_reply === 'kann' ? '<span class="sig ok">👍 kann</span>' : a.tech_reply === 'kann_nicht' ? '<span class="sig no">✗ kann nicht</span>' : '<span class="sig">– noch keine Meldung</span>');
   const card = (g) => `<article class="job-card" data-mg="${esc(g.k)}">
       <div class="jc-head"><span class="jc-who">👤 ${esc(g.t ? g.t.name : '?')}</span>${g.slots.length > 1 ? `<span class="jc-badge">${g.slots.length} Tage</span>` : ''}</div>
-      <div class="jc-where">${esc(g.va || 'Einsatz')} · KOM27 Mauerstraße${roomsOf(g.slots[0].day.info) ? ' · ' + esc(roomsOf(g.slots[0].day.info)) : ''}</div>
+      <div class="jc-where">${esc(g.va || 'Einsatz')} · KOM27 Mauerstraße${slotRoomsTxt(g.slots[0]) ? ' · ' + esc(slotRoomsTxt(g.slots[0])) : ''}</div>
       <div class="jc-days">${g.slots.map((x) => `<div class="jc-day" data-k="${esc(x.key)}">${dateBox(x.date)}<button class="jc-time jc-open" data-open="${esc(x.key)}"><b>${esc(niceTime(x.zeit))}</b><small>${sig(S.asg[x.key])}${S.asg[x.key].tech_reply_note ? ' „' + esc(S.asg[x.key].tech_reply_note) + '“' : ''}${unavOf(g.t.id, x.date) ? ' · ⛔ als „kann nicht“ eingetragen' : ''}</small><span class="jc-more">Details ›</span></button></div>`).join('')}</div>
       <div class="jc-actions"><button class="big yes" data-mok="${esc(g.slots.map((x) => x.key).join(','))}">✓ Zusagen${g.slots.length > 1 ? ' – alle Tage' : ''}</button><button class="big no" data-mno="${esc(g.slots.map((x) => x.key).join(','))}">✗ Absagen</button></div>
     </article>`;
@@ -2755,11 +2774,7 @@ function renderManager(team, me) {
 }
 
 /* ---------------- Heute-Karte für Techniker ---------------- */
-function roomsOfSlot(s) {
-  const det = s.det || {};
-  if (det.rooms && det.rooms.length) return det.rooms;
-  return s.day.info ? s.day.info.split(' · ').map((x) => { const i = x.indexOf(': '); return i > 0 ? [x.slice(0, i), x.slice(i + 2)] : ['', x]; }) : [];
-}
+function roomsOfSlot(s) { return slotRooms(s); }
 // Kein Einsatz heute/morgen: kleine Karte mit dem nächsten zugesagten Termin
 function nextCard(t) {
   const today = todayISO();
@@ -2769,7 +2784,7 @@ function nextCard(t) {
   return `<button class="tnext" data-open="${esc(s.key)}">
     <span class="tn-lbl">Nächster Einsatz · ${esc(untilTxt(s.date))}</span>
     <span class="tn-time">${esc(fmtDate(s.date))} · ${esc(niceTime(s.zeit))}${chgChip(s.key)}</span>
-    <span class="tn-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}</span>
+    <span class="tn-where">📍 ${esc(slotRoomsTxt(s) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}</span>
     <span class="jc-more">Details ›</span>
   </button>`;
 }
@@ -2803,7 +2818,7 @@ function todayCard(t) {
     <div class="td-top"><span class="td-tag">${which === 'heute' ? 'HEUTE' : 'MORGEN'}</span><span class="td-state">${cls === 'tc-live' ? '<i class="pulse"></i>' : ''}${esc(state)}</span></div>
     <div class="td-time">${esc(niceTime(s.zeit))}${chgChip(s.key)}</div>
     ${chgOf(s.key) ? `<div class="td-hint chg">🕑 ${esc(chgOf(s.key).txt)}</div>` : ''}
-    <div class="td-where">📍 ${esc(roomsOf(s.day.info) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}${det.einlass ? ' · Einlass ' + esc(det.einlass) : ''}</div>
+    <div class="td-where">📍 ${esc(slotRoomsTxt(s) || 'KOM27')}${(det.vazeit || s.day.vazeit) ? ' · Veranstaltung ' + esc(det.vazeit || s.day.vazeit) : ''}${det.einlass ? ' · Einlass ' + esc(det.einlass) : ''}</div>
     ${hints.map((i) => `<div class="td-hint">⚠️ ${esc(i.t)}</div>`).join('')}
     <div class="td-people">${kom.length ? `<span>🏢 KOM27: <b>${esc(kom.join(', '))}</b></span>` : ''}${komWegTxt(s.day) ? `<span>🚫 <b>${esc(komWegTxt(s.day))}</b></span>` : ''}${coll.length ? `<span>👥 Mit dir: <b>${esc(coll.map((c) => c.name.split(' ')[0]).join(', '))}</b></span>` : ''}</div>
     <button class="big td-go" data-open="${esc(s.key)}">🛠 Aufbauliste & Details${chkItems.length ? ` <small>${nDone}/${chkItems.length} erledigt</small>` : ''}</button>
@@ -3456,7 +3471,7 @@ function renderTech() {
   const monSl = slotsOfTech(t.id).filter((x) => x.date.startsWith(mon) && S.asg[x.key].status === 'zugesagt' && !x.day.cancelled);
   const monH = monSl.reduce((acc, x) => acc + (actualHours(S.asg[x.key]) ?? planHours(x)), 0);
 
-  const where = (s) => ['KOM27 Mauerstraße', roomsOf(s.day.info), s.day.vazeit ? 'Veranstaltung ' + s.day.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ');
+  const where = (s) => ['KOM27 Mauerstraße', slotRoomsTxt(s), s.day.vazeit ? 'Veranstaltung ' + s.day.vazeit + ' Uhr' : ''].filter(Boolean).map(esc).join(' · ');
   const card = (g) => {
     const multi = g.slots.length > 1; const s0 = g.slots[0];
     return `<article class="job-card" data-g="${esc(g.id)}">
@@ -3476,7 +3491,7 @@ function renderTech() {
       ${multi ? '<p class="jc-einzeln">Du kannst auch nur einzelne Tage zu- oder absagen – tippe dafür auf ✓ oder ✗ neben dem Tag.</p>' : ''}
     </article>`;
   };
-  const line = (s, kind) => `<div class="mini-line${chgOf(s.key) ? ' ist-neu' : ''}">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} ${chgChip(s.key)}<span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${roomsOf(s.day.info) ? ' · ' + esc(roomsOf(s.day.info)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
+  const line = (s, kind) => `<div class="mini-line${chgOf(s.key) ? ' ist-neu' : ''}">${dateBox(s.date)}<button class="ml-txt jc-open" data-open="${esc(s.key)}"><b>${esc(niceTime(s.zeit))} ${chgChip(s.key)}<span class="until">${untilTxt(s.date)}</span></b><small>${esc(s.va || '')}${slotRoomsTxt(s) ? ' · ' + esc(slotRoomsTxt(s)) : ''}${S.asg[s.key].note ? ' · „' + esc(S.asg[s.key].note) + '“' : ''}${kind === 'wait' ? ' · du hast gemeldet: ' + (S.asg[s.key].tech_reply === 'kann' ? '👍 kann' : '✗ kann nicht') : ''}</small><span class="jc-more">Details ›</span></button>
       ${kind === 'wait' ? `<button class="linkbtn" data-resig="${esc(s.key)}">ändern</button>` : boss ? '' : kind === 'yes' ? (S.asg[s.key].tech_reply === 'absage_wunsch' ? `<span class="cw-pend" title="${esc(CFG.senderName)} entscheidet">⏳ Absage beantragt</span>` : `<button class="linkbtn danger" data-cancelreq="${esc(s.key)}">Absage beantragen</button>`) : `<button class="linkbtn" data-change="zugesagt" data-k="${esc(s.key)}">doch zusagen</button>`}</div>`;
 
   const nNew = msgUnread().length;
